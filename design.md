@@ -7,6 +7,11 @@ A modern, web-based port of the **1889: History of Shikoku Railways** 18xx game.
 > agent or contributor can cross-check rules, data, and engine behaviour against the
 > source of truth. When in doubt about a rule, find the matching file under
 > `lib/engine/` in that repository.
+>
+> **1889 rulebook (PDF):**
+> [Official rules](https://drive.google.com/file/d/14NH7j0hhTQDvJKcP2Qa6mC2Blki14Q0-/view) —
+> the authoritative source for 1889's rules and numbers. Cross-check against this PDF and
+> the reference engine's `lib/engine/game/g_1889/` before implementing any mechanic.
 
 ---
 
@@ -106,7 +111,9 @@ scored against revenue centres for the current phase.
 
 ## 3. 1889 game specifics (target scope)
 
-Source of truth: [`lib/engine/game/g_1889/`](https://github.com/tobymao/18xx/tree/master/lib/engine/game/g_1889).
+Source of truth: the
+[1889 rulebook (PDF)](https://drive.google.com/file/d/14NH7j0hhTQDvJKcP2Qa6mC2Blki14Q0-/view)
+and [`lib/engine/game/g_1889/`](https://github.com/tobymao/18xx/tree/master/lib/engine/game/g_1889).
 
 - **Players:** 2–6. **Starting cash:** 420 (2–4p), 390 (5–6p).
 - **Bank:** 7,000. **Certificate limit:** 25 (2p) … 11 (6p).
