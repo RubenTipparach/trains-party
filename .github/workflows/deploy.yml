@@ -15,7 +15,9 @@ concurrency:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Build the SvelteKit client into a static site for GitHub Pages.
+  # Build + verify the SvelteKit client and upload it as the Pages artifact.
+  # This job is independent of Pages setup so it always reports a true code
+  # signal (typecheck + build), even before GitHub Pages is enabled on the repo.
   # ---------------------------------------------------------------------------
   build:
     runs-on: ubuntu-latest
@@ -46,20 +48,16 @@ jobs:
           BUILD_SHA: ${{ github.sha }}
         run: npm run build
 
-      - name: Configure Pages
-        uses: actions/configure-pages@v5
-        with:
-          # Auto-enable Pages (build via Actions) on first run so the job does not
-          # fail before Pages has been turned on in repo settings.
-          enablement: true
-
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: frontend/build
 
   # ---------------------------------------------------------------------------
-  # Publish the uploaded artifact to GitHub Pages.
+  # Publish the artifact to GitHub Pages. The Pages-setup dependency is isolated
+  # here: if Pages is not yet enabled, only this job fails (not the build).
+  # configure-pages with enablement self-enables Pages once the repo token has
+  # the required permission.
   # ---------------------------------------------------------------------------
   deploy:
     needs: build
@@ -68,6 +66,11 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
