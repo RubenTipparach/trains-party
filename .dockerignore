@@ -1,0 +1,14 @@
+# Build context for the server image is the repo root (see CI deploy step).
+# Keep the image small: only server/ sources are needed.
+**/node_modules
+**/dist
+**/build
+**/.svelte-kit
+frontend
+.git
+.github
+**/data
+**/*.sqlite
+**/*.log
+**/.env
+**/.env.*

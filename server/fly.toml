@@ -1,0 +1,33 @@
+# Fly.io configuration for the Trains Party API.
+# Single machine + a persistent volume for SQLite (see CLAUDE.md deploy doctrine).
+# Bootstrap once: `fly apps create trains-party` and
+# `fly volumes create trains_data --size 1 --region ams`.
+
+app = "trains-party"
+primary_region = "ams"
+
+[env]
+  PORT = "8080"
+  DATA_DIR = "/data"
+
+[mounts]
+  source = "trains_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[http_service.checks]]
+  interval = "15s"
+  timeout = "2s"
+  grace_period = "5s"
+  method = "GET"
+  path = "/health"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
