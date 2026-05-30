@@ -6,6 +6,7 @@
   import HexMap from './HexMap.svelte';
   import PrivateChip from './PrivateChip.svelte';
   import MoneyValue from './MoneyValue.svelte';
+  import Treasury from './Treasury.svelte';
 
   const v = $derived(operatingView(game.state));
   const lays = $derived(trackLays(game.state));
@@ -70,9 +71,11 @@
             <span class="order">Order {v.index + 1}/{v.order.length}</span>
           </div>
           <div class="curbody">
-            <div class="stat"><span>Treasury</span><b><MoneyValue value={c.cash} /></b></div>
             <div class="stat"><span>Price</span><b>{priceOf(c) !== null ? `${CURRENCY}${priceOf(c)}` : '-'}</b></div>
-            <div class="stat"><span>Trains</span><b>{c.trains.join(', ') || 'none'}</b></div>
+          </div>
+          <div class="treasurybox">
+            <span class="tboxlabel">Treasury</span>
+            <Treasury corp={c} />
           </div>
 
           <table class="sh">
@@ -221,7 +224,19 @@
   .curbody {
     display: flex;
     gap: 1.4rem;
-    padding: 0.6rem 0.8rem;
+    padding: 0.6rem 0.8rem 0.3rem;
+  }
+  .treasurybox {
+    padding: 0.2rem 0.8rem 0.6rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+  }
+  .tboxlabel {
+    display: block;
+    font-size: 0.66rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin: 0.3rem 0;
   }
   .sh {
     width: 100%;
