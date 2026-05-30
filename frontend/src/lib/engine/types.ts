@@ -135,4 +135,4 @@ export type GameAction =
 export class GameError extends Error {}
 
 export const MIN_BID_INCREMENT = 5;
-export const RULES_VERSION = '1889-0';
+export const RULES_VERSION = '1889-0.4';

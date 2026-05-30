@@ -82,7 +82,9 @@ class Sandbox {
       const raw = localStorage.getItem(SAVE_KEY);
       if (!raw) return;
       const data = JSON.parse(raw);
-      if (data?.v !== RULES_VERSION || !data.state) return; // discard incompatible saves
+      // Discard saves from an incompatible engine (version pin) or missing the
+      // current state shape.
+      if (data?.v !== RULES_VERSION || !data.state || !data.state.depot || !data.state.tiles) return;
       this.seats = data.seats;
       this.state = data.state;
       this.error = null;
