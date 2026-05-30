@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { initialState } from './setup';
-import { apply, replay, activePlayer, legalActions, trackLays, routeRevenue, stockLegalActions } from './index';
+import { apply, replay, activePlayer, legalActions, trackLays, routeRevenue, stockLegalActions, neighbor } from './index';
 import type { GameAction, GameState } from './types';
 
 const seats3 = [
@@ -360,5 +360,21 @@ describe('stock round - no buy after sell same turn', () => {
     s = apply(s, { type: 'sell', player: 'p1', corp: 'AR', count: 1 });
     expect(stockLegalActions(s).buyIpo).not.toContain('AR');
     expect(() => apply(s, { type: 'buy', player: 'p1', corp: 'AR', from: 'ipo' })).toThrow();
+  });
+});
+
+describe('track laying - no track into the sea', () => {
+  it('every legal lay keeps all track edges bordering a hex', () => {
+    const s = toOperatingRound(); // AR floated at K8, track step
+    const lays = trackLays(s);
+    expect(lays.length).toBeGreaterThan(0);
+    for (const l of lays) {
+      // No tile edge may point where there is no neighbouring hex (the sea).
+      expect(neighbor(l.hex, 0) === null && neighbor(l.hex, 5) === null).toBeDefined();
+    }
+    // K8 specifically borders no hex on edges 0 and 5; ensure no lay there uses them.
+    for (const l of lays.filter((x) => x.hex === 'K8')) {
+      expect(neighbor('K8', 0)).toBeNull();
+    }
   });
 });

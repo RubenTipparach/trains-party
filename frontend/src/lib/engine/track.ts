@@ -116,6 +116,10 @@ export function legalLays(s: GameState, corp: CorporationState): TileLay[] {
       for (let r = 0; r < 6; r++) {
         const rp = rotatePaths(TILES[tile], r);
         const tileEdges = [...edgesTouched(rp)];
+        // No track may point into the sea: every tile edge must border a hex.
+        if (tileEdges.some((e) => neighbor(hex, e) === null)) continue;
+        // The lay must connect to this corporation's network (its tokened
+        // cities and the track already linked to them).
         let ok = onToken;
         if (!ok) {
           for (const e of tileEdges) {

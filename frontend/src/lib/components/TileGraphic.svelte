@@ -2,7 +2,7 @@
   import { TILES } from '$lib/engine';
   import type { TileColor } from '$lib/data/types';
 
-  let { id, count }: { id: string; count?: number } = $props();
+  let { id, count, bare = false }: { id: string; count?: number; bare?: boolean } = $props();
   const def = $derived(TILES[id]);
 
   const R = 28;
@@ -55,7 +55,9 @@
     {#if def.label}<text class="label" x="15" y="-15" text-anchor="middle">{def.label}</text>{/if}
     {#if def.port}<text class="port" x="0" y="3" text-anchor="middle">⚓</text>{/if}
   </svg>
-  <div class="cap"><span class="tid">#{id}</span>{#if count}<span class="tn">×{count}</span>{/if}</div>
+  {#if !bare}
+    <div class="cap"><span class="tid">#{id}</span>{#if count}<span class="tn">×{count}</span>{/if}</div>
+  {/if}
 </div>
 
 <style>

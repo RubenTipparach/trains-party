@@ -579,6 +579,29 @@
         </g>
       {/if}
 
+      {#if layMode && layHex}
+        {@const lc = hexCenter(layHex)}
+        {#if preview}
+          {#key preview.tile}
+            <g class="previewtile" transform="translate({lc.x} {lc.y})">
+              <g class="previewspin" style="transform: rotate({preview.rotations[preview.idx] * 60}deg)">
+                <polygon points={poly} fill="#f3cf3e" stroke="#15252f" stroke-width="3" />
+                <g clip-path="url(#hexclip)">
+                  {#each tilePaths(preview.tile, 0) as p}
+                    <path d={pathD(p)} class="ties" />
+                    <path d={pathD(p)} class="rail" />
+                  {/each}
+                </g>
+              </g>
+            </g>
+          {/key}
+        {:else}
+          <g transform="translate({lc.x} {lc.y})">
+            <polygon points={poly} class="laysel" />
+          </g>
+        {/if}
+      {/if}
+
       {#if train && train.pts[train.at]}
         <g class="train" transform="translate({train.pts[train.at].x} {train.pts[train.at].y})">
           <rect x="-11" y="-7" width="22" height="14" rx="3" fill="#1b1b1b" stroke="#f5c542" stroke-width="1.5" />
@@ -651,7 +674,7 @@
           onclick={() => pickTile(tile)}
           title="Tile {tile}"
         >
-          <TileGraphic id={tile} />
+          <TileGraphic id={tile} bare />
         </button>
       {/each}
       <button class="fancancel" onclick={cancelLay} title="Cancel">×</button>
@@ -748,6 +771,23 @@
     stroke: var(--rail, #f5c542);
     stroke-width: 3;
     pointer-events: none;
+  }
+  .previewtile {
+    pointer-events: none;
+    filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.4));
+    animation: tiledrop 0.32s cubic-bezier(0.34, 1.4, 0.5, 1);
+  }
+  .previewspin {
+    transform-origin: 0 0;
+    transition: transform 0.28s cubic-bezier(0.34, 1.3, 0.5, 1);
+  }
+  @keyframes tiledrop {
+    0% {
+      opacity: 0.2;
+    }
+    100% {
+      opacity: 1;
+    }
   }
   .fan,
   .layctl {
@@ -948,50 +988,5 @@
   .tip strong {
     color: var(--rail, #f5c542);
     font-family: ui-monospace, monospace;
-  }
-  .chooser {
-    position: absolute;
-    top: 8px;
-    left: 50%;
-    transform: translateX(-50%);
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    background: rgba(17, 32, 44, 0.95);
-    border: 1px solid var(--rail-deep, #c9971f);
-    border-radius: 10px;
-    padding: 0.4rem 0.6rem;
-    z-index: 12;
-    max-width: 90%;
-  }
-  .chooser .cl {
-    font: 600 0.78rem ui-sans-serif, sans-serif;
-    color: #fff;
-    white-space: nowrap;
-  }
-  .copts {
-    display: flex;
-    gap: 0.3rem;
-    overflow-x: auto;
-  }
-  .copts button {
-    width: 46px;
-    flex: none;
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: 6px;
-    cursor: pointer;
-    padding: 1px;
-  }
-  .copts button:hover {
-    border-color: var(--rail, #f5c542);
-  }
-  .ccancel {
-    background: none;
-    border: none;
-    color: var(--muted, #9fb0c0);
-    font-size: 1.1rem;
-    cursor: pointer;
-    line-height: 1;
   }
 </style>
