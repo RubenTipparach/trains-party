@@ -1,8 +1,8 @@
 <script lang="ts">
   import { game } from '$lib/game/sandbox.svelte';
-  import { stockLegalActions } from '$lib/engine';
   import AuctionPanel from './AuctionPanel.svelte';
-  import { PHASES, PAR_PRICES, MARKET, CURRENCY } from '$lib/data/g1889';
+  import StockPanel from './StockPanel.svelte';
+  import { PHASES, CURRENCY } from '$lib/data/g1889';
 
   const SEAT = ['#f5c542', '#3fb6a8', '#e0655c', '#9b8cf0', '#7cc36b', '#e8923a'];
   const seatColor = (id: string) => {
@@ -20,15 +20,6 @@
         : 'Operating Round'
   );
   const orCount = $derived(PHASES.find((p) => p.name === game.state.phase)?.operatingRounds ?? 1);
-
-  // par price chosen per corporation (UI helper)
-  let parPrice = $state(100);
-
-  function price(sym: string): number {
-    const c = game.state.corporations.find((x) => x.sym === sym)!;
-    if (c.priceRow === null || c.priceCol === null) return c.parPrice ?? 0;
-    return MARKET[c.priceRow][c.priceCol].price;
-  }
 </script>
 
 <div class="game">
@@ -59,41 +50,12 @@
   <!-- actions -->
   {#if game.state.round === 'auction'}
     <AuctionPanel />
-    <div class="actions"><button class="reset" onclick={() => game.reset()}>Reset game</button></div>
+  {:else if game.state.round === 'stock'}
+    <StockPanel />
   {:else}
-    <div class="actions">
-    {#if game.state.round === 'stock'}
-      {@const sl = stockLegalActions(game.state)}
-      <div class="par-row">
-        <label>Par
-          <select bind:value={parPrice}>
-            {#each PAR_PRICES as p}<option value={p}>{CURRENCY}{p}</option>{/each}
-          </select>
-        </label>
-        {#each sl.par as sym}
-          <button onclick={() => game.act({ type: 'par', player: sl.player, corp: sym, price: parPrice })}>{sym}</button>
-        {/each}
-      </div>
-      {#each sl.buyIpo as sym}
-        <button onclick={() => game.act({ type: 'buy', player: sl.player, corp: sym, from: 'ipo' })}>
-          Buy {sym} IPO ({CURRENCY}{price(sym)})
-        </button>
-      {/each}
-      {#each sl.buyPool as sym}
-        <button class="ghost" onclick={() => game.act({ type: 'buy', player: sl.player, corp: sym, from: 'pool' })}>
-          Buy {sym} pool ({CURRENCY}{price(sym)})
-        </button>
-      {/each}
-      {#each sl.sell as sym}
-        <button class="ghost" onclick={() => game.act({ type: 'sell', player: sl.player, corp: sym, count: 1 })}>Sell {sym}</button>
-      {/each}
-      <button class="pass" onclick={() => game.act({ type: 'pass', player: sl.player })}>Pass</button>
-    {:else}
-      <p class="muted">Operating round actions arrive in Stage 3.</p>
-    {/if}
-    <button class="reset" onclick={() => game.reset()}>Reset game</button>
-    </div>
+    <p class="muted">Operating round actions arrive in Stage 3.</p>
   {/if}
+  <div class="actions"><button class="reset" onclick={() => game.reset()}>Reset game</button></div>
 
   <!-- log -->
   <div class="log">
@@ -195,38 +157,11 @@
     font: 600 0.85rem ui-sans-serif, sans-serif;
     cursor: pointer;
   }
-  .actions button.ghost {
-    background: transparent;
-    color: var(--ink);
-    border-color: var(--line);
-  }
-  .actions button.pass {
-    background: transparent;
-    color: var(--muted);
-    border-color: var(--line);
-  }
   .actions button.reset {
     margin-left: auto;
     background: transparent;
     color: var(--muted);
     border-color: var(--line);
-  }
-  .par-row {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    flex-wrap: wrap;
-  }
-  .par-row label {
-    font-size: 0.85rem;
-    color: var(--muted);
-  }
-  .par-row select {
-    background: var(--bg-soft);
-    color: var(--ink);
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    padding: 0.3rem;
   }
   .muted {
     color: var(--muted);

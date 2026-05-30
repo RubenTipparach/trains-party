@@ -221,7 +221,7 @@
     </div>
   {/key}
 
-  <footer>Static reference. No rules logic yet.</footer>
+  <footer>1889 · auction and stock round playable. Operating round is next.</footer>
 </main>
 
 <style>
