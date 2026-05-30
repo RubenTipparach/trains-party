@@ -31,6 +31,12 @@
   // The OR set that follows the current stock round is "OR <srCount>"; while
   // operating, use the live orSet. (orSet only updates when the OR starts.)
   const orSetNum = $derived(game.state.round === 'operating' ? game.state.orSet : game.state.srCount);
+
+  // Newest-first log lines, keyed by their absolute index in the full log so the
+  // {#each} key is guaranteed unique and stable across renders.
+  const logLines = $derived(
+    game.state.log.map((line, idx) => ({ line, idx })).slice(-40).reverse()
+  );
 </script>
 
 <div class="game">
@@ -98,8 +104,8 @@
   <div class="log">
     <h3>Log</h3>
     <ul>
-      {#each [...game.state.log].slice(-40).reverse() as line, i (game.state.log.length - i)}
-        <li>{line}</li>
+      {#each logLines as entry (entry.idx)}
+        <li>{entry.line}</li>
       {/each}
     </ul>
   </div>
