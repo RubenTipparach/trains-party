@@ -51,7 +51,9 @@ export function startOperatingRound(s: GameState, orNumber = 1): void {
     .sort((a, b) => priceOf(b) - priceOf(a) || a.sym.localeCompare(b.sym))
     .map((c) => c.sym);
 
-  if (orNumber === 1) s.orSet += 1; // a new OR set is starting
+  // The OR set that follows stock round N is "OR N", so keep them aligned
+  // (independent counting drifts when an empty OR set is skipped early on).
+  if (orNumber === 1) s.orSet = s.srCount;
   if (order.length === 0) {
     finishOperatingSet(s);
     return;

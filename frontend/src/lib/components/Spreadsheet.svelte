@@ -58,16 +58,19 @@
 <div class="scroll">
   <table>
     <thead>
-      <tr><th>Corp</th><th>President</th><th>Par</th><th>Price</th><th>Treasury</th><th>IPO</th><th>Pool</th><th>Floated</th></tr>
+      <tr><th>Corp</th><th>President</th><th>Par</th><th>Price</th><th>Cash</th><th>Trains</th><th>Privates</th><th>IPO</th><th>Pool</th><th>Floated</th></tr>
     </thead>
     <tbody>
       {#each game.state.corporations as c}
+        {@const privs = game.state.companies.filter((x) => x.owner === c.sym && !x.closed)}
         <tr>
           <td><span class="dot" style="background:{c.color}"></span>{c.sym}</td>
           <td>{c.president ? (game.state.players.find((p) => p.id === c.president)?.name ?? c.president) : '-'}</td>
           <td>{c.parPrice ? `${CURRENCY}${c.parPrice}` : '-'}</td>
           <td>{price(c.sym) !== null ? `${CURRENCY}${price(c.sym)}` : '-'}</td>
           <td>{CURRENCY}{c.cash}</td>
+          <td>{c.trains.join(', ') || '-'}</td>
+          <td>{privs.map((x) => x.sym).join(', ') || '-'}</td>
           <td>{c.ipoShares}%</td>
           <td>{c.poolShares}%</td>
           <td>{c.floated ? 'yes' : '-'}</td>
