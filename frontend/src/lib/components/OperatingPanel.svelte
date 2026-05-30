@@ -302,13 +302,6 @@
     flex-wrap: wrap;
     padding: 0 0.8rem 0.7rem;
   }
-  .act label {
-    font-size: 0.8rem;
-    color: var(--muted);
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-  }
   .act button {
     padding: 0.45rem 0.85rem;
     border-radius: 8px;

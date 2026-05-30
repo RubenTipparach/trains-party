@@ -28,6 +28,9 @@
         : 'Operating Round'
   );
   const orCount = $derived(PHASES.find((p) => p.name === game.state.phase)?.operatingRounds ?? 1);
+  // The OR set that follows the current stock round is "OR <srCount>"; while
+  // operating, use the live orSet. (orSet only updates when the OR starts.)
+  const orSetNum = $derived(game.state.round === 'operating' ? game.state.orSet : game.state.srCount);
 </script>
 
 <div class="game">
