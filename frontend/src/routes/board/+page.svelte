@@ -28,16 +28,34 @@
   } from '$lib/data/g1889';
   import { TILE_MANIFEST } from '$lib/data/map1889';
   import type { TileColor } from '$lib/data/types';
+  import { anim } from '$lib/game/anim.svelte';
 
-  // Restore a locally-saved game (survives reloads) on the client.
-  onMount(() => game.load());
+  // Restore a locally-saved game and init animation prefs on the client.
+  onMount(() => {
+    game.load();
+    anim.init();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code === 'Space' && !(e.target instanceof HTMLInputElement)) {
+        e.preventDefault();
+        anim.skip();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
 
-  // Auto-play bot turns. Re-runs whenever the active player changes.
+  // Auto-play bot turns with a watchable pause between moves (skippable).
   $effect(() => {
     const a = game.active;
-    if (a && game.isBot(a)) {
-      const t = setTimeout(() => game.botStep(), 650);
-      return () => clearTimeout(t);
+    if (a && game.isBot(a) && !game.reviewing) {
+      let cancelled = false;
+      (async () => {
+        await anim.wait(900);
+        if (!cancelled) game.botStep();
+      })();
+      return () => {
+        cancelled = true;
+      };
     }
   });
 
@@ -72,7 +90,17 @@
 
 <header>
   <a class="back" href="{base}/">← Trains Party</a>
-  <h1>{TITLE} · Shikoku Railways</h1>
+  <div class="htop">
+    <h1>{TITLE} · Shikoku Railways</h1>
+    <div class="animctl">
+      {#if anim.pacing}
+        <button class="skip" onclick={() => anim.skip()}>Skip ⏭ <kbd>Space</kbd></button>
+      {/if}
+      <button class="anitoggle" class:on={anim.enabled} onclick={() => anim.toggle()} title="Toggle animations">
+        Animations {anim.enabled ? 'on' : 'off'}
+      </button>
+    </div>
+  </div>
 </header>
 
 <nav class="topnav" aria-label="Board sections">
@@ -238,6 +266,59 @@
     font-size: clamp(1.4rem, 4vw, 2rem);
     margin: 0.3rem 0 0;
     color: var(--rail);
+  }
+  .htop {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+  .animctl {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .skip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.35rem 0.7rem;
+    border-radius: 999px;
+    border: 1px solid var(--rail-deep);
+    background: var(--rail);
+    color: #1b1b1b;
+    font: 700 0.8rem ui-sans-serif, sans-serif;
+    cursor: pointer;
+    animation: skippulse 1.2s ease-in-out infinite;
+  }
+  @keyframes skippulse {
+    0%,
+    100% {
+      box-shadow: 0 0 0 0 rgba(245, 197, 66, 0.5);
+    }
+    50% {
+      box-shadow: 0 0 0 5px rgba(245, 197, 66, 0);
+    }
+  }
+  .skip kbd {
+    font: 600 0.66rem ui-monospace, monospace;
+    background: rgba(0, 0, 0, 0.18);
+    border-radius: 4px;
+    padding: 0 0.25rem;
+  }
+  .anitoggle {
+    padding: 0.35rem 0.7rem;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: transparent;
+    color: var(--muted);
+    font: 600 0.78rem ui-sans-serif, sans-serif;
+    cursor: pointer;
+  }
+  .anitoggle.on {
+    color: var(--accent);
+    border-color: var(--accent);
   }
   .topnav {
     position: sticky;
