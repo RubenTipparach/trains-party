@@ -3,6 +3,7 @@
   import { stockLegalActions } from '$lib/engine';
   import { COMPANIES, MARKET, PAR_PRICES, CERT_LIMIT, CURRENCY } from '$lib/data/g1889';
   import type { CorporationState, PlayerState } from '$lib/engine';
+  import PrivateChip from './PrivateChip.svelte';
 
   const SEAT = ['#f5c542', '#3fb6a8', '#e0655c', '#9b8cf0', '#7cc36b', '#e8923a'];
   const seatColor = (id: string) => SEAT[game.state.players.findIndex((p) => p.id === id) % SEAT.length];
@@ -53,6 +54,9 @@
   }
   const certLimit = $derived(CERT_LIMIT[game.state.players.length]);
 
+  const privInfo = (sym: string) => COMPANIES.find((c) => c.sym === sym);
+  const privIncome = (p: PlayerState) => p.companies.reduce((n, sym) => n + (privInfo(sym)?.revenue ?? 0), 0);
+
   // shareholder rows for a corporation card
   function holders(c: CorporationState) {
     return game.state.players
@@ -77,6 +81,7 @@
           <div><span>Liquidity</span><b>{CURRENCY}{Math.round(p.cash + sellableValue(p))}</b></div>
           <div><span>Certs</span><b class:over={certs(p) > certLimit}>{certs(p)}/{certLimit}</b></div>
           <div><span>Shares</span><b>{totalShares(p)}</b></div>
+          {#if p.companies.length}<div><span>Pvt income</span><b>{CURRENCY}{privIncome(p)}/OR</b></div>{/if}
         </div>
         <div class="holdings">
           {#each game.state.corporations.filter((c) => held(p, c.sym) > 0) as c (c.sym)}
@@ -84,8 +89,12 @@
               <i></i>{c.sym} {held(p, c.sym)}%{#if c.president === p.id}<sup>P</sup>{/if}
             </span>
           {/each}
-          {#each p.companies as sym (sym)}<span class="hpriv">{sym}</span>{/each}
         </div>
+        {#if p.companies.length}
+          <div class="privs">
+            {#each p.companies as sym (sym)}<PrivateChip {sym} />{/each}
+          </div>
+        {/if}
       </div>
     {/each}
   </div>
@@ -234,12 +243,11 @@
   .hchip sup {
     color: var(--rail);
   }
-  .hpriv {
-    font-size: 0.66rem;
-    color: var(--muted);
-    border: 1px dashed var(--line);
-    border-radius: 999px;
-    padding: 0.02rem 0.35rem;
+  .privs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    margin-top: 0.4rem;
   }
   .paronce {
     display: flex;

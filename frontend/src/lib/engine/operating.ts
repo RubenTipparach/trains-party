@@ -57,6 +57,23 @@ export function startOperatingRound(s: GameState, orNumber = 1): void {
   s.round = 'operating';
   s.or = { order, index: 0, step: 'run', orNumber, orsThisSet: orsForPhase(s) };
   s.log.push(`Operating round ${orNumber} of ${s.or.orsThisSet} begins`);
+  payPrivateIncome(s);
+}
+
+/** Private companies pay their revenue to their owners at the start of each OR. */
+function payPrivateIncome(s: GameState): void {
+  for (const p of s.players) {
+    let income = 0;
+    for (const sym of p.companies) {
+      const co = s.companies.find((c) => c.sym === sym);
+      if (co && !co.closed) income += co.revenue;
+    }
+    if (income > 0) {
+      p.cash += income;
+      s.bank -= income;
+      s.log.push(`${p.name} collects ${income} in private income`);
+    }
+  }
 }
 
 function finishOperatingSet(s: GameState): void {

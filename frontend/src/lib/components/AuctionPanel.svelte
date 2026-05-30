@@ -2,6 +2,7 @@
   import { game } from '$lib/game/sandbox.svelte';
   import { auctionView, maxBidFor } from '$lib/engine';
   import { COMPANIES, CURRENCY } from '$lib/data/g1889';
+  import PrivateChip from './PrivateChip.svelte';
 
   const SEAT = ['#f5c542', '#3fb6a8', '#e0655c', '#9b8cf0', '#7cc36b', '#e8923a'];
   const seatColor = (id: string) => {
@@ -34,9 +35,11 @@
           <div><span>Available</span><b>{CURRENCY}{pl.available}</b></div>
           <div><span>In bids</span><b class="locked">{CURRENCY}{pl.committed}</b></div>
         </div>
-        <div class="holdings">
-          {#each ownedPrivates(pl.id) as sym (sym)}<span class="hpriv">{sym}</span>{/each}
-        </div>
+        {#if ownedPrivates(pl.id).length}
+          <div class="privs">
+            {#each ownedPrivates(pl.id) as sym (sym)}<PrivateChip {sym} />{/each}
+          </div>
+        {/if}
       </div>
     {/each}
   </div>
@@ -163,17 +166,11 @@
   .pm b.locked {
     color: #e6b34a;
   }
-  .holdings {
+  .privs {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.25rem;
-  }
-  .hpriv {
-    font-size: 0.66rem;
-    color: var(--muted);
-    border: 1px dashed var(--line);
-    border-radius: 999px;
-    padding: 0.02rem 0.35rem;
+    gap: 0.3rem;
+    margin-top: 0.3rem;
   }
   .companies {
     display: grid;
