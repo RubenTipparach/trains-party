@@ -48,15 +48,39 @@
 
   {#if game.error}<p class="err">{game.error}</p>{/if}
 
-  <!-- actions -->
-  {#if game.state.round === 'auction'}
-    <AuctionPanel />
-  {:else if game.state.round === 'stock'}
-    <StockPanel />
-  {:else}
-    <OperatingPanel />
+  <!-- history review (left) + undo/redo (right) -->
+  <div class="history">
+    <span class="hlabel">History</span>
+    <div class="hgroup">
+      <button title="To start" disabled={!game.canBack} onclick={() => game.first()}>|&lt;</button>
+      <button title="Back" disabled={!game.canBack} onclick={() => game.back()}>&lt;&lt;</button>
+      <button title="Forward" disabled={!game.canForward} onclick={() => game.forward()}>&gt;&gt;</button>
+      <button title="To latest" disabled={!game.canForward} onclick={() => game.last()}>&gt;|</button>
+      <span class="hpos">{game.cursor}/{game.actions.length}</span>
+    </div>
+    <div class="hgroup right">
+      <button class="undo" disabled={!game.canUndo} onclick={() => game.undo()}>Undo</button>
+      <button class="undo" disabled={!game.canRedo} onclick={() => game.redo()}>Redo</button>
+      <button class="reset" onclick={() => game.reset()}>Reset game</button>
+    </div>
+  </div>
+
+  {#if game.reviewing}
+    <p class="reviewbar">
+      Reviewing an earlier point in the game. <button class="link" onclick={() => game.last()}>Return to latest</button> to act.
+    </p>
   {/if}
-  <div class="actions"><button class="reset" onclick={() => game.reset()}>Reset game</button></div>
+
+  <!-- actions -->
+  <div class:locked={game.reviewing}>
+    {#if game.state.round === 'auction'}
+      <AuctionPanel />
+    {:else if game.state.round === 'stock'}
+      <StockPanel />
+    {:else}
+      <OperatingPanel />
+    {/if}
+  </div>
 
   <!-- log -->
   <div class="log">
@@ -76,6 +100,86 @@
     gap: 0.4rem;
     flex-wrap: wrap;
     margin-bottom: 1rem;
+  }
+  .history {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    padding: 0.5rem 0.7rem;
+    background: var(--bg-soft);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    margin: 0.8rem 0;
+  }
+  .hlabel {
+    font-size: 0.72rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .hgroup {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+  .hgroup.right {
+    margin-left: auto;
+  }
+  .history button {
+    min-width: 34px;
+    min-height: 30px;
+    padding: 0.25rem 0.5rem;
+    border-radius: 7px;
+    border: 1px solid var(--line);
+    background: var(--bg);
+    color: var(--ink);
+    font: 600 0.8rem ui-monospace, monospace;
+    cursor: pointer;
+  }
+  .history button:hover:not(:disabled) {
+    border-color: var(--rail-deep);
+  }
+  .history button:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+  .history button.undo {
+    font-family: ui-sans-serif, sans-serif;
+    color: var(--rail);
+    border-color: var(--rail-deep);
+  }
+  .history button.reset {
+    font-family: ui-sans-serif, sans-serif;
+    color: var(--muted);
+  }
+  .hpos {
+    font: 0.72rem ui-monospace, monospace;
+    color: var(--muted);
+    margin-left: 0.3rem;
+  }
+  .reviewbar {
+    margin: 0 0 0.8rem;
+    padding: 0.4rem 0.7rem;
+    border-radius: 8px;
+    background: rgba(245, 197, 66, 0.1);
+    border: 1px solid var(--rail-deep);
+    color: var(--ink);
+    font-size: 0.82rem;
+  }
+  .link {
+    background: none;
+    border: none;
+    color: var(--rail);
+    text-decoration: underline;
+    cursor: pointer;
+    font: inherit;
+    padding: 0;
+  }
+  .locked {
+    opacity: 0.5;
+    pointer-events: none;
+    filter: grayscale(0.3);
   }
   .track-pill {
     --c: #3fb6a8;

@@ -10,7 +10,6 @@
   const pname = (id: string) => game.state.players.find((p) => p.id === id)?.name ?? id;
 
   const sl = $derived(stockLegalActions(game.state));
-  let parPrice = $state(100);
 
   function priceOf(c: CorporationState): number | null {
     if (c.priceRow === null || c.priceCol === null) return null;
@@ -36,6 +35,8 @@
 
   const privInfo = (sym: string) => COMPANIES.find((c) => c.sym === sym);
   const privIncome = (p: PlayerState) => p.companies.reduce((n, sym) => n + (privInfo(sym)?.revenue ?? 0), 0);
+  const playerName = (id: string) => game.state.players.find((p) => p.id === id)?.name ?? id;
+  const playerCash = (id: string) => game.state.players.find((p) => p.id === id)?.cash ?? 0;
 
   // shareholder rows for a corporation card
   function holders(c: CorporationState) {
@@ -82,9 +83,7 @@
   {#if game.error}<p class="err">{game.error}</p>{/if}
 
   <div class="paronce">
-    <label>Par price
-      <select bind:value={parPrice}>{#each PAR_PRICES as p}<option value={p}>{CURRENCY}{p}</option>{/each}</select>
-    </label>
+    <span class="turnnote">{playerName(sl.player)} to act</span>
     <button class="pass" onclick={() => game.act({ type: 'pass', player: sl.player })}>Pass</button>
   </div>
 
@@ -116,10 +115,22 @@
           </table>
           {#if c.floated}<div class="treasury">Treasury {CURRENCY}{c.cash}</div>{/if}
 
+          {#if sl.par.includes(c.sym)}
+            <div class="parrow">
+              <span class="parlabel">Par at</span>
+              {#each PAR_PRICES as price (price)}
+                <button
+                  class="parbtn"
+                  disabled={playerCash(sl.player) < 2 * price}
+                  onclick={() => game.act({ type: 'par', player: sl.player, corp: c.sym, price })}
+                >
+                  {CURRENCY}{price}
+                </button>
+              {/each}
+            </div>
+          {/if}
+
           <div class="cact">
-            {#if sl.par.includes(c.sym)}
-              <button onclick={() => game.act({ type: 'par', player: sl.player, corp: c.sym, price: parPrice })}>Par {CURRENCY}{parPrice}</button>
-            {/if}
             {#if sl.buyIpo.includes(c.sym)}
               <button onclick={() => game.act({ type: 'buy', player: sl.player, corp: c.sym, from: 'ipo' })}>Buy IPO {CURRENCY}{c.parPrice}</button>
             {/if}
@@ -235,16 +246,34 @@
     gap: 0.8rem;
     margin-bottom: 0.9rem;
   }
-  .paronce label {
+  .turnnote {
     font-size: 0.85rem;
     color: var(--muted);
   }
-  .paronce select {
-    background: var(--bg-soft);
-    color: var(--ink);
-    border: 1px solid var(--line);
+  .parrow {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.3rem;
+    margin-bottom: 0.45rem;
+  }
+  .parlabel {
+    font-size: 0.72rem;
+    color: var(--muted);
+    margin-right: 0.1rem;
+  }
+  .parbtn {
+    padding: 0.25rem 0.5rem;
     border-radius: 6px;
-    padding: 0.3rem;
+    border: 1px solid var(--rail-deep);
+    background: var(--rail);
+    color: #1b1b1b;
+    font: 700 0.74rem ui-sans-serif, sans-serif;
+    cursor: pointer;
+  }
+  .parbtn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
   }
   .corps {
     display: grid;
