@@ -128,6 +128,95 @@ describe('waterfall auction - placement bids and sub-auction', () => {
   });
 });
 
+/** Drive the auction so every private sells, leaving a fresh stock round. */
+function toStockRound(): GameState {
+  const buys: GameAction[] = [
+    { type: 'bid', player: 'p1', company: 'TR', price: 20 },
+    { type: 'bid', player: 'p2', company: 'MF', price: 30 },
+    { type: 'bid', player: 'p3', company: 'ER', price: 40 },
+    { type: 'bid', player: 'p1', company: 'SMR', price: 50 },
+    { type: 'bid', player: 'p2', company: 'DR', price: 60 },
+    { type: 'bid', player: 'p3', company: 'SIR', price: 80 }
+  ];
+  return replay(initialState(seats3), buys);
+}
+
+function shares(s: GameState, id: string, sym: string) {
+  return s.players.find((p) => p.id === id)!.shares[sym] ?? 0;
+}
+function corp(s: GameState, sym: string) {
+  return s.corporations.find((c) => c.sym === sym)!;
+}
+
+describe('stock round - par, float, buy', () => {
+  it('pars a corporation, takes the presidency, and pays 2x par', () => {
+    let s = toStockRound();
+    expect(s.round).toBe('stock');
+    const p1Cash = cash(s, 'p1');
+    s = apply(s, { type: 'par', player: 'p1', corp: 'AR', price: 100 });
+    expect(corp(s, 'AR').president).toBe('p1');
+    expect(corp(s, 'AR').parPrice).toBe(100);
+    expect(shares(s, 'p1', 'AR')).toBe(20);
+    expect(corp(s, 'AR').ipoShares).toBe(80);
+    expect(cash(s, 'p1')).toBe(p1Cash - 200);
+    expect(activePlayer(s)).toBe('p2'); // par ends the turn
+  });
+
+  it('floats with full capitalization once 50% is sold from the IPO', () => {
+    let s = toStockRound();
+    s = apply(s, { type: 'par', player: 'p1', corp: 'AR', price: 100 }); // 20% -> p2
+    s = apply(s, { type: 'buy', player: 'p2', corp: 'AR', from: 'ipo' }); // 30% -> p3
+    s = apply(s, { type: 'buy', player: 'p3', corp: 'AR', from: 'ipo' }); // 40% -> p1
+    expect(corp(s, 'AR').floated).toBe(false);
+    s = apply(s, { type: 'buy', player: 'p1', corp: 'AR', from: 'ipo' }); // 50% -> floats
+    const ar = corp(s, 'AR');
+    expect(ar.floated).toBe(true);
+    expect(ar.cash).toBe(1000); // full cap = 10 x par
+    expect(ar.ipoShares).toBe(50);
+  });
+});
+
+describe('stock round - selling', () => {
+  it('drops the price one step per share and moves shares to the pool', () => {
+    let s = toStockRound();
+    // p1 pars AR at 100 (row 0). To sell, p1 must hold more than the 20% cert.
+    s = apply(s, { type: 'par', player: 'p1', corp: 'AR', price: 100 });
+    s = apply(s, { type: 'pass', player: 'p2' });
+    s = apply(s, { type: 'pass', player: 'p3' });
+    s = apply(s, { type: 'buy', player: 'p1', corp: 'AR', from: 'ipo' }); // p1 now 30%
+    s = apply(s, { type: 'pass', player: 'p2' });
+    s = apply(s, { type: 'pass', player: 'p3' });
+    expect(activePlayer(s)).toBe('p1');
+    const before = corp(s, 'AR').priceRow!;
+    const cashBefore = cash(s, 'p1');
+    s = apply(s, { type: 'sell', player: 'p1', corp: 'AR', count: 1 }); // keep the 20% cert
+    expect(shares(s, 'p1', 'AR')).toBe(20);
+    expect(corp(s, 'AR').president).toBe('p1');
+    expect(corp(s, 'AR').poolShares).toBe(10);
+    expect(corp(s, 'AR').priceRow).toBe(before + 1); // one step down
+    expect(cash(s, 'p1')).toBe(cashBefore + 100); // sold at 100
+  });
+
+  it('refuses to split the 20% president certificate', () => {
+    let s = toStockRound();
+    s = apply(s, { type: 'par', player: 'p1', corp: 'AR', price: 100 }); // p1 holds only 20%
+    s = apply(s, { type: 'pass', player: 'p2' });
+    s = apply(s, { type: 'pass', player: 'p3' });
+    expect(() => apply(s, { type: 'sell', player: 'p1', corp: 'AR', count: 1 })).toThrow();
+  });
+});
+
+describe('stock round - ends on a full lap of passes', () => {
+  it('transitions to the operating round', () => {
+    let s = toStockRound();
+    s = apply(s, { type: 'pass', player: 'p1' });
+    s = apply(s, { type: 'pass', player: 'p2' });
+    s = apply(s, { type: 'pass', player: 'p3' });
+    expect(s.round).toBe('operating');
+    expect(s.stock).toBeNull();
+  });
+});
+
 describe('determinism', () => {
   it('replays to an identical state', () => {
     const actions: GameAction[] = [

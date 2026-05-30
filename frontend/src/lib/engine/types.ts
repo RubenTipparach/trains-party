@@ -13,6 +13,8 @@ export interface PlayerState {
   cash: number;
   /** Private company syms owned. */
   companies: string[];
+  /** Percent held per corporation sym (includes the president's 20%). */
+  shares: Record<string, number>;
   /** Passed in the current pass-around (auction / stock round). */
   passed: boolean;
 }
@@ -41,6 +43,9 @@ export interface CorporationState {
   poolShares: number;
   president: string | null;
   parPrice: number | null;
+  /** Share-price token position in the market grid (null until pared). */
+  priceRow: number | null;
+  priceCol: number | null;
 }
 
 export interface Bid {
@@ -59,6 +64,15 @@ export interface AuctionState {
   cheapest: string;
 }
 
+export interface StockState {
+  /** The active player has sold or bought during this turn. */
+  acted: boolean;
+  /** The active player has used their one purchase this turn. */
+  bought: boolean;
+  /** Consecutive pure passes; the round ends at one full lap of passes. */
+  passes: number;
+}
+
 export interface GameState {
   rulesVersion: string;
   /** Number of actions applied. */
@@ -74,12 +88,16 @@ export interface GameState {
   companies: CompanyState[];
   corporations: CorporationState[];
   auction: AuctionState | null;
+  stock: StockState | null;
   log: string[];
   finished: boolean;
 }
 
 export type GameAction =
   | { type: 'bid'; player: string; company: string; price: number }
+  | { type: 'par'; player: string; corp: string; price: number }
+  | { type: 'buy'; player: string; corp: string; from: 'ipo' | 'pool' }
+  | { type: 'sell'; player: string; corp: string; count: number }
   | { type: 'pass'; player: string };
 
 /** Raised when an action is illegal for the current state. */

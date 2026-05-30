@@ -15,7 +15,7 @@ export function initialState(seats: Seat[], rulesVersion: string = RULES_VERSION
   const cash = STARTING_CASH[n];
   if (!cash) throw new GameError(`unsupported player count: ${n}`);
 
-  const players = seats.map((s) => ({ id: s.id, name: s.name, cash, companies: [], passed: false }));
+  const players = seats.map((s) => ({ id: s.id, name: s.name, cash, companies: [], shares: {}, passed: false }));
 
   // Private companies in play: filter by minPlayers (UTF needs 4+), and in a
   // 2-player game South Iyo Railway (SIR) is removed.
@@ -35,7 +35,9 @@ export function initialState(seats: Seat[], rulesVersion: string = RULES_VERSION
     ipoShares: 100,
     poolShares: 0,
     president: null,
-    parPrice: null
+    parPrice: null,
+    priceRow: null,
+    priceCol: null
   }));
 
   return {
@@ -50,6 +52,7 @@ export function initialState(seats: Seat[], rulesVersion: string = RULES_VERSION
     companies,
     corporations,
     auction: { available, bids: {}, auctioning: null, cheapest: available[0] },
+    stock: null,
     log: [`Initial auction begins with ${available.length} private companies`],
     finished: false
   };

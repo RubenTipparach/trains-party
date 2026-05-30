@@ -13,11 +13,13 @@
 
 import { GameError, type GameAction, type GameState } from './types';
 import { applyAuction, auctionActivePlayer, minBid } from './auction';
+import { applyStock } from './stock';
 
 export { initialState } from './setup';
 export type { Seat } from './setup';
 export * from './types';
 export { minBid, auctionActivePlayer } from './auction';
+export { stockLegalActions } from './stock';
 
 /** Apply one action, returning the next state. Pure: the input is not mutated. */
 export function apply(state: GameState, action: GameAction): GameState {
@@ -26,6 +28,9 @@ export function apply(state: GameState, action: GameAction): GameState {
   switch (s.round) {
     case 'auction':
       applyAuction(s, action);
+      break;
+    case 'stock':
+      applyStock(s, action);
       break;
     default:
       throw new GameError(`round '${s.round}' is not implemented yet`);
@@ -43,6 +48,7 @@ export function replay(initial: GameState, actions: readonly GameAction[]): Game
 export function activePlayer(state: GameState): string | null {
   if (state.finished) return null;
   if (state.round === 'auction') return auctionActivePlayer(state);
+  if (state.round === 'stock' && state.stock) return state.players[state.current].id;
   return null;
 }
 
