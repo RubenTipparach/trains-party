@@ -5,6 +5,8 @@
   import StockMarket from '$lib/components/StockMarket.svelte';
   import CorporationCard from '$lib/components/CorporationCard.svelte';
   import CompanyCard from '$lib/components/CompanyCard.svelte';
+  import GamePanel from '$lib/components/GamePanel.svelte';
+  import Spreadsheet from '$lib/components/Spreadsheet.svelte';
   import {
     CORPORATIONS,
     COMPANIES,
@@ -26,14 +28,16 @@
 
   // 18xx-style top navigation. Sections we can populate read-only at this stage.
   const tabs = [
+    { id: 'game', label: 'Game' },
     { id: 'map', label: 'Map' },
     { id: 'market', label: 'Market' },
     { id: 'info', label: 'Info' },
     { id: 'entities', label: 'Entities' },
-    { id: 'tiles', label: 'Tiles' }
+    { id: 'tiles', label: 'Tiles' },
+    { id: 'spreadsheet', label: 'Spreadsheet' }
   ] as const;
   type TabId = (typeof tabs)[number]['id'];
-  let active = $state<TabId>('map');
+  let active = $state<TabId>('game');
 
   function onKey(e: KeyboardEvent, i: number) {
     if (e.key === 'ArrowRight') active = tabs[(i + 1) % tabs.length].id;
@@ -80,7 +84,12 @@
 <main in:fade={{ duration: 200 }}>
   {#key active}
     <div class="panel" role="tabpanel" id="panel-{active}" aria-labelledby="tab-{active}" in:fly={{ y: 10, duration: 200 }}>
-      {#if active === 'map'}
+      {#if active === 'game'}
+        <GamePanel />
+      {:else if active === 'spreadsheet'}
+        <h2>Spreadsheet</h2>
+        <Spreadsheet />
+      {:else if active === 'map'}
         <HexMap />
 
       {:else if active === 'market'}
