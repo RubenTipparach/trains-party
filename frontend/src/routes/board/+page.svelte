@@ -9,7 +9,11 @@
   import GamePanel from '$lib/components/GamePanel.svelte';
   import Spreadsheet from '$lib/components/Spreadsheet.svelte';
   import TileGraphic from '$lib/components/TileGraphic.svelte';
+  import PrivateChip from '$lib/components/PrivateChip.svelte';
   import { game } from '$lib/game/sandbox.svelte';
+  import { playerValue, playerLiquidity } from '$lib/engine';
+
+  const SEAT = ['#f5c542', '#3fb6a8', '#e0655c', '#9b8cf0', '#7cc36b', '#e8923a'];
   import {
     CORPORATIONS,
     COMPANIES,
@@ -221,6 +225,32 @@
           </table>
         </section>
       {:else if active === 'entities'}
+        <section>
+          <h2>Players <span class="count">{game.state.players.length}</span></h2>
+          <div class="cards">
+            {#each game.state.players as pl, i (pl.id)}
+              <div class="pent" style="--p:{SEAT[i % SEAT.length]}">
+                <div class="pehead">
+                  <span class="pename">{pl.name}{#if game.isBot(pl.id)}<span class="pebot">BOT</span>{/if}</span>
+                  <span class="pecash">{CURRENCY}{pl.cash}</span>
+                </div>
+                <div class="pemetrics">
+                  <span>Value {CURRENCY}{playerValue(game.state, pl.id)}</span>
+                  <span>Liquidity {CURRENCY}{playerLiquidity(game.state, pl.id)}</span>
+                </div>
+                <div class="peholds">
+                  {#each game.state.corporations.filter((c) => (pl.shares[c.sym] ?? 0) > 0) as c (c.sym)}
+                    <span class="peshare" style="--c:{c.color}"><i></i>{c.sym} {pl.shares[c.sym]}%{#if c.president === pl.id}<sup>P</sup>{/if}</span>
+                  {/each}
+                  {#each pl.companies as sym (sym)}<PrivateChip {sym} />{/each}
+                  {#if game.state.corporations.every((c) => (pl.shares[c.sym] ?? 0) === 0) && pl.companies.length === 0}
+                    <span class="penone">no holdings yet</span>
+                  {/if}
+                </div>
+              </div>
+            {/each}
+          </div>
+        </section>
         <section>
           <h2>Corporations <span class="count">{CORPORATIONS.length}</span></h2>
           <div class="cards">
