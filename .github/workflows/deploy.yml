@@ -41,6 +41,9 @@ jobs:
       - name: Typecheck
         run: npm run check
 
+      - name: Test (engine)
+        run: npm test
+
       - name: Build
         env:
           # Project Pages serve from /<repo>/. Override if using a custom domain.

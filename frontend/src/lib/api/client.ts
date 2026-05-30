@@ -9,7 +9,10 @@
  * arrive with the multiplayer stage.
  */
 
-import type { GameAction, Sequence } from '$lib/engine';
+import type { GameAction } from '$lib/engine';
+
+/** Monotonic action index identifying a snapshot. */
+export type Sequence = number;
 
 /** Base URL of the Fly.io API. Configure per environment in a later stage. */
 export const API_BASE = '';
