@@ -8,6 +8,7 @@
   import { onMount } from 'svelte';
   import GamePanel from '$lib/components/GamePanel.svelte';
   import Spreadsheet from '$lib/components/Spreadsheet.svelte';
+  import TileGraphic from '$lib/components/TileGraphic.svelte';
   import { game } from '$lib/game/sandbox.svelte';
 
   // Restore a locally-saved game (survives reloads) on the client.
@@ -214,13 +215,10 @@
         <h2>Tile manifest <span class="count">{TILE_MANIFEST.reduce((n, t) => n + t.count, 0)} tiles</span></h2>
         <div class="tiles">
           {#each TILE_MANIFEST as t (t.id)}
-            <div class="tilechip" style:background={t.color ? TILE_FILL[t.color] : 'var(--bg-soft)'} class:plain={!t.color}>
-              <span class="tid">#{t.id}</span>
-              <span class="tcount">×{t.count}</span>
-            </div>
+            <TileGraphic id={t.id} count={t.count} />
           {/each}
         </div>
-        <p class="legend">Counts of each upgrade tile available. Tile artwork arrives with track-laying (Stage 3).</p>
+        <p class="legend">Each upgrade tile and how many are available, coloured by phase (yellow / green / brown).</p>
       {/if}
     </div>
   {/key}

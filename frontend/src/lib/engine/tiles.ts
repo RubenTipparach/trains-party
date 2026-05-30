@@ -1,10 +1,7 @@
 /**
- * Tile definitions (track tiles laid during operating rounds).
- *
- * Codes are transcribed from the reference catalog
- * (lib/engine/config/tile.rb). A path endpoint is an edge index (0-5) or 'c'
- * (the tile's city/town centre). This first track-laying pass covers the yellow
- * tiles; green/brown upgrades follow.
+ * Tile catalog for 1889. Codes transcribed from the reference
+ * (lib/engine/config/tile.rb) and g_1889/map.rb (the Beg* beginner tiles).
+ * A path endpoint is an edge index (0-5) or 'c' (the tile centre / city / town).
  */
 
 import type { TileColor } from '$lib/data/types';
@@ -17,25 +14,68 @@ export interface TilePath {
 export interface TileDef {
   id: string;
   color: TileColor;
-  /** 1 if the tile has a city, else 0. */
   cities: number;
-  /** 1 if the tile has a town, else 0. */
   towns: number;
+  /** City token slots. */
+  slots: number;
   revenue: number;
   paths: TilePath[];
   label?: string;
+  port?: boolean;
 }
 
-const YELLOW_CODES: Record<string, string> = {
-  '3': 'town=revenue:10;path=a:0,b:_0;path=a:_0,b:1',
-  '4': 'town=revenue:10;path=a:0,b:_0;path=a:_0,b:3',
-  '5': 'city=revenue:20;path=a:0,b:_0;path=a:1,b:_0',
-  '6': 'city=revenue:20;path=a:0,b:_0;path=a:2,b:_0',
-  '7': 'path=a:0,b:1',
-  '8': 'path=a:0,b:2',
-  '9': 'path=a:0,b:3',
-  '57': 'city=revenue:20;path=a:0,b:_0;path=a:_0,b:3',
-  '58': 'town=revenue:10;path=a:0,b:_0;path=a:_0,b:2'
+// [color, code] per tile id. Colours follow the published 1889 tile manifest.
+const CODES: Record<string, [TileColor, string]> = {
+  // yellow
+  '3': ['yellow', 'town=revenue:10;path=a:0,b:_0;path=a:_0,b:1'],
+  '5': ['yellow', 'city=revenue:20;path=a:0,b:_0;path=a:1,b:_0'],
+  '6': ['yellow', 'city=revenue:20;path=a:0,b:_0;path=a:2,b:_0'],
+  '7': ['yellow', 'path=a:0,b:1'],
+  '8': ['yellow', 'path=a:0,b:2'],
+  '9': ['yellow', 'path=a:0,b:3'],
+  '57': ['yellow', 'city=revenue:20;path=a:0,b:_0;path=a:_0,b:3'],
+  '58': ['yellow', 'town=revenue:10;path=a:0,b:_0;path=a:_0,b:2'],
+  '437': ['yellow', 'town=revenue:30;path=a:0,b:_0;path=a:_0,b:2;icon=image:port'],
+  '438': ['yellow', 'city=revenue:40;path=a:0,b:_0;path=a:2,b:_0;label=H'],
+  // green
+  '12': ['green', 'city=revenue:30;path=a:0,b:_0;path=a:1,b:_0;path=a:2,b:_0'],
+  '13': ['green', 'city=revenue:30;path=a:0,b:_0;path=a:2,b:_0;path=a:4,b:_0'],
+  '14': ['green', 'city=revenue:30,slots:2;path=a:0,b:_0;path=a:1,b:_0;path=a:3,b:_0;path=a:4,b:_0'],
+  '15': ['green', 'city=revenue:30,slots:2;path=a:0,b:_0;path=a:1,b:_0;path=a:2,b:_0;path=a:3,b:_0'],
+  '16': ['green', 'path=a:0,b:2;path=a:1,b:3'],
+  '19': ['green', 'path=a:0,b:3;path=a:2,b:4'],
+  '20': ['green', 'path=a:0,b:3;path=a:1,b:4'],
+  '23': ['green', 'path=a:0,b:3;path=a:0,b:4'],
+  '24': ['green', 'path=a:0,b:3;path=a:0,b:2'],
+  '25': ['green', 'path=a:0,b:2;path=a:0,b:4'],
+  '26': ['green', 'path=a:0,b:3;path=a:0,b:5'],
+  '27': ['green', 'path=a:0,b:3;path=a:0,b:1'],
+  '28': ['green', 'path=a:0,b:4;path=a:0,b:5'],
+  '29': ['green', 'path=a:0,b:2;path=a:0,b:1'],
+  '205': ['green', 'city=revenue:30;path=a:0,b:_0;path=a:1,b:_0;path=a:3,b:_0'],
+  '206': ['green', 'city=revenue:30;path=a:0,b:_0;path=a:5,b:_0;path=a:3,b:_0'],
+  '439': ['green', 'city=revenue:60,slots:2;path=a:0,b:_0;path=a:2,b:_0;path=a:4,b:_0;label=H'],
+  '440': ['green', 'city=revenue:40,slots:2;path=a:0,b:_0;path=a:1,b:_0;path=a:2,b:_0;label=T'],
+  // brown
+  '39': ['brown', 'path=a:0,b:2;path=a:0,b:1;path=a:1,b:2'],
+  '40': ['brown', 'path=a:0,b:2;path=a:2,b:4;path=a:0,b:4'],
+  '41': ['brown', 'path=a:0,b:3;path=a:0,b:1;path=a:1,b:3'],
+  '42': ['brown', 'path=a:0,b:3;path=a:3,b:5;path=a:0,b:5'],
+  '45': ['brown', 'path=a:0,b:3;path=a:2,b:4;path=a:0,b:4;path=a:2,b:3'],
+  '46': ['brown', 'path=a:0,b:3;path=a:2,b:4;path=a:3,b:4;path=a:0,b:2'],
+  '47': ['brown', 'path=a:0,b:3;path=a:1,b:4;path=a:1,b:3;path=a:0,b:4'],
+  '448': ['brown', 'city=revenue:40,slots:2;path=a:0,b:_0;path=a:1,b:_0;path=a:2,b:_0;path=a:3,b:_0'],
+  '465': ['brown', 'city=revenue:60,slots:3;path=a:0,b:_0;path=a:1,b:_0;path=a:2,b:_0;path=a:3,b:_0;label=K'],
+  '466': ['brown', 'city=revenue:60,slots:2;path=a:0,b:_0;path=a:1,b:_0;path=a:2,b:_0;label=T'],
+  '492': ['brown', 'city=revenue:80,slots:3;path=a:0,b:_0;path=a:1,b:_0;path=a:2,b:_0;path=a:3,b:_0;path=a:4,b:_0;path=a:5,b:_0;label=H'],
+  '611': ['brown', 'city=revenue:40,slots:2;path=a:0,b:_0;path=a:1,b:_0;path=a:2,b:_0;path=a:3,b:_0;path=a:4,b:_0'],
+  // beginner-game tiles (g_1889/map.rb)
+  Beg6: ['yellow', 'city=revenue:20;path=a:0,b:_0;path=a:2,b:_0'],
+  Beg7: ['yellow', 'path=a:0,b:1'],
+  Beg8: ['yellow', 'path=a:0,b:2'],
+  Beg9: ['yellow', 'path=a:0,b:3'],
+  Beg23: ['green', 'path=a:0,b:3;path=a:0,b:4'],
+  Beg24: ['green', 'path=a:0,b:3;path=a:0,b:2']
 };
 
 function end(v: string): TileEnd {
@@ -43,7 +83,7 @@ function end(v: string): TileEnd {
 }
 
 function parseTile(id: string, color: TileColor, code: string): TileDef {
-  const def: TileDef = { id, color, cities: 0, towns: 0, revenue: 0, paths: [] };
+  const def: TileDef = { id, color, cities: 0, towns: 0, slots: 0, revenue: 0, paths: [] };
   for (const token of code.split(';').filter(Boolean)) {
     const eq = token.indexOf('=');
     const key = token.slice(0, eq);
@@ -55,6 +95,7 @@ function parseTile(id: string, color: TileColor, code: string): TileDef {
     }
     if (key === 'city') {
       def.cities = 1;
+      def.slots = attrs.slots ? parseInt(attrs.slots, 10) : 1;
       def.revenue = parseInt(attrs.revenue, 10) || 0;
     } else if (key === 'town') {
       def.towns = 1;
@@ -63,16 +104,17 @@ function parseTile(id: string, color: TileColor, code: string): TileDef {
       def.paths.push({ a: end(attrs.a), b: end(attrs.b) });
     } else if (key === 'label') {
       def.label = body;
+    } else if (key === 'icon' && attrs.image === 'port') {
+      def.port = true;
     }
   }
   return def;
 }
 
 export const TILES: Record<string, TileDef> = Object.fromEntries(
-  Object.entries(YELLOW_CODES).map(([id, code]) => [id, parseTile(id, 'yellow', code)])
+  Object.entries(CODES).map(([id, [color, code]]) => [id, parseTile(id, color, code)])
 );
 
-/** Rotate a path endpoint by r * 60 degrees (the centre is unaffected). */
 function rotateEnd(e: TileEnd, r: number): TileEnd {
   return e === 'c' ? 'c' : (((e + r) % 6) + 6) % 6;
 }
