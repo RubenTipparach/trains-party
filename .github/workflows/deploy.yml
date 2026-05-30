@@ -1,0 +1,174 @@
+name: Deploy Trains Party to GitHub Pages and Fly.io
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Build + verify the SvelteKit client and upload it as the Pages artifact.
+  # This job is independent of Pages setup so it always reports a true code
+  # signal (typecheck + build), even before GitHub Pages is enabled on the repo.
+  # ---------------------------------------------------------------------------
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run check
+
+      - name: Build
+        env:
+          # Project Pages serve from /<repo>/. Override if using a custom domain.
+          BASE_PATH: /${{ github.event.repository.name }}
+          BUILD_SHA: ${{ github.sha }}
+        run: npm run build
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: frontend/build
+
+  # ---------------------------------------------------------------------------
+  # Publish the artifact to GitHub Pages. The Pages-setup dependency is isolated
+  # here: if Pages is not yet enabled, only this job fails (not the build).
+  # configure-pages with enablement self-enables Pages once the repo token has
+  # the required permission.
+  # ---------------------------------------------------------------------------
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  # ---------------------------------------------------------------------------
+  # Deploy the Node/SQLite API to Fly.io. Gated on the canonical repo and on
+  # FLY_API_TOKEN being present, so forks and unconfigured repos skip cleanly.
+  # ---------------------------------------------------------------------------
+  deploy-api:
+    runs-on: ubuntu-latest
+    if: ${{ contains(fromJSON('["rubentipparach/trains-party", "RubenTipparach/trains-party"]'), github.repository) }}
+    concurrency:
+      group: fly-api
+      cancel-in-progress: false
+    env:
+      APP: trains-party
+      REGION: ams
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Check Fly readiness
+        id: fly_gate
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          if [ -z "${FLY_API_TOKEN}" ]; then
+            echo "::notice::FLY_API_TOKEN not set; skipping API deploy. See README.md 'One-time setup'."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! flyctl auth whoami > /dev/null 2>&1; then
+            echo "::notice::FLY_API_TOKEN is set but rejected by Fly; skipping API deploy. Regenerate via 'fly tokens create deploy -a ${APP}'."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! flyctl status -a "${APP}" > /dev/null 2>&1; then
+            echo "::notice::Fly app '${APP}' not found; skipping API deploy. Bootstrap with 'fly apps create ${APP}' + 'fly volumes create trains_data --size 1 --region ${REGION}'."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
+      - name: Ensure volume + single machine
+        if: steps.fly_gate.outputs.ready == 'true'
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          set -e
+          echo "--- volumes before ---"
+          flyctl volumes list -a "$APP"
+          VOL_ANY=$(flyctl volumes list -a "$APP" --json | jq '[.[] | select(.name=="trains_data" and .region=="'"$REGION"'")] | length')
+          if [ "${VOL_ANY:-0}" -lt 1 ]; then
+            echo "Creating volume trains_data in $REGION"
+            flyctl volumes create trains_data --size 1 --region "$REGION" --app "$APP" --yes
+          else
+            echo "Volume trains_data already exists in $REGION"
+          fi
+          echo "--- machines before ---"
+          flyctl machine list -a "$APP"
+          flyctl machine list -a "$APP" --json > /tmp/machines.json
+          APP_IDS=$(jq -r '.[] | select((.config.metadata.fly_process_group // "app") == "app") | .id' /tmp/machines.json)
+          FIRST=""
+          for M in $APP_IDS; do
+            if [ -z "$FIRST" ]; then
+              FIRST="$M"
+              echo "Keeping app machine $M"
+              continue
+            fi
+            echo "Destroying extra app machine $M"
+            flyctl machine stop "$M" --app "$APP" || true
+            flyctl machine destroy "$M" --app "$APP" --force || true
+          done
+          echo "--- machines after ---"
+          flyctl machine list -a "$APP"
+
+      - name: Deploy API to Fly.io
+        if: steps.fly_gate.outputs.ready == 'true'
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          set -e
+          for attempt in 1 2 3 4; do
+            echo "::group::flyctl deploy (attempt ${attempt}/4)"
+            if flyctl deploy --remote-only --config server/fly.toml --dockerfile server/Dockerfile .; then
+              echo "::endgroup::"
+              echo "Deploy succeeded on attempt ${attempt}."
+              exit 0
+            fi
+            echo "::endgroup::"
+            if [ "${attempt}" -lt 4 ]; then
+              backoff=$((attempt * attempt * 10))
+              echo "::warning::flyctl deploy failed (attempt ${attempt}/4); retrying in ${backoff}s"
+              sleep "${backoff}"
+            fi
+          done
+          echo "::error::flyctl deploy failed after 4 attempts"
+          exit 1
