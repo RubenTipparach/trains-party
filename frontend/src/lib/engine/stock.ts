@@ -80,6 +80,38 @@ function holdLimitOk(c: CorporationState, p: PlayerState, addPct: number): boole
   return holds(p, c.sym) + addPct <= 60;
 }
 
+/** Largest holding of `sym` among players other than `id`. */
+function topOtherPct(s: GameState, id: string, sym: string): number {
+  let m = 0;
+  for (const x of s.players) if (x.id !== id) m = Math.max(m, holds(x, sym));
+  return m;
+}
+
+/**
+ * Can `id` sell at least one share of `sym`? Per 1889/18xx:
+ * - the corporation must have a share price (have operated/floated context),
+ * - the player must hold at least 10%,
+ * - the pool may not exceed 50% (so there must be room for the shares),
+ * - the president may sell their regular shares, but may only give up the 20%
+ *   president certificate (drop below 20%) if another player holds at least 20%
+ *   to take over the presidency.
+ */
+function canSell(s: GameState, id: string, sym: string): boolean {
+  const c = corp(s, sym);
+  const p = player(s, id);
+  if (c.priceRow === null) return false;
+  const have = holds(p, sym);
+  if (have < 10) return false;
+  if (c.poolShares >= 50) return false; // no room in the pool
+  if (c.president === id) {
+    // regular (non-president-cert) shares are freely sellable
+    if (have - 20 >= 10) return true;
+    // otherwise selling means giving up the cert: need a >=20% successor
+    return topOtherPct(s, id, sym) >= 20;
+  }
+  return true;
+}
+
 function endTurn(s: GameState, acted: boolean): void {
   const st = s.stock!;
   if (acted) {
@@ -182,20 +214,25 @@ function doSell(s: GameState, id: string, sym: string, count: number): void {
   if (holds(p, sym) < pct) throw new GameError(`${id} does not hold ${pct}% of ${sym}`);
   if (c.poolShares + pct > 50) throw new GameError(`pool cannot exceed 50% of ${sym}`);
 
-  // Presidency: the president must keep the 20% cert, or hand it to the largest
-  // other holder (who must hold at least 20%).
+  // Presidency: the president keeps the 20% certificate. They may sell regular
+  // shares (staying >= 20%); they may only drop below 20% - giving up the cert -
+  // if another player holds at least 20% to take over the presidency.
   let newPresident = c.president;
   if (c.president === id) {
     const remaining = holds(p, sym) - pct;
     const others = s.players.filter((x) => x.id !== id);
-    const top = others.reduce<PlayerState | null>((m, x) => (holds(x, sym) > (m ? holds(m, sym) : -1) ? x : m), null);
+    const top = others.reduce<PlayerState | null>(
+      (m, x) => (holds(x, sym) > (m ? holds(m, sym) : -1) ? x : m),
+      null
+    );
     const topPct = top ? holds(top, sym) : 0;
-    if (remaining >= 20 && remaining >= topPct) {
-      newPresident = id; // keeps presidency
+    if (remaining >= 20) {
+      // keeps the certificate; presidency only moves if someone now holds more
+      newPresident = top && topPct > remaining && topPct >= 20 ? top.id : id;
     } else if (top && topPct >= 20) {
-      newPresident = top.id; // transfers to the largest holder
+      newPresident = top.id; // gives up the cert to an eligible successor
     } else {
-      throw new GameError('cannot sell: no eligible player to take the presidency');
+      throw new GameError('cannot sell the president certificate: no other player holds 20%');
     }
   }
 
@@ -272,7 +309,7 @@ export function stockLegalActions(s: GameState): StockLegalActions {
         if (c.poolShares >= 10 && holdLimitOk(c, p, 10) && p.cash >= currentPrice(c)) buyPool.push(c.sym);
       }
     }
-    if (c.priceRow !== null && holds(p, c.sym) >= 10) sell.push(c.sym);
+    if (canSell(s, id, c.sym)) sell.push(c.sym);
   }
   return { player: id, canPass: true, par, buyIpo, buyPool, sell };
 }

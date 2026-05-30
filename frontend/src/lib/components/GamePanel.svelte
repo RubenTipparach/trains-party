@@ -39,7 +39,7 @@
     <span class="arrow">→</span>
     {#each Array(orCount) as _, i}
       <div class="track-pill or" class:on={game.state.round === 'operating' && game.state.or?.orNumber === i + 1}>
-        OR {Math.max(1, game.state.orSet)}.{i + 1}
+        OR {Math.max(1, orSetNum)}.{i + 1}
       </div>
     {/each}
     <span class="phase">Phase {game.state.phase}</span>

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { initialState } from './setup';
-import { apply, replay, activePlayer, legalActions, trackLays, routeRevenue } from './index';
+import { apply, replay, activePlayer, legalActions, trackLays, routeRevenue, stockLegalActions } from './index';
 import type { GameAction, GameState } from './types';
 
 const seats3 = [
@@ -203,6 +203,24 @@ describe('stock round - selling', () => {
     s = apply(s, { type: 'pass', player: 'p2' });
     s = apply(s, { type: 'pass', player: 'p3' });
     expect(() => apply(s, { type: 'sell', player: 'p1', corp: 'AR', count: 1 })).toThrow();
+    // ...and the UI is not offered the illegal sale
+    expect(stockLegalActions(s).sell).not.toContain('AR');
+  });
+
+  it('lets the president give up the cert when another player holds 20%', () => {
+    let s = toStockRound();
+    s = apply(s, { type: 'par', player: 'p1', corp: 'AR', price: 100 }); // p1 20% (pres)
+    s = apply(s, { type: 'buy', player: 'p2', corp: 'AR', from: 'ipo' }); // p2 10%
+    s = apply(s, { type: 'pass', player: 'p3' });
+    s = apply(s, { type: 'buy', player: 'p1', corp: 'AR', from: 'ipo' }); // p1 30%
+    s = apply(s, { type: 'buy', player: 'p2', corp: 'AR', from: 'ipo' }); // p2 20%
+    s = apply(s, { type: 'pass', player: 'p3' });
+    // back to p1 (30% pres); p2 holds 20% -> p1 may now sell below 20%
+    expect(activePlayer(s)).toBe('p1');
+    expect(stockLegalActions(s).sell).toContain('AR');
+    s = apply(s, { type: 'sell', player: 'p1', corp: 'AR', count: 2 }); // drop to 10%
+    expect(corp(s, 'AR').president).toBe('p2'); // presidency transfers
+    expect(shares(s, 'p1', 'AR')).toBe(10);
   });
 });
 
