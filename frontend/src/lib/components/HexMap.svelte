@@ -125,9 +125,19 @@
   let view = $state({ x: minX, y: minY, w: width, h: height });
   let dragging = $state(false);
   const MIN_W = width * 0.18; // max zoom in
-  const MAX_W = width * 1.4; // max zoom out
+  const MAX_W = width; // max zoom out: the whole map fits, no further
   const pointers = new Map<number, { x: number; y: number }>();
   let moved = false;
+
+  // Keep the view within the map bounds so you cannot pan/zoom into empty space.
+  function clampView() {
+    let { x, y, w, h } = view;
+    if (w >= width) x = minX - (w - width) / 2;
+    else x = Math.min(Math.max(x, minX), minX + width - w);
+    if (h >= height) y = minY - (h - height) / 2;
+    else y = Math.min(Math.max(y, minY), minY + height - h);
+    view = { x, y, w, h };
+  }
 
   function zoomAt(clientX: number, clientY: number, factor: number) {
     const r = svgEl.getBoundingClientRect();
@@ -138,6 +148,7 @@
     let nw = Math.max(MIN_W, Math.min(MAX_W, view.w * factor));
     const nh = view.h * (nw / view.w);
     view = { x: px - fx * nw, y: py - fy * nh, w: nw, h: nh };
+    clampView();
   }
   function zoomCenter(factor: number) {
     const r = svgEl.getBoundingClientRect();
@@ -188,6 +199,7 @@
     }
     const r = svgEl.getBoundingClientRect();
     view = { ...view, x: view.x - (dx / r.width) * view.w, y: view.y - (dy / r.height) * view.h };
+    clampView();
   }
   function onUp(e: PointerEvent) {
     const wasDrag = moved;
