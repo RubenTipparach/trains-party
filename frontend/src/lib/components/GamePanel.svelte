@@ -246,28 +246,6 @@
     padding: 0.4rem 0.7rem;
     font-size: 0.85rem;
   }
-  .actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    align-items: center;
-    margin: 1rem 0;
-  }
-  .actions button {
-    padding: 0.5rem 0.85rem;
-    border-radius: 8px;
-    border: 1px solid var(--rail-deep);
-    background: var(--rail);
-    color: #1b1b1b;
-    font: 600 0.85rem ui-sans-serif, sans-serif;
-    cursor: pointer;
-  }
-  .actions button.reset {
-    margin-left: auto;
-    background: transparent;
-    color: var(--muted);
-    border-color: var(--line);
-  }
   .log {
     margin-top: 0.5rem;
   }
