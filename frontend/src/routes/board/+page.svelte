@@ -7,6 +7,7 @@
   import CompanyCard from '$lib/components/CompanyCard.svelte';
   import GamePanel from '$lib/components/GamePanel.svelte';
   import Spreadsheet from '$lib/components/Spreadsheet.svelte';
+  import { game } from '$lib/game/sandbox.svelte';
   import {
     CORPORATIONS,
     COMPANIES,
@@ -45,6 +46,15 @@
   }
 
   const cash = [...new Set(Object.values(STARTING_CASH))].map((v) => `${CURRENCY}${v}`).join(' / ');
+
+  // Auto-play bot turns (single-player). Re-runs whenever the active player changes.
+  $effect(() => {
+    const a = game.active;
+    if (a && game.isBot(a)) {
+      const t = setTimeout(() => game.botStep(), 650);
+      return () => clearTimeout(t);
+    }
+  });
   // Which train rusts when a given train is bought (inverse of rustsOn).
   const rustsWhenBought = (name: string) => TRAINS.find((x) => x.rustsOn === name)?.name;
   const TILE_FILL: Record<TileColor, string> = {

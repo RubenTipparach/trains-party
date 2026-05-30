@@ -1,8 +1,27 @@
 <script lang="ts">
   import { base } from '$app/paths';
+  import { goto } from '$app/navigation';
   import { fly, fade } from 'svelte/transition';
   import { BUILD_SHA } from '$lib/version';
-  import { TRAINS } from '$lib/data/g1889';
+  import { game, type SeatConfig } from '$lib/game/sandbox.svelte';
+  import type { BotLevel } from '$lib/game/bots';
+
+  let mode = $state<'single' | 'multi'>('single');
+  let count = $state(4);
+  const names = $state(['You', 'Bot 2', 'Bot 3', 'Bot 4', 'Bot 5', 'Bot 6']);
+  const bots = $state([false, true, true, true, true, true]);
+  const levels = $state<BotLevel[]>(['normal', 'normal', 'normal', 'normal', 'normal', 'normal']);
+
+  function start() {
+    const seats: SeatConfig[] = Array.from({ length: count }, (_, i) => ({
+      id: `p${i + 1}`,
+      name: names[i]?.trim() || `Player ${i + 1}`,
+      bot: mode === 'single' ? bots[i] : false,
+      level: levels[i]
+    }));
+    game.newGame(seats);
+    goto(`${base}/board`);
+  }
 </script>
 
 <main in:fade={{ duration: 400 }}>
@@ -14,18 +33,53 @@
     </p>
   </header>
 
-  <section class="roster">
-    {#each TRAINS as t, i (t.name)}
-      <div class="train" in:fly={{ y: 20, duration: 420, delay: 220 + i * 70 }}>
-        <span class="train-name">{t.name}</span>
-        <span class="train-cost">¥{t.price}</span>
-      </div>
-    {/each}
-  </section>
+  <section class="setup" in:fly={{ y: 20, duration: 420, delay: 240 }}>
+    <h2>New game</h2>
 
-  <div class="cta" in:fade={{ duration: 600, delay: 600 }}>
-    <a class="btn" href="{base}/board">View the 1889 board reference →</a>
-  </div>
+    <div class="modes">
+      <button class="mode" class:on={mode === 'single'} onclick={() => (mode = 'single')}>
+        <span class="mlabel">Single player</span>
+        <span class="mdesc">Play against bots</span>
+      </button>
+      <button class="mode" class:on={mode === 'multi'} onclick={() => (mode = 'multi')}>
+        <span class="mlabel">Multiplayer</span>
+        <span class="mdesc">Online rooms · coming soon</span>
+      </button>
+    </div>
+
+    <div class="players-row">
+      <label for="count">Players</label>
+      <select id="count" bind:value={count}>
+        {#each [2, 3, 4, 5, 6] as n}<option value={n}>{n}</option>{/each}
+      </select>
+    </div>
+
+    <div class="seats">
+      {#each Array(count) as _, i}
+        <div class="seat">
+          <input class="name" bind:value={names[i]} placeholder={`Player ${i + 1}`} />
+          {#if mode === 'single'}
+            <div class="toggle">
+              <button class:on={!bots[i]} onclick={() => (bots[i] = false)}>Human</button>
+              <button class:on={bots[i]} onclick={() => (bots[i] = true)}>Bot</button>
+            </div>
+            <select class="lvl" bind:value={levels[i]} disabled={!bots[i]}>
+              <option value="easy">Easy</option>
+              <option value="normal">Normal</option>
+            </select>
+          {:else}
+            <span class="seat-note">seat {i + 1}</span>
+          {/if}
+        </div>
+      {/each}
+    </div>
+
+    {#if mode === 'multi'}
+      <p class="note">Online multiplayer rooms arrive with the server stage. For now, start a single-player game against bots.</p>
+    {/if}
+
+    <button class="start" onclick={start}>Start game →</button>
+  </section>
 
   <footer class="foot" in:fade={{ duration: 600, delay: 700 }}>
     <span>1889 · Shikoku Railways</span>
@@ -36,12 +90,11 @@
 
 <style>
   main {
-    max-width: 880px;
+    max-width: 720px;
     margin: 0 auto;
-    padding: clamp(2rem, 6vw, 5rem) 1.25rem 3rem;
+    padding: clamp(2rem, 6vw, 4rem) 1.25rem 3rem;
     text-align: center;
   }
-
   .badge {
     display: inline-block;
     font-size: 0.8rem;
@@ -53,90 +106,147 @@
     padding: 0.35rem 0.9rem;
     background: rgba(245, 197, 66, 0.06);
   }
-
   h1 {
-    font-size: clamp(2.6rem, 9vw, 5rem);
+    font-size: clamp(2.4rem, 9vw, 4.5rem);
     margin: 1rem 0 0.4rem;
     background: linear-gradient(120deg, var(--ink), var(--rail));
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
   }
-
   .tagline {
     color: var(--muted);
-    font-size: 1.05rem;
-    margin: 0 auto;
+    margin: 0 auto 1.5rem;
     max-width: 40ch;
   }
-
-  .roster {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.6rem;
-    justify-content: center;
-    margin-top: 2.5rem;
+  .setup {
+    text-align: left;
+    border: 1px solid var(--line);
+    background: var(--bg-soft);
+    border-radius: 16px;
+    padding: 1.2rem 1.3rem 1.4rem;
   }
-
-  .train {
+  .setup h2 {
+    margin: 0 0 0.9rem;
+    font-size: 1.2rem;
+  }
+  .modes {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.6rem;
+    margin-bottom: 1rem;
+  }
+  .mode {
+    text-align: left;
+    padding: 0.7rem 0.9rem;
+    border-radius: 12px;
+    border: 1px solid var(--line);
+    background: transparent;
+    color: var(--ink);
+    cursor: pointer;
     display: flex;
     flex-direction: column;
-    align-items: center;
-    min-width: 64px;
-    padding: 0.7rem 0.9rem;
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    background: var(--bg-soft);
-    transition: transform 160ms ease, border-color 160ms ease;
+    gap: 0.15rem;
   }
-
-  .train:hover {
-    transform: translateY(-4px);
-    border-color: var(--rail-deep);
+  .mode.on {
+    border-color: var(--rail);
+    box-shadow: 0 0 0 1px var(--rail) inset;
   }
-
-  .train-name {
-    font-size: 1.4rem;
+  .mlabel {
     font-weight: 700;
-    color: var(--rail);
   }
-
-  .train-cost {
-    font-size: 0.8rem;
+  .mdesc {
+    font-size: 0.78rem;
     color: var(--muted);
   }
-
-  .cta {
-    margin-top: 2.5rem;
+  .players-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-bottom: 0.8rem;
   }
-
-  .btn {
-    display: inline-block;
-    padding: 0.7rem 1.3rem;
-    border-radius: 999px;
+  .players-row label {
+    font-weight: 600;
+  }
+  select,
+  .name {
+    background: var(--bg);
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 0.4rem 0.5rem;
+    font-size: 0.9rem;
+  }
+  .seats {
+    display: grid;
+    gap: 0.5rem;
+  }
+  .seat {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .name {
+    flex: 1;
+    min-width: 0;
+  }
+  .toggle {
+    display: flex;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .toggle button {
+    padding: 0.4rem 0.7rem;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 0.82rem;
+  }
+  .toggle button.on {
     background: var(--rail);
     color: #1b1b1b;
     font-weight: 700;
-    text-decoration: none;
+  }
+  .lvl:disabled {
+    opacity: 0.4;
+  }
+  .seat-note {
+    color: var(--muted);
+    font-size: 0.8rem;
+  }
+  .note {
+    color: var(--muted);
+    font-size: 0.82rem;
+    margin: 0.9rem 0 0;
+  }
+  .start {
+    margin-top: 1.2rem;
+    width: 100%;
+    padding: 0.8rem 1.3rem;
+    border-radius: 999px;
+    background: var(--rail);
+    color: #1b1b1b;
+    font-weight: 800;
+    font-size: 1rem;
+    border: none;
+    cursor: pointer;
     transition: transform 160ms ease, box-shadow 160ms ease;
   }
-
-  .btn:hover {
+  .start:hover {
     transform: translateY(-2px);
     box-shadow: 0 6px 20px rgba(245, 197, 66, 0.25);
   }
-
   .foot {
-    margin-top: 3.5rem;
+    margin-top: 2rem;
     color: var(--muted);
     font-size: 0.85rem;
     display: flex;
     gap: 0.6rem;
     justify-content: center;
     align-items: center;
-    flex-wrap: wrap;
   }
-
   .dot {
     opacity: 0.4;
   }

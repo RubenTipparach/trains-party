@@ -20,7 +20,10 @@
   <div class="players">
     {#each av.players as pl (pl.id)}
       <div class="pcard" class:active={pl.id === av.active} style="--p:{seatColor(pl.id)}">
-        <div class="pname">{pl.name}{#if pl.id === av.active}<span class="turn">to act</span>{/if}</div>
+        <div class="pname">
+          {pl.name}{#if game.isBot(pl.id)}<span class="botbadge">BOT</span>{/if}
+          {#if pl.id === av.active}<span class="turn">to act</span>{/if}
+        </div>
         <div class="pmoney">
           <span class="avail">{CURRENCY}{pl.available}</span>
           <span class="sub">available</span>
@@ -117,6 +120,15 @@
     background: var(--p);
     border-radius: 999px;
     padding: 0.05rem 0.4rem;
+  }
+  .botbadge {
+    font-size: 0.6rem;
+    color: var(--muted);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 0.02rem 0.35rem;
+    margin-left: 0.3rem;
+    letter-spacing: 0.05em;
   }
   .pmoney {
     margin: 0.3rem 0;
