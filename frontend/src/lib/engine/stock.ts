@@ -303,7 +303,10 @@ export interface StockLegalActions {
 
 export function stockLegalActions(s: GameState): StockLegalActions {
   const id = s.players[s.current].id;
-  const st = s.stock!;
+  const st = s.stock;
+  // No stock round in progress (e.g. a pass just ended the round and the UI is
+  // mid-flush before swapping panels): expose no legal actions rather than crash.
+  if (!st) return { player: id, canPass: false, par: [], buyIpo: [], buyPool: [], sell: [] };
   const p = player(s, id);
   const par: string[] = [];
   const buyIpo: string[] = [];
