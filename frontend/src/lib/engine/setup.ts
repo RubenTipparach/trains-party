@@ -49,6 +49,8 @@ export function initialState(seats: Seat[], rulesVersion: string = RULES_VERSION
     seq: 0,
     round: 'auction',
     phase: '2',
+    srCount: 0,
+    orSet: 0,
     priority: 0,
     current: 0,
     bank: BANK_CASH - n * cash,

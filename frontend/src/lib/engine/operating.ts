@@ -51,13 +51,14 @@ export function startOperatingRound(s: GameState, orNumber = 1): void {
     .sort((a, b) => priceOf(b) - priceOf(a) || a.sym.localeCompare(b.sym))
     .map((c) => c.sym);
 
+  if (orNumber === 1) s.orSet += 1; // a new OR set is starting
   if (order.length === 0) {
     finishOperatingSet(s);
     return;
   }
   s.round = 'operating';
   s.or = { order, index: 0, step: 'track', orNumber, orsThisSet: orsForPhase(s) };
-  s.log.push(`Operating round ${orNumber} of ${s.or.orsThisSet} begins`);
+  s.log.push(`Operating round ${s.orSet}.${orNumber} begins`);
   payPrivateIncome(s);
 }
 
@@ -80,6 +81,7 @@ function payPrivateIncome(s: GameState): void {
 function finishOperatingSet(s: GameState): void {
   s.or = null;
   s.round = 'stock';
+  s.srCount += 1;
   s.stock = { acted: false, bought: false, passes: 0 };
   s.current = s.priority;
   s.players.forEach((p) => (p.passed = false));

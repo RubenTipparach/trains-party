@@ -238,6 +238,10 @@ describe('operating round', () => {
     expect(s.round).toBe('operating');
     expect(s.or!.order).toEqual(['AR']);
     expect(activePlayer(s)).toBe('p1'); // AR president
+    // round counters: first stock round, first OR set, OR 1.1
+    expect(s.srCount).toBe(1);
+    expect(s.orSet).toBe(1);
+    expect(s.or!.orNumber).toBe(1);
   });
 
   it('pays a dividend per share and moves the price right', () => {

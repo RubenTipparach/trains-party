@@ -159,6 +159,7 @@ function allPassed(s: GameState): void {
 function endAuction(s: GameState): void {
   s.round = 'stock';
   s.auction = null;
+  s.srCount += 1;
   s.stock = { acted: false, bought: false, passes: 0 };
   s.current = s.priority;
   s.players.forEach((p) => (p.passed = false));

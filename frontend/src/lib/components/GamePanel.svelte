@@ -13,7 +13,14 @@
   const playerName = (id: string | null) =>
     id ? (game.state.players.find((p) => p.id === id)?.name ?? id) : '-';
 
-  const roundLabel = $derived(
+  // 18xx-style round label: ISR, SR n, OR set.num
+  const roundLabel = $derived.by(() => {
+    const s = game.state;
+    if (s.round === 'auction') return 'ISR';
+    if (s.round === 'stock') return `SR ${s.srCount}`;
+    return s.or ? `OR ${s.orSet}.${s.or.orNumber}` : 'OR';
+  });
+  const roundName = $derived(
     game.state.round === 'auction'
       ? 'Initial Auction'
       : game.state.round === 'stock'
@@ -28,17 +35,19 @@
   <div class="tracker">
     <div class="track-pill" class:on={game.state.round === 'auction'} style="--c:#1b1b1b">ISR</div>
     <span class="arrow">→</span>
-    <div class="track-pill sr" class:on={game.state.round === 'stock'}>SR</div>
+    <div class="track-pill sr" class:on={game.state.round === 'stock'}>SR {Math.max(1, game.state.srCount)}</div>
     <span class="arrow">→</span>
     {#each Array(orCount) as _, i}
-      <div class="track-pill or" class:on={game.state.round === 'operating'}>OR{orCount > 1 ? ` ${i + 1}` : ''}</div>
+      <div class="track-pill or" class:on={game.state.round === 'operating' && game.state.or?.orNumber === i + 1}>
+        OR {Math.max(1, game.state.orSet)}.{i + 1}
+      </div>
     {/each}
     <span class="phase">Phase {game.state.phase}</span>
   </div>
 
   <!-- status -->
   <div class="status">
-    <div><span class="k">Round</span><span class="v">{roundLabel}</span></div>
+    <div><span class="k">Round</span><span class="v">{roundLabel}<span class="rname"> · {roundName}</span></span></div>
     <div>
       <span class="k">Active</span>
       <span class="v player" style="--p:{seatColor(game.active ?? '')}">{playerName(game.active)}</span>
@@ -237,6 +246,11 @@
   }
   .player {
     color: var(--p);
+  }
+  .rname {
+    font-weight: 400;
+    color: var(--muted);
+    font-size: 0.85rem;
   }
   .err {
     color: #ff8a7e;

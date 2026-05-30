@@ -176,8 +176,11 @@ class Sandbox {
       const raw = localStorage.getItem(SAVE_KEY);
       if (!raw) return;
       const data = JSON.parse(raw);
-      if (data?.v !== RULES_VERSION || !Array.isArray(data.actions) || !Array.isArray(data.seats)) return;
-      // Validate the log replays cleanly before adopting it.
+      if (!Array.isArray(data?.actions) || !Array.isArray(data?.seats)) return;
+      // The save is the action LOG, so it survives engine updates: keep it as
+      // long as it still replays cleanly (do NOT discard on version mismatch).
+      // If a future engine change makes an old log invalid, replay throws and we
+      // fall through to keeping the default new game rather than crashing.
       replay(initialState(seatIds(data.seats)), data.actions);
       this.seats = data.seats;
       this.actions = data.actions;
@@ -185,7 +188,7 @@ class Sandbox {
       this.cursor = data.actions.length;
       this.error = null;
     } catch {
-      /* ignore corrupt/incompatible save */
+      /* corrupt or no-longer-replayable save: leave the fresh game in place */
     }
   }
 }

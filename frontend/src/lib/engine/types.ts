@@ -102,6 +102,10 @@ export interface GameState {
   seq: number;
   round: RoundType;
   phase: string;
+  /** How many stock rounds have started (SR 1, SR 2, ...). */
+  srCount: number;
+  /** How many OR sets have started (the N in OR N.x). */
+  orSet: number;
   /** Index of the priority-deal player. */
   priority: number;
   /** Index of the active player in the turn rotation. */
