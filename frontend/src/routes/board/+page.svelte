@@ -3,7 +3,6 @@
   import { fade, fly } from 'svelte/transition';
   import HexMap from '$lib/components/HexMap.svelte';
   import StockMarket from '$lib/components/StockMarket.svelte';
-  import TrainRoster from '$lib/components/TrainRoster.svelte';
   import CorporationCard from '$lib/components/CorporationCard.svelte';
   import CompanyCard from '$lib/components/CompanyCard.svelte';
   import {
@@ -13,34 +12,48 @@
     STARTING_CASH,
     CERT_LIMIT,
     PHASES,
-    CURRENCY
+    TRAINS,
+    PAR_PRICES,
+    CURRENCY,
+    TITLE
   } from '$lib/data/g1889';
+  import { TILE_MANIFEST } from '$lib/data/map1889';
+  import type { TileColor } from '$lib/data/types';
 
+  // 18xx-style top navigation. Sections we can populate read-only at this stage.
   const tabs = [
     { id: 'map', label: 'Map' },
-    { id: 'market', label: 'Stock' },
-    { id: 'trains', label: 'Trains' },
-    { id: 'corps', label: 'Corps' },
-    { id: 'privates', label: 'Privates' }
+    { id: 'market', label: 'Market' },
+    { id: 'info', label: 'Info' },
+    { id: 'entities', label: 'Entities' },
+    { id: 'tiles', label: 'Tiles' }
   ] as const;
   type TabId = (typeof tabs)[number]['id'];
-
   let active = $state<TabId>('map');
 
   function onKey(e: KeyboardEvent, i: number) {
     if (e.key === 'ArrowRight') active = tabs[(i + 1) % tabs.length].id;
     else if (e.key === 'ArrowLeft') active = tabs[(i - 1 + tabs.length) % tabs.length].id;
   }
+
+  const cash = [...new Set(Object.values(STARTING_CASH))].map((v) => `${CURRENCY}${v}`).join(' / ');
+  const TILE_FILL: Record<TileColor, string> = {
+    white: '#cdcb92',
+    yellow: '#f3cf3e',
+    green: '#7cc36b',
+    brown: '#c69b66',
+    gray: '#aeb7bb',
+    red: '#df6a5c'
+  };
 </script>
 
-<main in:fade={{ duration: 300 }}>
-  <header>
-    <a class="back" href="{base}/">← Trains Party</a>
-    <h1>1889 · board reference</h1>
-    <p class="sub">Read-only static data. Stage 1 of the build.</p>
-  </header>
+<header>
+  <a class="back" href="{base}/">← Trains Party</a>
+  <h1>{TITLE} · Shikoku Railways</h1>
+</header>
 
-  <div class="tabs" role="tablist" aria-label="Board sections">
+<nav class="topnav" aria-label="Board sections">
+  <div role="tablist">
     {#each tabs as t, i (t.id)}
       <button
         role="tab"
@@ -56,45 +69,122 @@
       </button>
     {/each}
   </div>
+</nav>
 
+<main in:fade={{ duration: 200 }}>
   {#key active}
-    <div class="panel" role="tabpanel" id="panel-{active}" aria-labelledby="tab-{active}" in:fly={{ y: 10, duration: 220 }}>
+    <div class="panel" role="tabpanel" id="panel-{active}" aria-labelledby="tab-{active}" in:fly={{ y: 10, duration: 200 }}>
       {#if active === 'map'}
-        <dl class="setup">
-          <div><dt>Bank</dt><dd>{CURRENCY}{BANK_CASH.toLocaleString()}</dd></div>
-          <div><dt>Start cash</dt><dd>{[...new Set(Object.values(STARTING_CASH))].map((v) => `${CURRENCY}${v}`).join(' / ')}</dd></div>
-          <div><dt>Cert limit</dt><dd>{Object.values(CERT_LIMIT).join('·')}</dd></div>
-          <div><dt>Phases</dt><dd>{PHASES.map((p) => p.name).join('→')}</dd></div>
-        </dl>
         <HexMap />
+
       {:else if active === 'market'}
         <h2>Stock market</h2>
         <StockMarket />
-      {:else if active === 'trains'}
-        <h2>Trains</h2>
-        <TrainRoster />
-      {:else if active === 'corps'}
-        <h2>Corporations <span class="count">{CORPORATIONS.length}</span></h2>
-        <div class="cards">
-          {#each CORPORATIONS as corp (corp.sym)}<CorporationCard {corp} />{/each}
+        <p class="legend">
+          <span class="chip par">par</span> par-price cells ·
+          <span class="chip yel">yellow</span> /
+          <span class="chip ora">orange</span> end-game movement zones
+        </p>
+
+      {:else if active === 'info'}
+        <section>
+          <h2>Game info</h2>
+          <table>
+            <tbody>
+              <tr><th>Title</th><td>{TITLE} - History of Shikoku Railways</td></tr>
+              <tr><th>Players</th><td>2 - 6</td></tr>
+              <tr><th>Bank</th><td>{CURRENCY}{BANK_CASH.toLocaleString()}</td></tr>
+              <tr><th>Starting cash</th><td>{cash} (by player count)</td></tr>
+              <tr><th>Certificate limit</th><td>{Object.entries(CERT_LIMIT).map(([p, n]) => `${p}p: ${n}`).join(' · ')}</td></tr>
+              <tr><th>Par prices</th><td>{PAR_PRICES.map((p) => `${CURRENCY}${p}`).join(' · ')}</td></tr>
+              <tr><th>Capitalization</th><td>Full</td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section>
+          <h2>Phases</h2>
+          <div class="scroll">
+            <table>
+              <thead>
+                <tr><th>Phase</th><th>On train</th><th>Tiles</th><th>ORs</th><th>Train limit</th><th>Buy privates</th></tr>
+              </thead>
+              <tbody>
+                {#each PHASES as p (p.name)}
+                  <tr>
+                    <td><strong>{p.name}</strong></td>
+                    <td>{p.on ?? 'start'}</td>
+                    <td>{p.tiles.join(', ')}</td>
+                    <td>{p.operatingRounds}</td>
+                    <td>{p.trainLimit}</td>
+                    <td>{p.canBuyCompanies ? 'yes' : '-'}</td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section>
+          <h2>Trains</h2>
+          <div class="scroll">
+            <table>
+              <thead>
+                <tr><th>Train</th><th>Cost</th><th>Qty</th><th>Notes</th></tr>
+              </thead>
+              <tbody>
+                {#each TRAINS as t (t.name)}
+                  <tr>
+                    <td><strong>{t.name}</strong></td>
+                    <td>{CURRENCY}{t.price}</td>
+                    <td>{t.num === -1 ? '∞' : t.num}</td>
+                    <td>
+                      {#if t.rustsOn}rusts when {t.rustsOn} bought{:else if t.closesCompanies}closes private companies{:else if t.availableOn}available in phase {t.availableOn}{:else}-{/if}
+                    </td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+      {:else if active === 'entities'}
+        <section>
+          <h2>Corporations <span class="count">{CORPORATIONS.length}</span></h2>
+          <div class="cards">
+            {#each CORPORATIONS as corp (corp.sym)}<CorporationCard {corp} />{/each}
+          </div>
+        </section>
+        <section>
+          <h2>Private companies <span class="count">{COMPANIES.length}</span></h2>
+          <div class="cards">
+            {#each COMPANIES as company (company.sym)}<CompanyCard {company} />{/each}
+          </div>
+        </section>
+
+      {:else if active === 'tiles'}
+        <h2>Tile manifest <span class="count">{TILE_MANIFEST.reduce((n, t) => n + t.count, 0)} tiles</span></h2>
+        <div class="tiles">
+          {#each TILE_MANIFEST as t (t.id)}
+            <div class="tilechip" style:background={t.color ? TILE_FILL[t.color] : 'var(--bg-soft)'} class:plain={!t.color}>
+              <span class="tid">#{t.id}</span>
+              <span class="tcount">×{t.count}</span>
+            </div>
+          {/each}
         </div>
-      {:else if active === 'privates'}
-        <h2>Private companies <span class="count">{COMPANIES.length}</span></h2>
-        <div class="cards">
-          {#each COMPANIES as company (company.sym)}<CompanyCard {company} />{/each}
-        </div>
+        <p class="legend">Counts of each upgrade tile available. Tile artwork arrives with track-laying (Stage 3).</p>
       {/if}
     </div>
   {/key}
 
-  <footer>Data transcribed from the reference 18xx engine. No rules logic yet.</footer>
+  <footer>Static reference. No rules logic yet.</footer>
 </main>
 
 <style>
-  main {
+  header {
     max-width: 1100px;
     margin: 0 auto;
-    padding: 1.25rem 1rem 4rem;
+    padding: 1.1rem 1rem 0;
   }
   .back {
     font-size: 0.85rem;
@@ -105,54 +195,64 @@
     color: var(--accent);
   }
   h1 {
-    font-size: clamp(1.6rem, 5vw, 2.4rem);
-    margin: 0.4rem 0 0.2rem;
+    font-size: clamp(1.4rem, 4vw, 2rem);
+    margin: 0.3rem 0 0;
     color: var(--rail);
   }
-  .sub {
-    color: var(--muted);
-    margin: 0;
-    font-size: 0.88rem;
-  }
-  .tabs {
+
+  /* 18xx-style horizontal text nav */
+  .topnav {
     position: sticky;
     top: 0;
-    z-index: 5;
+    z-index: 6;
+    background: rgba(15, 20, 25, 0.92);
+    backdrop-filter: blur(6px);
+    border-bottom: 2px solid var(--accent);
+    margin-top: 0.8rem;
+  }
+  .topnav div[role='tablist'] {
+    max-width: 1100px;
+    margin: 0 auto;
     display: flex;
-    gap: 0.3rem;
-    margin: 1.1rem 0 1.2rem;
-    padding: 0.3rem;
-    border-radius: 999px;
-    background: var(--bg-soft);
-    border: 1px solid var(--line);
+    gap: 0.2rem;
+    padding: 0 0.6rem;
     overflow-x: auto;
     scrollbar-width: none;
   }
-  .tabs::-webkit-scrollbar {
+  .topnav div[role='tablist']::-webkit-scrollbar {
     display: none;
   }
-  .tabs button {
-    flex: 1 0 auto;
-    min-height: 40px;
-    padding: 0.45rem 1rem;
+  .topnav button {
+    flex: 0 0 auto;
+    min-height: 44px;
+    padding: 0.6rem 0.9rem;
     border: none;
-    border-radius: 999px;
     background: transparent;
     color: var(--muted);
-    font: 600 0.92rem ui-sans-serif, sans-serif;
+    font: 600 0.98rem ui-sans-serif, sans-serif;
     cursor: pointer;
-    white-space: nowrap;
-    transition: background 140ms ease, color 140ms ease;
+    border-bottom: 3px solid transparent;
+    margin-bottom: -2px;
+    transition: color 120ms ease, border-color 120ms ease;
   }
-  .tabs button:hover {
+  .topnav button:hover {
     color: var(--ink);
   }
-  .tabs button.selected {
-    background: var(--rail);
-    color: #1b1b1b;
+  .topnav button.selected {
+    color: var(--rail);
+    border-bottom-color: var(--rail);
+  }
+
+  main {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 1.2rem 1rem 4rem;
   }
   .panel {
-    min-height: 40vh;
+    min-height: 50vh;
+  }
+  section {
+    margin-bottom: 1.8rem;
   }
   h2 {
     font-size: 1.05rem;
@@ -175,26 +275,91 @@
     grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
     gap: 0.8rem;
   }
-  .setup {
-    margin: 0 0 1rem;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem 1.2rem;
+  .scroll {
+    overflow-x: auto;
   }
-  .setup div {
-    display: flex;
-    gap: 0.4rem;
-    font-size: 0.85rem;
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.88rem;
   }
-  .setup dt {
+  th,
+  td {
+    text-align: left;
+    padding: 0.45rem 0.7rem;
+    border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+  }
+  thead th {
     color: var(--muted);
-  }
-  .setup dd {
-    margin: 0;
     font-weight: 600;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  tbody th {
+    color: var(--muted);
+    font-weight: 500;
+    width: 11rem;
+  }
+  td strong {
+    color: var(--rail);
+  }
+  .tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+    gap: 0.5rem;
+  }
+  .tilechip {
+    border-radius: 9px;
+    border: 1px solid var(--line);
+    padding: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.15rem;
+    color: #1b1b1b;
+  }
+  .tilechip.plain {
+    color: var(--ink);
+  }
+  .tid {
+    font: 700 0.85rem ui-monospace, monospace;
+  }
+  .tcount {
+    font-size: 0.72rem;
+    opacity: 0.85;
+  }
+  .legend {
+    color: var(--muted);
+    font-size: 0.8rem;
+    margin-top: 0.8rem;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+  }
+  .chip {
+    display: inline-block;
+    padding: 0.05rem 0.4rem;
+    border-radius: 4px;
+    color: #1b1b1b;
+    font-weight: 600;
+    font-size: 0.72rem;
+  }
+  .chip.par {
+    background: #f3efe4;
+    outline: 2px solid #1b2b3a;
+    outline-offset: -2px;
+  }
+  .chip.yel {
+    background: #f5d23f;
+  }
+  .chip.ora {
+    background: #e8923a;
   }
   footer {
-    margin-top: 2.5rem;
+    margin-top: 2rem;
     color: var(--muted);
     font-size: 0.8rem;
     text-align: center;

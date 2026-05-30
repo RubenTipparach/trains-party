@@ -28,11 +28,9 @@
   </div>
 
   <footer class="foot" in:fade={{ duration: 600, delay: 700 }}>
-    <span>Stage 0 · scaffold</span>
+    <span>1889 · Shikoku Railways</span>
     <span class="dot">•</span>
     <span>build {BUILD_SHA}</span>
-    <span class="dot">•</span>
-    <a href="https://github.com/tobymao/18xx" rel="noreferrer">reference engine</a>
   </footer>
 </main>
 

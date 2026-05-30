@@ -91,6 +91,29 @@
   }
   const OFFBOARD_TIER: Record<string, string> = { yellow: '#8a6b18', brown: '#5a3a1b', diesel: '#222' };
 
+  // Brighter, more saturated hue shown when a tile is hovered.
+  const HOVER: Record<TileColor, string> = {
+    white: '#dad873',
+    yellow: '#ffe24a',
+    green: '#8fe673',
+    brown: '#e3ad6f',
+    gray: '#c8d2d8',
+    red: '#ff7c6d'
+  };
+
+  // Place a tile label (H/T/K) slightly off-centre toward a free edge so it
+  // never sits on the city icon or the preprinted track.
+  function labelPos(h: HexDef): { x: number; y: number } {
+    const used = new Set<number>();
+    for (const p of h.paths) {
+      if (typeof p.a === 'number') used.add(p.a);
+      if (typeof p.b === 'number') used.add(p.b);
+    }
+    const e = [3, 0, 4, 1, 5, 2].find((d) => !used.has(d)) ?? 3;
+    const m = edgeMidpoint(0, 0, e);
+    return { x: m.x * 0.58, y: m.y * 0.58 };
+  }
+
   // Ripple marks scattered across one pattern tile: [x, y, colour].
   const RIPPLES: Array<[number, number, string]> = [
     [4, 6, '#9bd6d1'],
@@ -102,11 +125,22 @@
 
   // --- hover / tap tooltip ---------------------------------------------------
   let wrap: HTMLDivElement;
-  let tip = $state<{ coord: string; name?: string; x: number; y: number } | null>(null);
+  let tip = $state<{ coord: string; name?: string; x: number; y: number; hx: number; hy: number } | null>(null);
 
   function show(h: Placed, e: PointerEvent) {
     const r = wrap.getBoundingClientRect();
-    tip = { coord: h.coord, name: h.name, x: e.clientX - r.left, y: e.clientY - r.top };
+    // Position the label at the true hex centre (local 0,0 of the group),
+    // mapped to screen via the element's CTM.
+    const el = e.currentTarget as SVGGraphicsElement;
+    const ctm = el.getScreenCTM();
+    let x = e.clientX - r.left;
+    let y = e.clientY - r.top;
+    if (ctm) {
+      const sp = new DOMPoint(0, 0).matrixTransform(ctm);
+      x = sp.x - r.left;
+      y = sp.y - r.top;
+    }
+    tip = { coord: h.coord, name: h.name, x, y, hx: h.cx, hy: h.cy };
   }
   function hide() {
     tip = null;
@@ -152,6 +186,7 @@
 
       {#each placed as h (h.coord)}
         <g
+          class="hex"
           transform="translate({h.cx} {h.cy})"
           role="button"
           tabindex="-1"
@@ -164,7 +199,7 @@
             else show(h, e);
           }}
         >
-          <polygon points={poly} fill={FILL[h.color]} stroke="#4a4332" stroke-width="1" class:sel={tip?.coord === h.coord} />
+          <polygon points={poly} class="tile" fill={tip?.coord === h.coord ? HOVER[h.color] : FILL[h.color]} stroke="#4a4332" stroke-width="1" />
 
           {#if h.terrain?.includes('water')}
             <polygon points={poly} fill="#2f6f96" opacity="0.32" />
@@ -230,10 +265,20 @@
             <text class="tok" y="3.2" text-anchor="middle">{corp.sym}</text>
           {/if}
 
-          {#if h.label}<text class="label" x={APOTHEM - 9} y={-APOTHEM + 17} text-anchor="middle">{h.label}</text>{/if}
+          {#if h.label}
+            {@const lp = labelPos(h)}
+            <text class="label" x={lp.x} y={lp.y + 4} text-anchor="middle">{h.label}</text>
+          {/if}
           {#if h.name}<text class="name" y={APOTHEM - 6} text-anchor="middle">{h.name}</text>{/if}
         </g>
       {/each}
+
+      <!-- hex-shaped selection ring drawn on top of all tiles -->
+      {#if tip}
+        <g transform="translate({tip.hx} {tip.hy})">
+          <polygon points={poly} class="selring" />
+        </g>
+      {/if}
     </svg>
   </div>
 
@@ -257,6 +302,22 @@
     width: 100%;
     height: auto;
     display: block;
+  }
+  .hex {
+    cursor: pointer;
+  }
+  .hex:focus,
+  .hex:focus-visible {
+    outline: none;
+  }
+  .tile {
+    transition: fill 130ms ease;
+  }
+  .selring {
+    fill: none;
+    stroke: #15252f;
+    stroke-width: 3;
+    pointer-events: none;
   }
   .axis {
     font: 700 11px ui-monospace, monospace;
@@ -282,10 +343,6 @@
     stroke: #cfeaff;
     stroke-width: 1;
     opacity: 0.5;
-  }
-  polygon.sel {
-    stroke: #1b2b3a;
-    stroke-width: 2.5;
   }
   .city {
     fill: #fbfbf7;
@@ -327,7 +384,7 @@
   }
   .tip {
     position: absolute;
-    transform: translate(-50%, -135%);
+    transform: translate(-50%, -50%);
     background: #11202c;
     color: #fff;
     border: 1px solid var(--rail-deep, #c9971f);

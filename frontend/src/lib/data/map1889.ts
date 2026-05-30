@@ -141,3 +141,60 @@ export const HEXES: HexDef[] = (Object.keys(HEXES_RAW) as TileColor[]).flatMap((
 
 /** Lookup by coordinate. */
 export const HEX_BY_COORD: Record<string, HexDef> = Object.fromEntries(HEXES.map((h) => [h.coord, h]));
+
+/** Available tile manifest (id -> count), from the reference TILES hash. */
+export interface TileManifestEntry {
+  id: string;
+  count: number;
+  /** Colour only where the source states it (the beginner tiles). */
+  color?: TileColor;
+}
+
+export const TILE_MANIFEST: TileManifestEntry[] = [
+  { id: '3', count: 2 },
+  { id: '5', count: 2 },
+  { id: '6', count: 2 },
+  { id: '7', count: 2 },
+  { id: '8', count: 5 },
+  { id: '9', count: 5 },
+  { id: '12', count: 1 },
+  { id: '13', count: 1 },
+  { id: '14', count: 1 },
+  { id: '15', count: 3 },
+  { id: '16', count: 1 },
+  { id: '19', count: 1 },
+  { id: '20', count: 1 },
+  { id: '23', count: 2 },
+  { id: '24', count: 2 },
+  { id: '25', count: 1 },
+  { id: '26', count: 1 },
+  { id: '27', count: 1 },
+  { id: '28', count: 1 },
+  { id: '29', count: 1 },
+  { id: '39', count: 1 },
+  { id: '40', count: 1 },
+  { id: '41', count: 1 },
+  { id: '42', count: 1 },
+  { id: '45', count: 1 },
+  { id: '46', count: 1 },
+  { id: '47', count: 1 },
+  { id: '57', count: 2 },
+  { id: '58', count: 3 },
+  { id: '205', count: 1 },
+  { id: '206', count: 1 },
+  { id: '437', count: 1 },
+  { id: '438', count: 1 },
+  { id: '439', count: 1 },
+  { id: '440', count: 1 },
+  { id: '448', count: 4 },
+  { id: '465', count: 1 },
+  { id: '466', count: 1 },
+  { id: '492', count: 1 },
+  { id: '611', count: 2 },
+  { id: 'Beg6', count: 2, color: 'yellow' },
+  { id: 'Beg7', count: 1, color: 'yellow' },
+  { id: 'Beg8', count: 1, color: 'yellow' },
+  { id: 'Beg9', count: 1, color: 'yellow' },
+  { id: 'Beg23', count: 1, color: 'green' },
+  { id: 'Beg24', count: 1, color: 'green' }
+];
