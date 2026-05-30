@@ -24,8 +24,9 @@ function cashOf(s: GameState, id: string): number {
   return s.players.find((p) => p.id === id)?.cash ?? 0;
 }
 
-function botAuction(s: GameState, level: BotLevel): GameAction {
+function botAuction(s: GameState, level: BotLevel): GameAction | null {
   const av = auctionView(s);
+  if (!av) return null;
   const me = av.active;
 
   if (s.auction!.auctioning) {

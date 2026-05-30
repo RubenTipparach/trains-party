@@ -28,6 +28,7 @@ export interface TileDef {
 const CODES: Record<string, [TileColor, string]> = {
   // yellow
   '3': ['yellow', 'town=revenue:10;path=a:0,b:_0;path=a:_0,b:1'],
+  '4': ['yellow', 'town=revenue:10;path=a:0,b:_0;path=a:_0,b:3'],
   '5': ['yellow', 'city=revenue:20;path=a:0,b:_0;path=a:1,b:_0'],
   '6': ['yellow', 'city=revenue:20;path=a:0,b:_0;path=a:2,b:_0'],
   '7': ['yellow', 'path=a:0,b:1'],

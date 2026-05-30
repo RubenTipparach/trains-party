@@ -236,8 +236,9 @@ export interface AuctionView {
 }
 
 /** Structured, display-ready snapshot of the auction (bids, committed cash, etc.). */
-export function auctionView(s: GameState): AuctionView {
-  const a = s.auction!;
+export function auctionView(s: GameState): AuctionView | null {
+  const a = s.auction;
+  if (!a) return null;
   const players = s.players.map((p) => {
     const com = committed(s, p.id);
     return { id: p.id, name: p.name, cash: p.cash, committed: com, available: p.cash - com };

@@ -20,6 +20,7 @@
     ownedPrivates(id).reduce((n, sym) => n + (COMPANIES.find((c) => c.sym === sym)?.value ?? 0), 0);
 </script>
 
+{#if av}
 <div class="auction">
   <!-- player summary cards -->
   <div class="players">
@@ -97,6 +98,7 @@
     Pass{av.auctioning ? ` on ${av.auctioning}` : ''}
   </button>
 </div>
+{/if}
 
 <style>
   .players {
