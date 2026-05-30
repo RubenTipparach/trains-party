@@ -177,18 +177,36 @@ class Sandbox {
       if (!raw) return;
       const data = JSON.parse(raw);
       if (!Array.isArray(data?.actions) || !Array.isArray(data?.seats)) return;
-      // The save is the action LOG, so it survives engine updates: keep it as
-      // long as it still replays cleanly (do NOT discard on version mismatch).
-      // If a future engine change makes an old log invalid, replay throws and we
-      // fall through to keeping the default new game rather than crashing.
-      replay(initialState(seatIds(data.seats)), data.actions);
+
+      // The save is the action LOG. Replay DEFENSIVELY: apply actions one by one
+      // and keep the longest prefix that still applies cleanly under the current
+      // engine. This way a rules change that invalidates a late action only
+      // rewinds the game slightly instead of discarding it entirely (which is
+      // what made games "reset after each update").
+      const base = initialState(seatIds(data.seats));
+      const valid: GameAction[] = [];
+      let s = base;
+      for (const action of data.actions as GameAction[]) {
+        try {
+          s = apply(s, action);
+          valid.push(action);
+        } catch {
+          break; // first action the new engine rejects; stop here
+        }
+      }
+      if (valid.length === 0 && data.actions.length > 0) return; // nothing salvageable
+
       this.seats = data.seats;
-      this.actions = data.actions;
+      this.actions = valid;
       this.redoStack = [];
-      this.cursor = data.actions.length;
+      this.cursor = valid.length;
       this.error = null;
+      if (valid.length < data.actions.length) {
+        // Persist the trimmed log so we don't keep re-trimming, and note it.
+        this.persist();
+      }
     } catch {
-      /* corrupt or no-longer-replayable save: leave the fresh game in place */
+      /* corrupt save: leave the fresh game in place */
     }
   }
 }
