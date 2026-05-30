@@ -225,7 +225,7 @@
     </div>
   {/key}
 
-  <footer>1889 · auction, stock, and operating rounds playable. Track laying and route revenue are next.</footer>
+  <footer>1889 · auction, stock and operating rounds with yellow track laying. Tokens, upgrades and route revenue are next.</footer>
 </main>
 
 <style>

@@ -38,7 +38,8 @@ export function initialState(seats: Seat[], rulesVersion: string = RULES_VERSION
     parPrice: null,
     priceRow: null,
     priceCol: null,
-    trains: []
+    trains: [],
+    tokenHexes: []
   }));
 
   const depot = TRAINS.map((t) => ({ name: t.name, remaining: t.num }));
@@ -58,6 +59,7 @@ export function initialState(seats: Seat[], rulesVersion: string = RULES_VERSION
     stock: null,
     or: null,
     depot,
+    tiles: {},
     log: [`Initial auction begins with ${available.length} private companies`],
     finished: false
   };

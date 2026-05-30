@@ -48,6 +48,8 @@ export interface CorporationState {
   priceCol: number | null;
   /** Train names owned. */
   trains: string[];
+  /** Hex coordinates where this corporation has a station token. */
+  tokenHexes: string[];
 }
 
 export interface DepotTrain {
@@ -62,7 +64,7 @@ export interface ORState {
   /** Index of the corporation currently operating. */
   index: number;
   /** Step within the corporation's turn. */
-  step: 'run' | 'trains';
+  step: 'track' | 'run' | 'trains';
   /** Which operating round in the current set (1-based). */
   orNumber: number;
   /** Total operating rounds in this set (phase-dependent). */
@@ -113,6 +115,8 @@ export interface GameState {
   or: ORState | null;
   /** Trains remaining in the bank by type. */
   depot: DepotTrain[];
+  /** Laid tiles by hex coordinate. */
+  tiles: Record<string, { id: string; rotation: number }>;
   log: string[];
   finished: boolean;
 }
@@ -122,6 +126,7 @@ export type GameAction =
   | { type: 'par'; player: string; corp: string; price: number }
   | { type: 'buy'; player: string; corp: string; from: 'ipo' | 'pool' }
   | { type: 'sell'; player: string; corp: string; count: number }
+  | { type: 'lay_tile'; player: string; corp: string; hex: string; tile: string; rotation: number }
   | { type: 'run'; player: string; corp: string; revenue: number; dividend: 'pay' | 'withhold' }
   | { type: 'buy_train'; player: string; corp: string; train: string }
   | { type: 'pass'; player: string };

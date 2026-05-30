@@ -1,10 +1,11 @@
 <script lang="ts">
   import { game } from '$lib/game/sandbox.svelte';
-  import { operatingView } from '$lib/engine';
+  import { operatingView, trackLays } from '$lib/engine';
   import { TRAINS, MARKET, CURRENCY } from '$lib/data/g1889';
   import type { CorporationState } from '$lib/engine';
 
   const v = $derived(operatingView(game.state));
+  const lays = $derived(trackLays(game.state));
   let revenue = $state(0);
 
   const corpOf = (sym: string) => game.state.corporations.find((c) => c.sym === sym)!;
@@ -42,7 +43,24 @@
         <div class="stat"><span>Trains</span><b>{c.trains.join(', ') || 'none'}</b></div>
       </div>
 
-      {#if v.step === 'run'}
+      {#if v.step === 'track'}
+        <div class="act track">
+          <span class="tlabel">Lay track <em>{lays.length} legal</em></span>
+          <button class="ghost" onclick={() => game.act({ type: 'pass', player: c.president! })}>Skip track</button>
+        </div>
+        {#if lays.length}
+          <div class="laylist">
+            {#each lays as l (l.hex + l.tile + l.rotation)}
+              <button
+                onclick={() => game.act({ type: 'lay_tile', player: c.president!, corp: c.sym, hex: l.hex, tile: l.tile, rotation: l.rotation })}
+              >
+                #{l.tile} → {l.hex}{l.cost ? ` (${CURRENCY}${l.cost})` : ''}
+              </button>
+            {/each}
+          </div>
+        {/if}
+        <p class="hint">Lay one yellow tile connected to your network, or skip. Tokens, upgrades and routes come next.</p>
+      {:else if v.step === 'run'}
         <div class="act">
           <label>Revenue
             <input type="number" min="0" step="10" bind:value={revenue} />
@@ -184,6 +202,35 @@
     margin: 0 0.8rem 0.7rem;
     font-size: 0.74rem;
     color: var(--muted);
+  }
+  .track .tlabel {
+    font-size: 0.85rem;
+    color: var(--ink);
+  }
+  .track .tlabel em {
+    color: var(--muted);
+    font-style: normal;
+    font-size: 0.75rem;
+  }
+  .laylist {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    padding: 0 0.8rem 0.6rem;
+    max-height: 140px;
+    overflow-y: auto;
+  }
+  .laylist button {
+    padding: 0.3rem 0.55rem;
+    border-radius: 7px;
+    border: 1px solid var(--line);
+    background: var(--bg);
+    color: var(--ink);
+    font: 600 0.75rem ui-monospace, monospace;
+    cursor: pointer;
+  }
+  .laylist button:hover {
+    border-color: var(--rail-deep);
   }
   .grid {
     display: grid;

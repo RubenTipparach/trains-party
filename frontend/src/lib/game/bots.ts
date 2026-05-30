@@ -9,6 +9,7 @@ import {
   maxBidFor,
   stockLegalActions,
   operatingView,
+  trackLays,
   type GameAction,
   type GameState
 } from '$lib/engine';
@@ -84,6 +85,15 @@ function botOperating(s: GameState): GameAction | null {
   if (!v || !v.president) return null;
   const me = v.president;
   const c = s.corporations.find((x) => x.sym === v.corp)!;
+  if (v.step === 'track') {
+    // Lay a yellow tile (prefer the home hex to open the city), else skip.
+    const lays = trackLays(s);
+    if (lays.length) {
+      const pick = lays.find((l) => l.hex === c.coordinates) ?? lays[0];
+      return { type: 'lay_tile', player: me, corp: v.corp, hex: pick.hex, tile: pick.tile, rotation: pick.rotation };
+    }
+    return { type: 'pass', player: me };
+  }
   if (v.step === 'run') {
     // No route revenue yet (Stage 3b); withhold.
     return { type: 'run', player: me, corp: v.corp, revenue: 0, dividend: 'withhold' };

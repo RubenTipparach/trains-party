@@ -4,6 +4,23 @@
   import { CORPORATIONS } from '$lib/data/g1889';
   import type { HexDef, PathPart, TileColor } from '$lib/data/types';
   import { HEX_SIZE, APOTHEM, hexCenter, hexPolygon, edgeMidpoint } from '$lib/hexgeo';
+  import { game } from '$lib/game/sandbox.svelte';
+  import { TILES, rotatePaths } from '$lib/engine';
+
+  // Laid tiles (track placed during operating rounds).
+  const laid = (coord: string) => game.state.tiles?.[coord];
+  const laidDef = (coord: string) => {
+    const t = laid(coord);
+    return t ? TILES[t.id] : null;
+  };
+  function laidPaths(coord: string): PathPart[] {
+    const t = laid(coord);
+    if (!t) return [];
+    return rotatePaths(TILES[t.id], t.rotation).map((p) => ({
+      a: p.a === 'c' ? 'center' : p.a,
+      b: p.b === 'c' ? 'center' : p.b
+    }));
+  }
 
   // Flat palette echoing the published 1889 board (no per-tile 3D shading).
   const FILL: Record<TileColor, string> = {
@@ -293,7 +310,7 @@
           onpointerenter={(e) => e.pointerType === 'mouse' && pointers.size === 0 && show(e.currentTarget, h.coord, h.name)}
           onpointerleave={(e) => e.pointerType === 'mouse' && !dragging && hide()}
         >
-          <polygon points={poly} class="tile" fill={tip?.coord === h.coord ? HOVER[h.color] : FILL[h.color]} stroke="#4a4332" stroke-width="1" />
+          <polygon points={poly} class="tile" fill={laid(h.coord) ? '#f3cf3e' : tip?.coord === h.coord ? HOVER[h.color] : FILL[h.color]} stroke="#4a4332" stroke-width="1" />
 
           {#if h.terrain?.includes('water')}
             <polygon points={poly} fill="#2f6f96" opacity="0.32" />
@@ -323,28 +340,47 @@
             {/each}
           </g>
 
-          {#each h.towns as t}
-            <rect x="-9" y="-4" width="18" height="8" rx="2" class="town" transform="rotate(30)" />
-            {#if t.revenue > 0}<text class="rev" y="-15" text-anchor="middle">{t.revenue}</text>{/if}
-          {/each}
-
-          {#each h.cities as c}
-            {#if c.slots > 1}
-              <rect x={-12 * c.slots} y="-13" width={24 * c.slots} height="26" rx="13" class="city" />
-            {:else}
+          {#if laidDef(h.coord)}
+            {@const def = laidDef(h.coord)}
+            <g clip-path="url(#hexclip)">
+              {#each laidPaths(h.coord) as p}
+                <path d={pathD(p)} class="ties" />
+                <path d={pathD(p)} class="rail" />
+              {/each}
+            </g>
+            {#if def && def.cities > 0}
               <circle r="13" class="city" />
+              {#if def.revenue > 0}<text class="rev" y="-17" text-anchor="middle">{def.revenue}</text>{/if}
+            {:else if def && def.towns > 0}
+              <rect x="-9" y="-4" width="18" height="8" rx="2" class="town" transform="rotate(30)" />
+              {#if def.revenue > 0}<text class="rev" y="-15" text-anchor="middle">{def.revenue}</text>{/if}
             {/if}
-            {#if c.revenue > 0}<text class="rev" y="-17" text-anchor="middle">{c.revenue}</text>{/if}
-            {#if c.slots === 1 && !HOME.has(h.coord)}
-              <g clip-path="url(#cityclip)">
-                {#each skyline(h.coord) as b}
-                  <rect x={b.x} y={9 - b.h} width={b.w} height={b.h} fill="#43566a" />
-                  {#if b.lit}<rect x={b.x + b.w / 2 - 0.5} y={11 - b.h} width="1" height="1" fill="#ffd76a" />{/if}
-                {/each}
-                <rect x="-13" y="9" width="26" height="4" fill="#36475a" />
-              </g>
-            {/if}
-          {/each}
+          {/if}
+
+          {#if !laid(h.coord)}
+            {#each h.towns as t}
+              <rect x="-9" y="-4" width="18" height="8" rx="2" class="town" transform="rotate(30)" />
+              {#if t.revenue > 0}<text class="rev" y="-15" text-anchor="middle">{t.revenue}</text>{/if}
+            {/each}
+
+            {#each h.cities as c}
+              {#if c.slots > 1}
+                <rect x={-12 * c.slots} y="-13" width={24 * c.slots} height="26" rx="13" class="city" />
+              {:else}
+                <circle r="13" class="city" />
+              {/if}
+              {#if c.revenue > 0}<text class="rev" y="-17" text-anchor="middle">{c.revenue}</text>{/if}
+              {#if c.slots === 1 && !HOME.has(h.coord)}
+                <g clip-path="url(#cityclip)">
+                  {#each skyline(h.coord) as b}
+                    <rect x={b.x} y={9 - b.h} width={b.w} height={b.h} fill="#43566a" />
+                    {#if b.lit}<rect x={b.x + b.w / 2 - 0.5} y={11 - b.h} width="1" height="1" fill="#ffd76a" />{/if}
+                  {/each}
+                  <rect x="-13" y="9" width="26" height="4" fill="#36475a" />
+                </g>
+              {/if}
+            {/each}
+          {/if}
 
           {#if h.offboard}
             {#each Object.entries(h.offboard.revenue) as [tier, val], i}

@@ -108,6 +108,7 @@ function maybeFloat(s: GameState, c: CorporationState): void {
   if (soldFromIpo >= 50) {
     c.floated = true;
     c.cash = 10 * (c.parPrice ?? 0); // full capitalization
+    if (c.tokenHexes.length === 0) c.tokenHexes.push(c.coordinates); // place the home token
     s.log.push(`${c.sym} floats; treasury ${c.cash}`);
   }
 }

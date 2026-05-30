@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { initialState } from './setup';
-import { apply, replay, activePlayer, legalActions } from './index';
+import { apply, replay, activePlayer, legalActions, trackLays } from './index';
 import type { GameAction, GameState } from './types';
 
 const seats3 = [
@@ -264,8 +264,32 @@ describe('operating round', () => {
 
   it('rejects buying out of depot order', () => {
     let s = toOperatingRound();
+    s = apply(s, { type: 'pass', player: 'p1' }); // skip track
     s = apply(s, { type: 'run', player: 'p1', corp: 'AR', revenue: 0, dividend: 'withhold' });
     expect(() => apply(s, { type: 'buy_train', player: 'p1', corp: 'AR', train: '3' })).toThrow();
+  });
+});
+
+describe('track laying', () => {
+  it('places the home token on float and lays a yellow city tile on the home hex', () => {
+    let s = toOperatingRound(); // AR floated at K8, operating, track step
+    expect(corp(s, 'AR').tokenHexes).toEqual(['K8']); // home token placed on float
+    expect(s.or!.step).toBe('track');
+    const lays = trackLays(s);
+    // home hex K8 is a city -> yellow city tiles are legal there
+    const home = lays.filter((l) => l.hex === 'K8');
+    expect(home.length).toBeGreaterThan(0);
+    expect(home.every((l) => ['5', '6', '57'].includes(l.tile))).toBe(true);
+    const lay = home[0];
+    s = apply(s, { type: 'lay_tile', player: 'p1', corp: 'AR', hex: lay.hex, tile: lay.tile, rotation: lay.rotation });
+    expect(s.tiles['K8']).toEqual({ id: lay.tile, rotation: lay.rotation });
+    expect(s.or!.step).toBe('run'); // one tile per OR -> advance to run
+  });
+
+  it('rejects an illegal lay disconnected from the network', () => {
+    const s = toOperatingRound();
+    // B3 (Yawatahama, gray) is far from AR's K8 token and not white -> illegal
+    expect(() => apply(s, { type: 'lay_tile', player: 'p1', corp: 'AR', hex: 'B3', tile: '9', rotation: 0 })).toThrow();
   });
 });
 

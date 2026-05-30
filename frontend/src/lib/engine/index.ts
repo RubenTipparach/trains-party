@@ -22,8 +22,12 @@ export * from './types';
 export { minBid, auctionActivePlayer, auctionView, maxBidFor } from './auction';
 export type { AuctionView, AuctionCompanyView, AuctionPlayerView } from './auction';
 export { stockLegalActions } from './stock';
-export { operatingView, operatingActivePlayer } from './operating';
+export { operatingView, operatingActivePlayer, trackLays } from './operating';
 export type { OperatingView } from './operating';
+export { legalLays, neighbor } from './track';
+export type { TileLay } from './track';
+export { TILES, rotatePaths } from './tiles';
+export type { TileDef } from './tiles';
 export { playerValue, playerLiquidity } from './metrics';
 
 /** Apply one action, returning the next state. Pure: the input is not mutated. */
