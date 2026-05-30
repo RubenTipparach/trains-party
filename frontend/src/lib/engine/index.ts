@@ -18,7 +18,8 @@ import { applyStock } from './stock';
 export { initialState } from './setup';
 export type { Seat } from './setup';
 export * from './types';
-export { minBid, auctionActivePlayer } from './auction';
+export { minBid, auctionActivePlayer, auctionView, maxBidFor } from './auction';
+export type { AuctionView, AuctionCompanyView, AuctionPlayerView } from './auction';
 export { stockLegalActions } from './stock';
 
 /** Apply one action, returning the next state. Pure: the input is not mutated. */

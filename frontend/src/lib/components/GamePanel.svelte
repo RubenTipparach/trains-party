@@ -1,8 +1,8 @@
 <script lang="ts">
   import { game } from '$lib/game/sandbox.svelte';
-  import { legalActions } from '$lib/engine';
   import { stockLegalActions } from '$lib/engine';
-  import { PHASES, PAR_PRICES, CORPORATIONS, MARKET, CURRENCY } from '$lib/data/g1889';
+  import AuctionPanel from './AuctionPanel.svelte';
+  import { PHASES, PAR_PRICES, MARKET, CURRENCY } from '$lib/data/g1889';
 
   const SEAT = ['#f5c542', '#3fb6a8', '#e0655c', '#9b8cf0', '#7cc36b', '#e8923a'];
   const seatColor = (id: string) => {
@@ -57,22 +57,12 @@
   {#if game.error}<p class="err">{game.error}</p>{/if}
 
   <!-- actions -->
-  <div class="actions">
-    {#if game.state.round === 'auction'}
-      {#each legalActions(game.state) as a}
-        {#if a.type === 'pass'}
-          <button class="pass" onclick={() => game.act({ type: 'pass', player: a.player })}>Pass</button>
-        {:else if a.buy}
-          <button onclick={() => game.act({ type: 'bid', player: a.player, company: a.company!, price: a.min! })}>
-            Buy {a.company} ({CURRENCY}{a.min})
-          </button>
-        {:else}
-          <button class="ghost" onclick={() => game.act({ type: 'bid', player: a.player, company: a.company!, price: a.min! })}>
-            Bid {a.company} ({CURRENCY}{a.min})
-          </button>
-        {/if}
-      {/each}
-    {:else if game.state.round === 'stock'}
+  {#if game.state.round === 'auction'}
+    <AuctionPanel />
+    <div class="actions"><button class="reset" onclick={() => game.reset()}>Reset game</button></div>
+  {:else}
+    <div class="actions">
+    {#if game.state.round === 'stock'}
       {@const sl = stockLegalActions(game.state)}
       <div class="par-row">
         <label>Par
@@ -102,7 +92,8 @@
       <p class="muted">Operating round actions arrive in Stage 3.</p>
     {/if}
     <button class="reset" onclick={() => game.reset()}>Reset game</button>
-  </div>
+    </div>
+  {/if}
 
   <!-- log -->
   <div class="log">

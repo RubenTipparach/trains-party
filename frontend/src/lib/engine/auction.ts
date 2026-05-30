@@ -202,3 +202,59 @@ export function applyAuction(s: GameState, action: GameAction): void {
     throw new GameError(`unsupported auction action`);
   }
 }
+
+export interface AuctionBidView {
+  player: string;
+  price: number;
+}
+export interface AuctionCompanyView {
+  sym: string;
+  value: number;
+  revenue: number;
+  discount: number;
+  minBid: number;
+  buyable: boolean;
+  inAuction: boolean;
+  bids: AuctionBidView[];
+}
+export interface AuctionPlayerView {
+  id: string;
+  name: string;
+  cash: number;
+  committed: number;
+  available: number;
+}
+export interface AuctionView {
+  active: string;
+  auctioning: string | null;
+  companies: AuctionCompanyView[];
+  players: AuctionPlayerView[];
+}
+
+/** Structured, display-ready snapshot of the auction (bids, committed cash, etc.). */
+export function auctionView(s: GameState): AuctionView {
+  const a = s.auction!;
+  const players = s.players.map((p) => {
+    const com = committed(s, p.id);
+    return { id: p.id, name: p.name, cash: p.cash, committed: com, available: p.cash - com };
+  });
+  const companies = a.available.map((sym) => {
+    const c = company(s, sym);
+    return {
+      sym,
+      value: c.value,
+      revenue: c.revenue,
+      discount: c.discount,
+      minBid: minBid(s, sym),
+      buyable: mayPurchase(a, sym),
+      inAuction: a.auctioning === sym,
+      bids: (a.bids[sym] ?? []).map((b) => ({ player: b.player, price: b.price }))
+    };
+  });
+  return { active: auctionActivePlayer(s), auctioning: a.auctioning, companies, players };
+}
+
+/** Max a player could bid on a company (cash minus other commitments). */
+export function maxBidFor(s: GameState, player: string, sym: string): number {
+  return maxBid(s, player, sym);
+}
