@@ -150,14 +150,15 @@
           <div class="scroll">
             <table>
               <thead>
-                <tr><th>Type</th><th>Price</th><th>Count</th><th>Rusts</th><th>Upgrade discount</th><th>Available</th></tr>
+                <tr><th>Type</th><th>Price</th><th>Available</th><th>Rusts</th><th>Upgrade discount</th><th>Phase</th></tr>
               </thead>
               <tbody>
                 {#each TRAINS as t (t.name)}
+                  {@const left = game.state.depot.find((d) => d.name === t.name)?.remaining ?? t.num}
                   <tr>
                     <td><strong>{t.name}</strong></td>
                     <td>{CURRENCY}{t.price}</td>
-                    <td>{t.num === -1 ? '∞' : t.num}</td>
+                    <td>{t.num === -1 ? (left === -1 ? '∞' : left) : `${left}/${t.num}`}</td>
                     <td>{rustsWhenBought(t.name) ?? '-'}</td>
                     <td>{t.discount ? `${Object.keys(t.discount).join(', ')} → ${CURRENCY}${Object.values(t.discount)[0]}` : '-'}</td>
                     <td>{t.availableOn ? `phase ${t.availableOn}` : '-'}</td>
