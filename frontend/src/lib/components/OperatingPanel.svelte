@@ -1,13 +1,17 @@
 <script lang="ts">
   import { game } from '$lib/game/sandbox.svelte';
   import { operatingView, trackLays } from '$lib/engine';
-  import { TRAINS, MARKET, CURRENCY } from '$lib/data/g1889';
+  import { TRAINS, MARKET, CURRENCY, COMPANIES } from '$lib/data/g1889';
   import type { CorporationState } from '$lib/engine';
   import HexMap from './HexMap.svelte';
+  import PrivateChip from './PrivateChip.svelte';
 
   const v = $derived(operatingView(game.state));
   const lays = $derived(trackLays(game.state));
   let revenue = $state(0);
+
+  const SEAT = ['#f5c542', '#3fb6a8', '#e0655c', '#9b8cf0', '#7cc36b', '#e8923a'];
+  const seatColor = (id: string) => SEAT[game.state.players.findIndex((p) => p.id === id) % SEAT.length];
 
   const corpOf = (sym: string) => game.state.corporations.find((c) => c.sym === sym)!;
   function priceOf(c: CorporationState): number | null {
@@ -16,6 +20,25 @@
   }
   const trainCost = (name: string) => TRAINS.find((t) => t.name === name)?.price ?? 0;
   const pname = (id: string | null) => (id ? game.state.players.find((p) => p.id === id)?.name ?? id : '-');
+
+  // Shareholders of a corporation (president first), for the OR card table.
+  function holders(c: CorporationState) {
+    return game.state.players
+      .filter((p) => (p.shares[c.sym] ?? 0) > 0)
+      .map((p) => ({ id: p.id, name: p.name, pct: p.shares[c.sym] ?? 0, pres: c.president === p.id }))
+      .sort((a, b) => b.pct - a.pct);
+  }
+  // Private abilities the operating corporation's president may use this turn
+  // (privates with a special ability still owned by that player).
+  function corpAbilities(c: CorporationState) {
+    if (!c.president) return [];
+    const owner = game.state.players.find((p) => p.id === c.president);
+    if (!owner) return [];
+    return owner.companies.filter((sym) => {
+      const def = COMPANIES.find((x) => x.sym === sym);
+      return def && def.desc !== 'No special abilities.';
+    });
+  }
 </script>
 
 {#if v}
@@ -43,13 +66,34 @@
           <div class="curhead" style="background:{c.color}">
             <span class="csym">{c.sym}</span>
             <span class="cname">{c.name}</span>
-            <span class="pres">{pname(c.president)}</span>
+            <span class="order">Order {v.index + 1}/{v.order.length}</span>
           </div>
           <div class="curbody">
             <div class="stat"><span>Treasury</span><b>{CURRENCY}{c.cash}</b></div>
             <div class="stat"><span>Price</span><b>{priceOf(c) !== null ? `${CURRENCY}${priceOf(c)}` : '-'}</b></div>
             <div class="stat"><span>Trains</span><b>{c.trains.join(', ') || 'none'}</b></div>
           </div>
+
+          <table class="sh">
+            <tbody>
+              <tr><td>President</td><td class="r">{pname(c.president)}</td></tr>
+              {#each holders(c) as h (h.id)}
+                <tr>
+                  <td><span class="dot" style="background:{seatColor(h.id)}"></span>{h.name}</td>
+                  <td class="r">{h.pct}%{#if h.pres}<span class="pflag">P</span>{/if}</td>
+                </tr>
+              {/each}
+              {#if c.poolShares > 0}<tr class="muted"><td>Market</td><td class="r">{c.poolShares}%</td></tr>{/if}
+              {#if c.ipoShares > 0}<tr class="muted"><td>IPO</td><td class="r">{c.ipoShares}%</td></tr>{/if}
+            </tbody>
+          </table>
+
+          {#if corpAbilities(c).length}
+            <div class="abilities">
+              <span class="ablabel">Abilities</span>
+              {#each corpAbilities(c) as sym (sym)}<PrivateChip {sym} />{/each}
+            </div>
+          {/if}
 
           {#if v.step === 'track'}
             <div class="act track">
@@ -168,14 +212,57 @@
     font-weight: 600;
     font-size: 0.85rem;
   }
-  .pres {
+  .order {
     margin-left: auto;
-    font-size: 0.78rem;
+    font-size: 0.72rem;
+    opacity: 0.9;
   }
   .curbody {
     display: flex;
     gap: 1.4rem;
     padding: 0.6rem 0.8rem;
+  }
+  .sh {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.76rem;
+    padding: 0 0.8rem;
+  }
+  .sh td {
+    padding: 0.12rem 0.8rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  }
+  .sh td.r {
+    text-align: right;
+    font-weight: 600;
+  }
+  .sh tr.muted td {
+    color: var(--muted);
+  }
+  .dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 0.35rem;
+  }
+  .pflag {
+    color: var(--rail);
+    font-size: 0.66rem;
+    margin-left: 0.25rem;
+  }
+  .abilities {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.5rem 0.8rem 0.2rem;
+  }
+  .ablabel {
+    font-size: 0.68rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
   }
   .stat span {
     display: block;
