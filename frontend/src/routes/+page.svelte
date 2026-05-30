@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { base } from '$app/paths';
   import { fly, fade } from 'svelte/transition';
   import { BUILD_SHA } from '$lib/version';
   import { TRAINS } from '$lib/data/g1889';
@@ -17,10 +18,14 @@
     {#each TRAINS as t, i (t.name)}
       <div class="train" in:fly={{ y: 20, duration: 420, delay: 220 + i * 70 }}>
         <span class="train-name">{t.name}</span>
-        <span class="train-cost">¥{t.cost}</span>
+        <span class="train-cost">¥{t.price}</span>
       </div>
     {/each}
   </section>
+
+  <div class="cta" in:fade={{ duration: 600, delay: 600 }}>
+    <a class="btn" href="{base}/board">View the 1889 board reference →</a>
+  </div>
 
   <footer class="foot" in:fade={{ duration: 600, delay: 700 }}>
     <span>Stage 0 · scaffold</span>
@@ -101,6 +106,26 @@
   .train-cost {
     font-size: 0.8rem;
     color: var(--muted);
+  }
+
+  .cta {
+    margin-top: 2.5rem;
+  }
+
+  .btn {
+    display: inline-block;
+    padding: 0.7rem 1.3rem;
+    border-radius: 999px;
+    background: var(--rail);
+    color: #1b1b1b;
+    font-weight: 700;
+    text-decoration: none;
+    transition: transform 160ms ease, box-shadow 160ms ease;
+  }
+
+  .btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(245, 197, 66, 0.25);
   }
 
   .foot {
