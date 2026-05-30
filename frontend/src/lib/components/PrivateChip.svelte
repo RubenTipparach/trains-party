@@ -5,35 +5,57 @@
   const c = COMPANIES.find((x) => x.sym === sym);
   let open = $state(false);
   let wrapEl: HTMLSpanElement;
+  let pos = $state({ left: 0, top: 0 });
 
-  // Close when clicking outside this chip/popover.
+  function toggle() {
+    if (!open && wrapEl) {
+      const r = wrapEl.getBoundingClientRect();
+      const width = 240;
+      // Anchor below the chip, clamped to the viewport.
+      let left = r.left;
+      if (left + width > window.innerWidth - 8) left = window.innerWidth - width - 8;
+      pos = { left: Math.max(8, left), top: r.bottom + 4 };
+    }
+    open = !open;
+  }
+
+  // Close on outside click, scroll, or resize.
   $effect(() => {
     if (!open) return;
-    const h = (e: MouseEvent) => {
-      if (wrapEl && !wrapEl.contains(e.target as Node)) open = false;
+    const close = (e?: Event) => {
+      if (e && e.type === 'click' && wrapEl && wrapEl.contains(e.target as Node)) return;
+      open = false;
     };
-    window.addEventListener('click', h);
-    return () => window.removeEventListener('click', h);
+    window.addEventListener('click', close);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('resize', close);
+    };
   });
 </script>
 
 <span class="wrap" bind:this={wrapEl}>
-  <button class="chip" onclick={() => (open = !open)} aria-expanded={open}>
+  <button class="chip" onclick={toggle} aria-expanded={open}>
     <b class="cn">{c?.name ?? sym}</b>
     <span class="meta">{CURRENCY}{c?.value} · +{CURRENCY}{c?.revenue}/OR</span>
   </button>
-  {#if open}
-    <div class="pop">
-      <div class="poph"><b>{c?.name}</b><span class="sym">{c?.sym}</span></div>
-      <div class="popm">Cost {CURRENCY}{c?.value} · Income {CURRENCY}{c?.revenue}/OR</div>
-      <p>{c?.desc}</p>
-    </div>
-  {/if}
 </span>
+
+{#if open}
+  <!-- Rendered in the viewport (position: fixed) so it is never clipped by, or
+       stacked behind, the player cards (which have opacity < 1). -->
+  <div class="pop" style="left:{pos.left}px; top:{pos.top}px">
+    <div class="poph"><b>{c?.name}</b><span class="sym">{c?.sym}</span></div>
+    <div class="popm">Cost {CURRENCY}{c?.value} · Income {CURRENCY}{c?.revenue}/OR</div>
+    <p>{c?.desc}</p>
+  </div>
+{/if}
 
 <style>
   .wrap {
-    position: relative;
     display: inline-block;
   }
   .chip {
@@ -63,10 +85,8 @@
     white-space: nowrap;
   }
   .pop {
-    position: absolute;
-    top: calc(100% + 4px);
-    left: 0;
-    z-index: 30;
+    position: fixed;
+    z-index: 1000;
     width: 240px;
     background: #11202c;
     border: 1px solid var(--rail-deep);
