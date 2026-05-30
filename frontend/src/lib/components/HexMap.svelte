@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { HEXES } from '$lib/data/map1889';
   import { CORPORATIONS } from '$lib/data/g1889';
   import type { HexDef, PathPart, TileColor } from '$lib/data/types';
@@ -51,6 +52,34 @@
     return out;
   }
 
+  const HOVER: Record<TileColor, string> = {
+    white: '#dad873',
+    yellow: '#ffe24a',
+    green: '#8fe673',
+    brown: '#e3ad6f',
+    gray: '#c8d2d8',
+    red: '#ff7c6d'
+  };
+
+  function labelPos(h: HexDef): { x: number; y: number } {
+    const used = new Set<number>();
+    for (const p of h.paths) {
+      if (typeof p.a === 'number') used.add(p.a);
+      if (typeof p.b === 'number') used.add(p.b);
+    }
+    const e = [3, 0, 4, 1, 5, 2].find((d) => !used.has(d)) ?? 3;
+    const m = edgeMidpoint(0, 0, e);
+    return { x: m.x * 0.58, y: m.y * 0.58 };
+  }
+
+  const RIPPLES: Array<[number, number, string]> = [
+    [4, 6, '#9bd6d1'],
+    [24, 11, '#bdeae6'],
+    [14, 20, '#9bd6d1'],
+    [33, 23, 'rgba(255,255,255,.5)'],
+    [1, 16, 'rgba(255,255,255,.35)']
+  ];
+
   const HOME = new Map(CORPORATIONS.map((c) => [c.coordinates, c]));
 
   type Placed = HexDef & { cx: number; cy: number };
@@ -67,7 +96,6 @@
   const width = Math.max(...xs) - Math.min(...xs) + pad * 2;
   const height = Math.max(...ys) - Math.min(...ys) + pad * 2;
 
-  // Coordinate axis labels around the border (letters on top, numbers on left).
   const colLabels = new Map<string, number>();
   const rowLabels = new Map<number, number>();
   for (const p of placed) {
@@ -91,70 +119,133 @@
   }
   const OFFBOARD_TIER: Record<string, string> = { yellow: '#8a6b18', brown: '#5a3a1b', diesel: '#222' };
 
-  // Brighter, more saturated hue shown when a tile is hovered.
-  const HOVER: Record<TileColor, string> = {
-    white: '#dad873',
-    yellow: '#ffe24a',
-    green: '#8fe673',
-    brown: '#e3ad6f',
-    gray: '#c8d2d8',
-    red: '#ff7c6d'
-  };
+  // --- pan / zoom (SVG viewBox) ---------------------------------------------
+  let wrap: HTMLDivElement;
+  let svgEl: SVGSVGElement;
+  let view = $state({ x: minX, y: minY, w: width, h: height });
+  let dragging = $state(false);
+  const MIN_W = width * 0.18; // max zoom in
+  const MAX_W = width * 1.4; // max zoom out
+  const pointers = new Map<number, { x: number; y: number }>();
+  let moved = false;
 
-  // Place a tile label (H/T/K) slightly off-centre toward a free edge so it
-  // never sits on the city icon or the preprinted track.
-  function labelPos(h: HexDef): { x: number; y: number } {
-    const used = new Set<number>();
-    for (const p of h.paths) {
-      if (typeof p.a === 'number') used.add(p.a);
-      if (typeof p.b === 'number') used.add(p.b);
-    }
-    const e = [3, 0, 4, 1, 5, 2].find((d) => !used.has(d)) ?? 3;
-    const m = edgeMidpoint(0, 0, e);
-    return { x: m.x * 0.58, y: m.y * 0.58 };
+  function zoomAt(clientX: number, clientY: number, factor: number) {
+    const r = svgEl.getBoundingClientRect();
+    const fx = (clientX - r.left) / r.width;
+    const fy = (clientY - r.top) / r.height;
+    const px = view.x + fx * view.w;
+    const py = view.y + fy * view.h;
+    let nw = Math.max(MIN_W, Math.min(MAX_W, view.w * factor));
+    const nh = view.h * (nw / view.w);
+    view = { x: px - fx * nw, y: py - fy * nh, w: nw, h: nh };
+  }
+  function zoomCenter(factor: number) {
+    const r = svgEl.getBoundingClientRect();
+    zoomAt(r.left + r.width / 2, r.top + r.height / 2, factor);
+  }
+  function reset() {
+    view = { x: minX, y: minY, w: width, h: height };
   }
 
-  // Ripple marks scattered across one pattern tile: [x, y, colour].
-  const RIPPLES: Array<[number, number, string]> = [
-    [4, 6, '#9bd6d1'],
-    [24, 11, '#bdeae6'],
-    [14, 20, '#9bd6d1'],
-    [33, 23, 'rgba(255,255,255,.5)'],
-    [1, 16, 'rgba(255,255,255,.35)']
-  ];
+  function onDown(e: PointerEvent) {
+    (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    moved = false;
+    if (pointers.size === 1) dragging = true;
+  }
+  function onMove(e: PointerEvent) {
+    if (!pointers.has(e.pointerId)) return;
+    const prev = pointers.get(e.pointerId)!;
+    if (pointers.size === 2) {
+      const ids = [...pointers.keys()];
+      const a = pointers.get(ids[0])!;
+      const b = pointers.get(ids[1])!;
+      const oldDist = Math.hypot(a.x - b.x, a.y - b.y);
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      const a2 = pointers.get(ids[0])!;
+      const b2 = pointers.get(ids[1])!;
+      const newDist = Math.hypot(a2.x - b2.x, a2.y - b2.y);
+      if (oldDist > 0 && newDist > 0) zoomAt((a2.x + b2.x) / 2, (a2.y + b2.y) / 2, oldDist / newDist);
+      moved = true;
+      hide();
+      return;
+    }
+    const dx = e.clientX - prev.x;
+    const dy = e.clientY - prev.y;
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (Math.abs(dx) + Math.abs(dy) > 3) {
+      moved = true;
+      hide();
+    }
+    const r = svgEl.getBoundingClientRect();
+    view = { ...view, x: view.x - (dx / r.width) * view.w, y: view.y - (dy / r.height) * view.h };
+  }
+  function onUp(e: PointerEvent) {
+    const wasDrag = moved;
+    pointers.delete(e.pointerId);
+    if (pointers.size === 0) dragging = false;
+    if (!wasDrag) {
+      // treat as a tap: toggle the tooltip for the hex under the pointer
+      const el = (document.elementFromPoint(e.clientX, e.clientY) as Element | null)?.closest('g.hex') as
+        | SVGGraphicsElement
+        | null;
+      if (el) {
+        const coord = el.getAttribute('data-coord')!;
+        if (tip?.coord === coord) hide();
+        else show(el, coord, el.getAttribute('data-name') || undefined);
+      } else {
+        hide();
+      }
+    }
+  }
+
+  onMount(() => {
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      zoomAt(e.clientX, e.clientY, e.deltaY > 0 ? 1.12 : 1 / 1.12);
+    };
+    svgEl.addEventListener('wheel', onWheel, { passive: false });
+    return () => svgEl.removeEventListener('wheel', onWheel);
+  });
 
   // --- hover / tap tooltip ---------------------------------------------------
-  let wrap: HTMLDivElement;
   let tip = $state<{ coord: string; name?: string; x: number; y: number; hx: number; hy: number } | null>(null);
 
-  function show(h: Placed, e: PointerEvent) {
+  function show(el: SVGGraphicsElement, coord: string, name?: string) {
     const r = wrap.getBoundingClientRect();
-    // Position the label at the true hex centre (local 0,0 of the group),
-    // mapped to screen via the element's CTM.
-    const el = e.currentTarget as SVGGraphicsElement;
     const ctm = el.getScreenCTM();
-    let x = e.clientX - r.left;
-    let y = e.clientY - r.top;
+    const c = hexCenter(coord);
+    let x = 0;
+    let y = 0;
     if (ctm) {
       const sp = new DOMPoint(0, 0).matrixTransform(ctm);
       x = sp.x - r.left;
       y = sp.y - r.top;
     }
-    tip = { coord: h.coord, name: h.name, x, y, hx: h.cx, hy: h.cy };
+    tip = { coord, name, x, y, hx: c.x, hy: c.y };
   }
   function hide() {
     tip = null;
   }
 </script>
 
-<div class="wrap" bind:this={wrap}>
+<div class="wrap" bind:this={wrap} style="aspect-ratio: {width} / {height}">
   <div class="sea">
-    <svg class="map" viewBox="{minX} {minY} {width} {height}" role="img" aria-label="1889 Shikoku map">
+    <svg
+      class="map"
+      class:grabbing={dragging}
+      bind:this={svgEl}
+      viewBox="{view.x} {view.y} {view.w} {view.h}"
+      role="application"
+      aria-label="1889 Shikoku map (drag to pan, scroll to zoom)"
+      onpointerdown={onDown}
+      onpointermove={onMove}
+      onpointerup={onUp}
+      onpointercancel={onUp}
+    >
       <defs>
         <clipPath id="hexclip"><polygon points={poly} /></clipPath>
         <clipPath id="cityclip"><circle r="12.5" /></clipPath>
-
-        <!-- pixel-art ripples: stepped wave marks scattered in a tile -->
         <pattern id="ripples" width="40" height="28" patternUnits="userSpaceOnUse">
           <rect width="40" height="28" fill="#74c1be" />
           {#each RIPPLES as [x, y, fill]}
@@ -162,21 +253,14 @@
             <rect x={x + 4} y={y} width="4" height="2" {fill} />
             <rect x={x + 8} y={y + 2} width="4" height="2" {fill} />
           {/each}
-          <animateTransform
-            attributeName="patternTransform"
-            type="translate"
-            from="0 0"
-            to="40 28"
-            dur="9s"
-            repeatCount="indefinite"
-          />
+          <animateTransform attributeName="patternTransform" type="translate" from="0 0" to="40 28" dur="9s" repeatCount="indefinite" />
         </pattern>
       </defs>
 
-      <!-- animated water -->
-      <rect x={minX} y={minY} width={width} height={height} fill="url(#ripples)" />
+      <!-- animated water (enlarged so it stays visible while panning/zooming) -->
+      <rect x={minX - width} y={minY - height} width={width * 3} height={height * 3} fill="url(#ripples)" />
 
-      <!-- coordinate axis labels (outside the tiles) -->
+      <!-- coordinate guides on all four edges -->
       {#each cols as [letter, x] (letter)}
         <text class="axis" {x} y={minY + 16} text-anchor="middle">{letter}</text>
         <text class="axis" {x} y={minY + height - 8} text-anchor="middle">{letter}</text>
@@ -189,17 +273,14 @@
       {#each placed as h (h.coord)}
         <g
           class="hex"
+          data-coord={h.coord}
+          data-name={h.name ?? ''}
           transform="translate({h.cx} {h.cy})"
           role="button"
           tabindex="-1"
           aria-label="{h.coord}{h.name ? ` ${h.name}` : ''}"
-          onpointerenter={(e) => e.pointerType === 'mouse' && show(h, e)}
-          onpointerleave={(e) => e.pointerType === 'mouse' && hide()}
-          onpointerdown={(e) => {
-            e.stopPropagation();
-            if (tip?.coord === h.coord) hide();
-            else show(h, e);
-          }}
+          onpointerenter={(e) => e.pointerType === 'mouse' && pointers.size === 0 && show(e.currentTarget, h.coord, h.name)}
+          onpointerleave={(e) => e.pointerType === 'mouse' && !dragging && hide()}
         >
           <polygon points={poly} class="tile" fill={tip?.coord === h.coord ? HOVER[h.color] : FILL[h.color]} stroke="#4a4332" stroke-width="1" />
 
@@ -224,7 +305,6 @@
             {/each}
           {/if}
 
-          <!-- preprinted track (black), clipped so it never overflows -->
           <g clip-path="url(#hexclip)">
             {#each h.paths as p}
               <path d={pathD(p)} class="ties" />
@@ -275,13 +355,18 @@
         </g>
       {/each}
 
-      <!-- hex-shaped selection ring drawn on top of all tiles -->
       {#if tip}
         <g transform="translate({tip.hx} {tip.hy})">
           <polygon points={poly} class="selring" />
         </g>
       {/if}
     </svg>
+  </div>
+
+  <div class="controls">
+    <button type="button" aria-label="Zoom in" onclick={() => zoomCenter(1 / 1.25)}>+</button>
+    <button type="button" aria-label="Zoom out" onclick={() => zoomCenter(1.25)}>−</button>
+    <button type="button" aria-label="Reset view" onclick={reset}>⟳</button>
   </div>
 
   {#if tip}
@@ -294,19 +379,32 @@
 <style>
   .wrap {
     position: relative;
+    width: 100%;
   }
   .sea {
     border-radius: 12px;
     overflow: hidden;
     background-color: #74c1be;
+    height: 100%;
   }
   .map {
     width: 100%;
-    height: auto;
+    height: 100%;
     display: block;
+    touch-action: none;
+    cursor: grab;
+  }
+  .map.grabbing {
+    cursor: grabbing;
+  }
+  .axis {
+    font: 700 11px ui-monospace, monospace;
+    fill: #0e3942;
+    opacity: 0.7;
+    pointer-events: none;
   }
   .hex {
-    cursor: pointer;
+    cursor: inherit;
   }
   .hex:focus,
   .hex:focus-visible {
@@ -319,12 +417,6 @@
     fill: none;
     stroke: #15252f;
     stroke-width: 3;
-    pointer-events: none;
-  }
-  .axis {
-    font: 700 11px ui-monospace, monospace;
-    fill: #0e3942;
-    opacity: 0.7;
     pointer-events: none;
   }
   .ties {
@@ -383,6 +475,28 @@
     paint-order: stroke;
     stroke: #e9e6c4;
     stroke-width: 2.5;
+  }
+  .controls {
+    position: absolute;
+    right: 10px;
+    bottom: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .controls button {
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+    border: 1px solid var(--line, #243240);
+    background: rgba(17, 32, 44, 0.85);
+    color: #fff;
+    font-size: 1.1rem;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .controls button:hover {
+    border-color: var(--rail-deep, #c9971f);
   }
   .tip {
     position: absolute;
