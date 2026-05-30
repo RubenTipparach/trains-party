@@ -169,20 +169,50 @@ describe('stock round - par, float, buy', () => {
     expect(shares(s, 'p1', 'AR')).toBe(20);
     expect(corp(s, 'AR').ipoShares).toBe(80);
     expect(cash(s, 'p1')).toBe(p1Cash - 200);
-    expect(activePlayer(s)).toBe('p2'); // par ends the turn
+    // the turn stays open after a par/buy; it is still p1's turn until they pass
+    expect(activePlayer(s)).toBe('p1');
+    s = apply(s, { type: 'pass', player: 'p1' }); // end turn
+    expect(activePlayer(s)).toBe('p2');
   });
 
   it('floats with full capitalization once 50% is sold from the IPO', () => {
     let s = toStockRound();
-    s = apply(s, { type: 'par', player: 'p1', corp: 'AR', price: 100 }); // 20% -> p2
-    s = apply(s, { type: 'buy', player: 'p2', corp: 'AR', from: 'ipo' }); // 30% -> p3
-    s = apply(s, { type: 'buy', player: 'p3', corp: 'AR', from: 'ipo' }); // 40% -> p1
+    // each player buys once then passes to end their turn
+    s = apply(s, { type: 'par', player: 'p1', corp: 'AR', price: 100 }); // 20%
+    s = apply(s, { type: 'pass', player: 'p1' });
+    s = apply(s, { type: 'buy', player: 'p2', corp: 'AR', from: 'ipo' }); // 30%
+    s = apply(s, { type: 'pass', player: 'p2' });
+    s = apply(s, { type: 'buy', player: 'p3', corp: 'AR', from: 'ipo' }); // 40%
+    s = apply(s, { type: 'pass', player: 'p3' });
     expect(corp(s, 'AR').floated).toBe(false);
     s = apply(s, { type: 'buy', player: 'p1', corp: 'AR', from: 'ipo' }); // 50% -> floats
     const ar = corp(s, 'AR');
     expect(ar.floated).toBe(true);
     expect(ar.cash).toBe(1000); // full cap = 10 x par
     expect(ar.ipoShares).toBe(50);
+  });
+
+  it('only one buy per turn, and cannot buy a corp sold this round', () => {
+    let s = toStockRound();
+    // p1 pars AR and builds to 30% over earlier turns
+    s = apply(s, { type: 'par', player: 'p1', corp: 'AR', price: 100 });
+    s = apply(s, { type: 'pass', player: 'p1' });
+    s = apply(s, { type: 'pass', player: 'p2' });
+    s = apply(s, { type: 'pass', player: 'p3' });
+    s = apply(s, { type: 'buy', player: 'p1', corp: 'AR', from: 'ipo' }); // 30%, turn open
+    // a second buy this turn is rejected
+    expect(() => apply(s, { type: 'buy', player: 'p1', corp: 'AR', from: 'ipo' })).toThrow();
+    // selling is allowed in the same turn (turn stays open)
+    s = apply(s, { type: 'sell', player: 'p1', corp: 'AR', count: 1 });
+    expect(shares(s, 'p1', 'AR')).toBe(20);
+    expect(activePlayer(s)).toBe('p1');
+    s = apply(s, { type: 'pass', player: 'p1' }); // end turn
+    // back to p1 next round-lap: may NOT buy AR (sold it this round)
+    s = apply(s, { type: 'pass', player: 'p2' });
+    s = apply(s, { type: 'pass', player: 'p3' });
+    expect(activePlayer(s)).toBe('p1');
+    expect(stockLegalActions(s).buyIpo).not.toContain('AR');
+    expect(() => apply(s, { type: 'buy', player: 'p1', corp: 'AR', from: 'ipo' })).toThrow();
   });
 });
 
@@ -191,9 +221,11 @@ describe('stock round - selling', () => {
     let s = toStockRound();
     // p1 pars AR at 100 (row 0). To sell, p1 must hold more than the 20% cert.
     s = apply(s, { type: 'par', player: 'p1', corp: 'AR', price: 100 });
+    s = apply(s, { type: 'pass', player: 'p1' });
     s = apply(s, { type: 'pass', player: 'p2' });
     s = apply(s, { type: 'pass', player: 'p3' });
     s = apply(s, { type: 'buy', player: 'p1', corp: 'AR', from: 'ipo' }); // p1 now 30%
+    s = apply(s, { type: 'pass', player: 'p1' });
     s = apply(s, { type: 'pass', player: 'p2' });
     s = apply(s, { type: 'pass', player: 'p3' });
     expect(activePlayer(s)).toBe('p1');
@@ -210,20 +242,22 @@ describe('stock round - selling', () => {
   it('refuses to split the 20% president certificate', () => {
     let s = toStockRound();
     s = apply(s, { type: 'par', player: 'p1', corp: 'AR', price: 100 }); // p1 holds only 20%
-    s = apply(s, { type: 'pass', player: 'p2' });
-    s = apply(s, { type: 'pass', player: 'p3' });
+    // still p1's turn; selling the lone 20% cert is illegal
     expect(() => apply(s, { type: 'sell', player: 'p1', corp: 'AR', count: 1 })).toThrow();
-    // ...and the UI is not offered the illegal sale
     expect(stockLegalActions(s).sell).not.toContain('AR');
   });
 
   it('lets the president give up the cert when another player holds 20%', () => {
     let s = toStockRound();
     s = apply(s, { type: 'par', player: 'p1', corp: 'AR', price: 100 }); // p1 20% (pres)
+    s = apply(s, { type: 'pass', player: 'p1' });
     s = apply(s, { type: 'buy', player: 'p2', corp: 'AR', from: 'ipo' }); // p2 10%
+    s = apply(s, { type: 'pass', player: 'p2' });
     s = apply(s, { type: 'pass', player: 'p3' });
     s = apply(s, { type: 'buy', player: 'p1', corp: 'AR', from: 'ipo' }); // p1 30%
+    s = apply(s, { type: 'pass', player: 'p1' });
     s = apply(s, { type: 'buy', player: 'p2', corp: 'AR', from: 'ipo' }); // p2 20%
+    s = apply(s, { type: 'pass', player: 'p2' });
     s = apply(s, { type: 'pass', player: 'p3' });
     // back to p1 (30% pres); p2 holds 20% -> p1 may now sell below 20%
     expect(activePlayer(s)).toBe('p1');
@@ -248,13 +282,20 @@ describe('stock round - ends on a full lap of passes', () => {
 /** Float AR (par 65) and pass into the operating round, AR operating, p1 president. */
 function toOperatingRound(): GameState {
   let s = toStockRound();
+  // each player takes one buy then ends their turn with a pass
   s = apply(s, { type: 'par', player: 'p1', corp: 'AR', price: 65 }); // p1 20%
-  s = apply(s, { type: 'buy', player: 'p2', corp: 'AR', from: 'ipo' }); // 30%
-  s = apply(s, { type: 'buy', player: 'p3', corp: 'AR', from: 'ipo' }); // 40%
-  s = apply(s, { type: 'buy', player: 'p1', corp: 'AR', from: 'ipo' }); // 50% -> floats
-  s = apply(s, { type: 'pass', player: 'p2' });
-  s = apply(s, { type: 'pass', player: 'p3' });
   s = apply(s, { type: 'pass', player: 'p1' });
+  s = apply(s, { type: 'buy', player: 'p2', corp: 'AR', from: 'ipo' }); // 30%
+  s = apply(s, { type: 'pass', player: 'p2' });
+  s = apply(s, { type: 'buy', player: 'p3', corp: 'AR', from: 'ipo' }); // 40%
+  s = apply(s, { type: 'pass', player: 'p3' });
+  s = apply(s, { type: 'buy', player: 'p1', corp: 'AR', from: 'ipo' }); // 50% -> floats
+  s = apply(s, { type: 'pass', player: 'p1' });
+  // everyone passes (a full consecutive lap) -> stock round ends, OR begins
+  let guard = 0;
+  while (s.round === 'stock' && guard++ < 12) {
+    s = apply(s, { type: 'pass', player: activePlayer(s)! });
+  }
   return s;
 }
 
@@ -353,23 +394,6 @@ describe('route revenue', () => {
     const s = toOperatingRound();
     s.tiles = { K8: { id: '5', rotation: 4 } };
     expect(routeRevenue(s, corp(s, 'AR'))).toBe(0);
-  });
-});
-
-describe('stock round - no buy after sell same turn', () => {
-  it('a corporation sold this turn cannot be bought back', () => {
-    let s = toStockRound();
-    // p1 pars AR, builds to 30%, so it can sell while keeping the cert
-    s = apply(s, { type: 'par', player: 'p1', corp: 'AR', price: 100 });
-    s = apply(s, { type: 'pass', player: 'p2' });
-    s = apply(s, { type: 'pass', player: 'p3' });
-    s = apply(s, { type: 'buy', player: 'p1', corp: 'AR', from: 'ipo' }); // 30%
-    s = apply(s, { type: 'pass', player: 'p2' });
-    s = apply(s, { type: 'pass', player: 'p3' });
-    // p1's turn: sell AR, then AR must not be buyable this turn
-    s = apply(s, { type: 'sell', player: 'p1', corp: 'AR', count: 1 });
-    expect(stockLegalActions(s).buyIpo).not.toContain('AR');
-    expect(() => apply(s, { type: 'buy', player: 'p1', corp: 'AR', from: 'ipo' })).toThrow();
   });
 });
 

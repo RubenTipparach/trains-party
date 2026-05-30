@@ -121,7 +121,6 @@ function endTurn(s: GameState, acted: boolean): void {
   s.current = (s.current + 1) % s.players.length;
   st.acted = false;
   st.bought = false;
-  st.soldThisTurn = [];
 }
 
 function endStockRound(s: GameState): void {
@@ -169,13 +168,15 @@ function doPar(s: GameState, id: string, sym: string, price: number): void {
   s.log.push(`${pname(s, id)} pars ${sym} at ${price} and becomes president`);
 
   st.bought = true;
-  endTurn(s, true);
+  st.acted = true;
+  st.passes = 0;
+  s.priority = (s.current + 1) % s.players.length;
 }
 
 function doBuy(s: GameState, id: string, sym: string, from: 'ipo' | 'pool'): void {
   const st = s.stock!;
   if (st.bought) throw new GameError('only one purchase per turn');
-  if (st.soldThisTurn.includes(sym)) throw new GameError(`cannot buy ${sym}: you sold it this turn`);
+  if (st.soldThisRound[id]?.includes(sym)) throw new GameError(`cannot buy ${sym}: you sold it this round`);
   const c = corp(s, sym);
   const p = player(s, id);
   if (c.parPrice === null) throw new GameError(`${sym} has not started; par it first`);
@@ -202,8 +203,12 @@ function doBuy(s: GameState, id: string, sym: string, from: 'ipo' | 'pool'): voi
   s.log.push(`${pname(s, id)} buys 10% of ${sym} from ${from} for ${cost}`);
   if (from === 'ipo') maybeFloat(s, c);
 
+  // One buy per turn, but the turn stays open (the player may still sell, or
+  // end their turn by passing).
   st.bought = true;
-  endTurn(s, true);
+  st.acted = true;
+  st.passes = 0;
+  s.priority = (s.current + 1) % s.players.length;
 }
 
 function doSell(s: GameState, id: string, sym: string, count: number): void {
@@ -248,7 +253,8 @@ function doSell(s: GameState, id: string, sym: string, count: number): void {
   for (let i = 0; i < count; i++) moveDown(c);
   s.log.push(`${pname(s, id)} sells ${count} share(s) of ${sym} for ${proceeds}`);
 
-  if (!st.soldThisTurn.includes(sym)) st.soldThisTurn.push(sym);
+  // Record the sale: this player may not buy this corporation again this round.
+  (st.soldThisRound[id] ??= []).push(sym);
   st.acted = true;
   st.passes = 0;
   s.priority = (s.current + 1) % s.players.length;
@@ -304,9 +310,9 @@ export function stockLegalActions(s: GameState): StockLegalActions {
   const buyPool: string[] = [];
   const sell: string[] = [];
   for (const c of s.corporations) {
-    // Cannot buy a corporation you sold this turn.
-    const soldHere = st.soldThisTurn.includes(c.sym);
-    if (!st.bought && !soldHere) {
+    // At most one buy per turn; a corporation sold this round cannot be bought.
+    const soldThisRound = st.soldThisRound[id]?.includes(c.sym) ?? false;
+    if (!st.bought && !soldThisRound) {
       if (c.parPrice === null) {
         if (p.cash >= 2 * PAR_PRICES[PAR_PRICES.length - 1]) par.push(c.sym);
       } else {

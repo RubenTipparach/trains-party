@@ -96,8 +96,12 @@ export interface StockState {
   bought: boolean;
   /** Consecutive pure passes; the round ends at one full lap of passes. */
   passes: number;
-  /** Corporation syms the active player sold this turn (cannot rebuy them). */
-  soldThisTurn: string[];
+  /**
+   * Corporations each player has sold during THIS stock round. A player may not
+   * buy a corporation they have sold this round (standard 18xx). Keyed by player
+   * id -> set of corp syms.
+   */
+  soldThisRound: Record<string, string[]>;
 }
 
 export interface GameState {
