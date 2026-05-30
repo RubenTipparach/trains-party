@@ -30,6 +30,10 @@ function company(s: GameState, sym: string): CompanyState {
   return c;
 }
 
+function pname(s: GameState, id: string): string {
+  return s.players.find((p) => p.id === id)?.name ?? id;
+}
+
 function minBidValue(s: GameState, sym: string): number {
   const c = company(s, sym);
   return c.value - c.discount;
@@ -93,7 +97,7 @@ function addBid(s: GameState, sym: string, player: string, price: number): void 
   if (price > maxBid(s, player, sym)) throw new GameError(`${player} cannot afford a bid of ${price}`);
   a.bids[sym] = (a.bids[sym] ?? []).filter((b) => b.player !== player);
   a.bids[sym].push({ player, price });
-  s.log.push(`${player} bids ${price} for ${sym}`);
+  s.log.push(`${pname(s, player)} bids ${price} for ${sym}`);
 }
 
 function buyCompany(s: GameState, player: string, sym: string, price: number): void {
@@ -109,7 +113,7 @@ function buyCompany(s: GameState, player: string, sym: string, price: number): v
   }
   a.available = a.available.filter((x) => x !== sym);
   delete a.bids[sym];
-  s.log.push(`${player} buys ${sym} for ${price}`);
+  s.log.push(`${pname(s, player)} buys ${sym} for ${price}`);
   if (a.available.length === 0) endAuction(s);
 }
 
@@ -188,13 +192,13 @@ export function applyAuction(s: GameState, action: GameAction): void {
   } else if (action.type === 'pass') {
     if (a.auctioning) {
       a.bids[a.auctioning] = a.bids[a.auctioning].filter((b) => b.player !== action.player);
-      s.log.push(`${action.player} passes on ${a.auctioning}`);
+      s.log.push(`${pname(s, action.player)} passes on ${a.auctioning}`);
       a.auctioning = null;
       resolveBids(s);
     } else {
       const p = s.players.find((x) => x.id === action.player)!;
       p.passed = true;
-      s.log.push(`${action.player} passes`);
+      s.log.push(`${pname(s, action.player)} passes`);
       if (s.players.every((x) => x.passed)) allPassed(s);
       else advance(s);
     }

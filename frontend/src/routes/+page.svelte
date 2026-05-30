@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { base } from '$app/paths';
   import { goto } from '$app/navigation';
   import { fly, fade } from 'svelte/transition';
@@ -6,13 +7,38 @@
   import { game, type SeatConfig } from '$lib/game/sandbox.svelte';
   import type { BotLevel } from '$lib/game/bots';
 
+  const NAME_KEY = 'tp.playerName';
+
   let mode = $state<'single' | 'multi'>('single');
   let count = $state(4);
   const names = $state(['You', 'Bot 2', 'Bot 3', 'Bot 4', 'Bot 5', 'Bot 6']);
   const bots = $state([false, true, true, true, true, true]);
   const levels = $state<BotLevel[]>(['normal', 'normal', 'normal', 'normal', 'normal', 'normal']);
 
+  // Player profile name (prompted once, then remembered).
+  let you = $state('');
+  let needName = $state(false);
+
+  onMount(() => {
+    const saved = localStorage.getItem(NAME_KEY)?.trim();
+    if (saved) {
+      you = saved;
+      names[0] = saved;
+    } else {
+      needName = true;
+    }
+  });
+
+  function saveName() {
+    const n = you.trim();
+    if (!n) return;
+    localStorage.setItem(NAME_KEY, n);
+    names[0] = n;
+    needName = false;
+  }
+
   function start() {
+    if (names[0]?.trim()) localStorage.setItem(NAME_KEY, names[0].trim());
     const seats: SeatConfig[] = Array.from({ length: count }, (_, i) => ({
       id: `p${i + 1}`,
       name: names[i]?.trim() || `Player ${i + 1}`,
@@ -23,6 +49,23 @@
     goto(`${base}/board`);
   }
 </script>
+
+{#if needName}
+  <div class="namemodal" transition:fade={{ duration: 150 }}>
+    <div class="namebox" transition:fly={{ y: 12, duration: 200 }}>
+      <h2>Welcome to Trains Party</h2>
+      <p>What should we call you?</p>
+      <input
+        bind:value={you}
+        placeholder="Your name"
+        maxlength="20"
+        onkeydown={(e) => e.key === 'Enter' && saveName()}
+      />
+      <button onclick={saveName} disabled={!you.trim()}>Continue</button>
+    </div>
+  </div>
+{/if}
+
 
 <main in:fade={{ duration: 400 }}>
   <header class="hero">
@@ -249,5 +292,58 @@
   }
   .dot {
     opacity: 0.4;
+  }
+
+  .namemodal {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: grid;
+    place-items: center;
+    background: rgba(8, 12, 16, 0.72);
+    backdrop-filter: blur(4px);
+    padding: 1rem;
+  }
+  .namebox {
+    width: min(420px, 100%);
+    background: var(--bg-soft);
+    border: 1px solid var(--rail-deep);
+    border-radius: 16px;
+    padding: 1.4rem 1.5rem 1.5rem;
+    text-align: center;
+  }
+  .namebox h2 {
+    margin: 0 0 0.3rem;
+    color: var(--rail);
+  }
+  .namebox p {
+    margin: 0 0 1rem;
+    color: var(--muted);
+  }
+  .namebox input {
+    width: 100%;
+    background: var(--bg);
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 0.7rem 0.8rem;
+    font-size: 1.05rem;
+    text-align: center;
+    margin-bottom: 0.9rem;
+  }
+  .namebox button {
+    width: 100%;
+    padding: 0.75rem 1rem;
+    border-radius: 999px;
+    border: none;
+    background: var(--rail);
+    color: #1b1b1b;
+    font-weight: 800;
+    font-size: 1rem;
+    cursor: pointer;
+  }
+  .namebox button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
   }
 </style>

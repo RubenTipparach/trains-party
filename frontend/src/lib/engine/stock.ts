@@ -31,6 +31,9 @@ function corp(s: GameState, sym: string): CorporationState {
 function player(s: GameState, id: string): PlayerState {
   return s.players.find((p) => p.id === id)!;
 }
+function pname(s: GameState, id: string): string {
+  return s.players.find((p) => p.id === id)?.name ?? id;
+}
 
 function cellExists(row: number, col: number): boolean {
   return !!MARKET[row] && col < MARKET[row].length;
@@ -129,7 +132,7 @@ function doPar(s: GameState, id: string, sym: string, price: number): void {
   p.shares[sym] = holds(p, sym) + 20;
   p.cash -= cost;
   s.bank += cost;
-  s.log.push(`${id} pars ${sym} at ${price} and becomes president`);
+  s.log.push(`${pname(s, id)} pars ${sym} at ${price} and becomes president`);
 
   st.bought = true;
   endTurn(s, true);
@@ -161,7 +164,7 @@ function doBuy(s: GameState, id: string, sym: string, from: 'ipo' | 'pool'): voi
   p.shares[sym] = holds(p, sym) + 10;
   p.cash -= cost;
   s.bank += cost;
-  s.log.push(`${id} buys 10% of ${sym} from ${from} for ${cost}`);
+  s.log.push(`${pname(s, id)} buys 10% of ${sym} from ${from} for ${cost}`);
   if (from === 'ipo') maybeFloat(s, c);
 
   st.bought = true;
@@ -203,7 +206,7 @@ function doSell(s: GameState, id: string, sym: string, count: number): void {
   s.bank -= proceeds;
   c.president = newPresident;
   for (let i = 0; i < count; i++) moveDown(c);
-  s.log.push(`${id} sells ${count} share(s) of ${sym} for ${proceeds}`);
+  s.log.push(`${pname(s, id)} sells ${count} share(s) of ${sym} for ${proceeds}`);
 
   st.acted = true;
   st.passes = 0;
@@ -228,11 +231,11 @@ export function applyStock(s: GameState, action: GameAction): void {
       break;
     case 'pass':
       if (st.acted) {
-        s.log.push(`${action.player} ends their turn`);
+        s.log.push(`${pname(s, action.player)} ends their turn`);
         endTurn(s, false);
       } else {
         st.passes += 1;
-        s.log.push(`${action.player} passes`);
+        s.log.push(`${pname(s, action.player)} passes`);
         if (st.passes >= s.players.length) endStockRound(s);
         else endTurn(s, false);
       }
