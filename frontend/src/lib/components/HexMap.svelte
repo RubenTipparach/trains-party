@@ -17,26 +17,71 @@
   function layOptions(hex: string) {
     return lays.filter((l) => l.hex === hex);
   }
-  // Per-hex chooser when a target has multiple legal tiles/rotations.
-  let choosing = $state<string | null>(null);
+  /** Distinct tile ids available on a hex. */
+  function tileChoices(hex: string): string[] {
+    return [...new Set(layOptions(hex).map((l) => l.tile))];
+  }
+  /** Valid rotations of a tile on a hex (sorted). */
+  function rotationsFor(hex: string, tile: string): number[] {
+    return layOptions(hex)
+      .filter((l) => l.tile === tile)
+      .map((l) => l.rotation)
+      .sort((a, b) => a - b);
+  }
+
+  // Lay interaction state machine:
+  //   pick a highlighted hex -> fan of candidate tiles -> preview (tap to rotate) -> confirm.
+  let layHex = $state<string | null>(null); // hex being laid on (fan shown)
+  let preview = $state<{ tile: string; rotations: number[]; idx: number } | null>(null);
+
   function clickLayHex(hex: string) {
-    const opts = layOptions(hex);
-    if (opts.length === 0) return;
-    if (opts.length === 1) {
-      const l = opts[0];
-      const v = game.state.or;
-      const me = game.active!;
-      game.act({ type: 'lay_tile', player: me, corp: v!.order[v!.index], hex: l.hex, tile: l.tile, rotation: l.rotation });
-      choosing = null;
-    } else {
-      choosing = choosing === hex ? null : hex;
-    }
+    if (layOptions(hex).length === 0) return;
+    layHex = hex;
+    preview = null;
+    const choices = tileChoices(hex);
+    if (choices.length === 1) pickTile(choices[0]); // single tile type -> straight to preview
   }
-  function chooseLay(l: { hex: string; tile: string; rotation: number }) {
+  function pickTile(tile: string) {
+    if (!layHex) return;
+    preview = { tile, rotations: rotationsFor(layHex, tile), idx: 0 };
+  }
+  function rotatePreview() {
+    if (preview) preview = { ...preview, idx: (preview.idx + 1) % preview.rotations.length };
+  }
+  function confirmLay() {
+    if (!layHex || !preview) return;
     const v = game.state.or!;
-    game.act({ type: 'lay_tile', player: game.active!, corp: v.order[v.index], hex: l.hex, tile: l.tile, rotation: l.rotation });
-    choosing = null;
+    game.act({
+      type: 'lay_tile',
+      player: game.active!,
+      corp: v.order[v.index],
+      hex: layHex,
+      tile: preview.tile,
+      rotation: preview.rotations[preview.idx]
+    });
+    cancelLay();
   }
+  function cancelLay() {
+    layHex = null;
+    preview = null;
+  }
+  // Cancel any in-progress lay when it is no longer the track step.
+  $effect(() => {
+    if (!layMode && (layHex || preview)) cancelLay();
+  });
+  // Screen position (relative to the wrapper) of the lay hex centre, for the
+  // HTML fan/controls overlay. Recomputes when the view (pan/zoom) or hex changes.
+  let fanPos = $derived.by(() => {
+    void view; // track pan/zoom
+    if (!layHex || !svgEl || !wrap) return { x: 0, y: 0 };
+    const c = hexCenter(layHex);
+    const r = svgEl.getBoundingClientRect();
+    const w = wrap.getBoundingClientRect();
+    return {
+      x: ((c.x - view.x) / view.w) * r.width + (r.left - w.left),
+      y: ((c.y - view.y) / view.h) * r.height + (r.top - w.top)
+    };
+  });
 
   // Laid tiles (track placed during operating rounds).
   const laid = (coord: string) => game.state.tiles?.[coord];
@@ -338,10 +383,17 @@
         | SVGGraphicsElement
         | null;
       const coord = el?.getAttribute('data-coord') ?? null;
-      // In lay mode, tapping a highlighted hex lays a tile there.
-      if (layMode && coord && layHexes.has(coord)) {
-        clickLayHex(coord);
-        return;
+      // In lay mode: tap the preview tile to rotate it; tap a highlighted hex to
+      // start (or switch) a lay.
+      if (layMode) {
+        if (preview && coord === layHex) {
+          rotatePreview();
+          return;
+        }
+        if (coord && layHexes.has(coord)) {
+          clickLayHex(coord);
+          return;
+        }
       }
       if (el && coord) {
         if (tip?.coord === coord) hide();
@@ -587,17 +639,31 @@
     </div>
   {/if}
 
-  {#if layMode && choosing}
-    <div class="chooser">
-      <span class="cl">Tile for {choosing}</span>
-      <div class="copts">
-        {#each layOptions(choosing) as l (l.tile + l.rotation)}
-          <button onclick={() => chooseLay(l)} title="rotate {l.rotation}">
-            <TileGraphic id={l.tile} />
-          </button>
-        {/each}
-      </div>
-      <button class="ccancel" onclick={() => (choosing = null)}>×</button>
+  {#if layMode && layHex && !preview}
+    <!-- radial fan of candidate tile types around the chosen hex -->
+    <div class="fan" style="left:{fanPos.x}px; top:{fanPos.y}px">
+      {#each tileChoices(layHex) as tile, i (tile)}
+        {@const n = tileChoices(layHex).length}
+        {@const ang = (-90 + (i - (n - 1) / 2) * 42) * (Math.PI / 180)}
+        <button
+          class="fantile"
+          style="transform: translate(-50%,-50%) translate({Math.cos(ang) * 64}px, {Math.sin(ang) * 64}px)"
+          onclick={() => pickTile(tile)}
+          title="Tile {tile}"
+        >
+          <TileGraphic id={tile} />
+        </button>
+      {/each}
+      <button class="fancancel" onclick={cancelLay} title="Cancel">×</button>
+    </div>
+  {/if}
+
+  {#if layMode && layHex && preview}
+    <!-- preview controls: rotate / confirm / cancel -->
+    <div class="layctl" style="left:{fanPos.x}px; top:{fanPos.y}px">
+      <button onclick={rotatePreview} title="Rotate" disabled={preview.rotations.length < 2}>⟳ rotate</button>
+      <button class="ok" onclick={confirmLay} title="Confirm">✓ place</button>
+      <button class="cancel" onclick={cancelLay} title="Cancel">×</button>
     </div>
   {/if}
 </div>
@@ -676,6 +742,74 @@
     stroke-width: 3;
     pointer-events: none;
     animation: laypulse 1.4s ease-in-out infinite;
+  }
+  .laysel {
+    fill: rgba(245, 197, 66, 0.25);
+    stroke: var(--rail, #f5c542);
+    stroke-width: 3;
+    pointer-events: none;
+  }
+  .fan,
+  .layctl {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    z-index: 14;
+    pointer-events: none;
+  }
+  .fantile {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 52px;
+    padding: 2px;
+    border: 1px solid var(--rail-deep, #c9971f);
+    border-radius: 8px;
+    background: rgba(17, 32, 44, 0.95);
+    cursor: pointer;
+    pointer-events: auto;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+  }
+  .fantile:hover {
+    border-color: var(--rail, #f5c542);
+  }
+  .fancancel {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    border: 1px solid var(--line, #243240);
+    background: rgba(17, 32, 44, 0.95);
+    color: var(--muted, #9fb0c0);
+    cursor: pointer;
+    pointer-events: auto;
+  }
+  .layctl {
+    display: flex;
+    gap: 0.3rem;
+    transform: translate(-50%, 36px);
+  }
+  .layctl button {
+    pointer-events: auto;
+    padding: 0.35rem 0.6rem;
+    border-radius: 7px;
+    border: 1px solid var(--line, #243240);
+    background: rgba(17, 32, 44, 0.95);
+    color: var(--ink, #e8eef4);
+    font: 700 0.78rem ui-sans-serif, sans-serif;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .layctl button.ok {
+    background: var(--rail, #f5c542);
+    color: #1b1b1b;
+    border-color: var(--rail-deep, #c9971f);
+  }
+  .layctl button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
   }
   .flyer {
     pointer-events: none;
