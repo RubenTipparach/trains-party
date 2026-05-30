@@ -5,9 +5,13 @@
   import StockMarket from '$lib/components/StockMarket.svelte';
   import CorporationCard from '$lib/components/CorporationCard.svelte';
   import CompanyCard from '$lib/components/CompanyCard.svelte';
+  import { onMount } from 'svelte';
   import GamePanel from '$lib/components/GamePanel.svelte';
   import Spreadsheet from '$lib/components/Spreadsheet.svelte';
   import { game } from '$lib/game/sandbox.svelte';
+
+  // Restore a locally-saved game (survives reloads) on the client.
+  onMount(() => game.load());
   import {
     CORPORATIONS,
     COMPANIES,

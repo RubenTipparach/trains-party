@@ -1,6 +1,6 @@
 <script lang="ts">
   import { game } from '$lib/game/sandbox.svelte';
-  import { stockLegalActions } from '$lib/engine';
+  import { stockLegalActions, playerValue, playerLiquidity } from '$lib/engine';
   import { COMPANIES, MARKET, PAR_PRICES, CERT_LIMIT, CURRENCY } from '$lib/data/g1889';
   import type { CorporationState, PlayerState } from '$lib/engine';
   import PrivateChip from './PrivateChip.svelte';
@@ -18,26 +18,6 @@
   }
   function held(p: PlayerState, sym: string) {
     return p.shares[sym] ?? 0;
-  }
-  function privateValue(p: PlayerState) {
-    return p.companies.reduce((n, sym) => n + (COMPANIES.find((c) => c.sym === sym)?.value ?? 0), 0);
-  }
-  function shareValue(p: PlayerState) {
-    return game.state.corporations.reduce((n, c) => {
-      const price = priceOf(c);
-      return price === null ? n : n + (held(p, c.sym) / 10) * price;
-    }, 0);
-  }
-  function sellableValue(p: PlayerState) {
-    return game.state.corporations.reduce((n, c) => {
-      const price = priceOf(c);
-      if (price === null) return n;
-      const pres = c.president === p.id;
-      const sellablePct = Math.max(0, held(p, c.sym) - (pres ? 20 : 0));
-      const poolRoom = Math.max(0, 50 - c.poolShares);
-      const pct = Math.min(sellablePct, poolRoom);
-      return n + (pct / 10) * price;
-    }, 0);
   }
   function certs(p: PlayerState) {
     let n = p.companies.length; // privates are certificates too
@@ -77,8 +57,8 @@
         </div>
         <div class="pm">
           <div><span>Cash</span><b>{CURRENCY}{p.cash}</b></div>
-          <div><span>Value</span><b>{CURRENCY}{Math.round(p.cash + shareValue(p) + privateValue(p))}</b></div>
-          <div><span>Liquidity</span><b>{CURRENCY}{Math.round(p.cash + sellableValue(p))}</b></div>
+          <div><span>Value</span><b>{CURRENCY}{playerValue(game.state, p.id)}</b></div>
+          <div><span>Liquidity</span><b>{CURRENCY}{playerLiquidity(game.state, p.id)}</b></div>
           <div><span>Certs</span><b class:over={certs(p) > certLimit}>{certs(p)}/{certLimit}</b></div>
           <div><span>Shares</span><b>{totalShares(p)}</b></div>
           {#if p.companies.length}<div><span>Pvt income</span><b>{CURRENCY}{privIncome(p)}/OR</b></div>{/if}

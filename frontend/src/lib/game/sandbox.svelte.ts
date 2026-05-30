@@ -4,8 +4,10 @@
  * same actions through the server instead of mutating locally.
  */
 
-import { initialState, apply, activePlayer, type GameAction, type GameState } from '$lib/engine';
+import { initialState, apply, activePlayer, RULES_VERSION, type GameAction, type GameState } from '$lib/engine';
 import { botAction, type BotLevel } from './bots';
+
+const SAVE_KEY = 'tp.1889.sandbox';
 
 export interface SeatConfig {
   id: string;
@@ -41,6 +43,7 @@ class Sandbox {
     this.seats = seats;
     this.state = initialState(seats.map((s) => ({ id: s.id, name: s.name })));
     this.error = null;
+    this.persist();
   }
 
   reset() {
@@ -53,8 +56,38 @@ class Sandbox {
       // Svelte reactive proxy.
       this.state = apply($state.snapshot(this.state) as GameState, action);
       this.error = null;
+      this.persist();
     } catch (e) {
       this.error = (e as Error).message;
+    }
+  }
+
+  /** Save the current game locally (bot/sandbox games survive reloads). */
+  private persist() {
+    if (typeof localStorage === 'undefined') return;
+    try {
+      localStorage.setItem(
+        SAVE_KEY,
+        JSON.stringify({ v: RULES_VERSION, seats: $state.snapshot(this.seats), state: $state.snapshot(this.state) })
+      );
+    } catch {
+      /* storage full / unavailable - ignore */
+    }
+  }
+
+  /** Restore a saved game (call on the client after mount). */
+  load() {
+    if (typeof localStorage === 'undefined') return;
+    try {
+      const raw = localStorage.getItem(SAVE_KEY);
+      if (!raw) return;
+      const data = JSON.parse(raw);
+      if (data?.v !== RULES_VERSION || !data.state) return; // discard incompatible saves
+      this.seats = data.seats;
+      this.state = data.state;
+      this.error = null;
+    } catch {
+      /* ignore corrupt save */
     }
   }
 

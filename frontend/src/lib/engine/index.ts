@@ -24,6 +24,7 @@ export type { AuctionView, AuctionCompanyView, AuctionPlayerView } from './aucti
 export { stockLegalActions } from './stock';
 export { operatingView, operatingActivePlayer } from './operating';
 export type { OperatingView } from './operating';
+export { playerValue, playerLiquidity } from './metrics';
 
 /** Apply one action, returning the next state. Pure: the input is not mutated. */
 export function apply(state: GameState, action: GameAction): GameState {
