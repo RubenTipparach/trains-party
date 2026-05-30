@@ -86,13 +86,13 @@
     stroke-linecap: round;
   }
   .city {
-    fill: #fbfbf7;
-    stroke: #2b2b2b;
-    stroke-width: 1.6;
+    fill: #e9e2c9;
+    stroke: #1b1b1b;
+    stroke-width: 2.2;
   }
   .town {
-    fill: #fbfbf7;
-    stroke: #2b2b2b;
+    fill: #1b1b1b;
+    stroke: #1b1b1b;
     stroke-width: 1.4;
   }
   .rev {

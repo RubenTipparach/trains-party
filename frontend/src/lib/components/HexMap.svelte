@@ -45,6 +45,7 @@
     if (layOptions(hex).length === 0) return;
     layHex = hex;
     preview = null;
+    centerOn(hex); // pan so the hex (and its fan of options) is centred and fully visible
     const choices = tileChoices(hex);
     if (choices.length === 1) pickTile(choices[0]); // single tile type -> straight to preview
   }
@@ -312,13 +313,26 @@
   let moved = false;
 
   // Keep the view within the map bounds so you cannot pan/zoom into empty space.
+  // While laying a tile, allow a margin so the fan of options (which sits outside
+  // the chosen hex, possibly past the map edge) stays reachable.
   function clampView() {
     let { x, y, w, h } = view;
-    if (w >= width) x = minX - (w - width) / 2;
-    else x = Math.min(Math.max(x, minX), minX + width - w);
-    if (h >= height) y = minY - (h - height) / 2;
-    else y = Math.min(Math.max(y, minY), minY + height - h);
+    const m = layHex ? HEX_SIZE * 2.6 : 0; // extra reach for the tile fan
+    if (w >= width + 2 * m) x = minX - (w - width) / 2;
+    else x = Math.min(Math.max(x, minX - m), minX + width - w + m);
+    if (h >= height + 2 * m) y = minY - (h - height) / 2;
+    else y = Math.min(Math.max(y, minY - m), minY + height - h + m);
     view = { x, y, w, h };
+  }
+
+  /** Pan (and zoom in a little) so a hex is centred and its fan is fully visible. */
+  function centerOn(hex: string) {
+    const c = hexCenter(hex);
+    // zoom to a comfortable level that fits the hex plus its fan ring
+    const targetW = Math.min(MAX_W, Math.max(MIN_W, HEX_SIZE * 9));
+    const targetH = targetW * (height / width);
+    view = { x: c.x - targetW / 2, y: c.y - targetH / 2, w: targetW, h: targetH };
+    clampView();
   }
 
   function zoomAt(clientX: number, clientY: number, factor: number) {
@@ -603,6 +617,18 @@
         </g>
       {/if}
 
+      {#snippet tileCentre(id: string)}
+        {@const def = TILES[id]}
+        {#if def.cities > 0}
+          <circle r="11" class="city" />
+          {#if def.revenue > 0}<text class="rev" y="-15" text-anchor="middle">{def.revenue}</text>{/if}
+        {:else if def.towns > 0}
+          <rect x="-9" y="-4" width="18" height="8" rx="2" class="town" transform="rotate(30)" />
+          {#if def.revenue > 0}<text class="rev" y="-14" text-anchor="middle">{def.revenue}</text>{/if}
+        {/if}
+        {#if def.label}<text class="label" x={APOTHEM - 9} y={-APOTHEM + 17} text-anchor="middle">{def.label}</text>{/if}
+      {/snippet}
+
       {#if layMode && layHex}
         {@const lc = hexCenter(layHex)}
         {#if preview}
@@ -616,6 +642,7 @@
                     <path d={pathD(p)} class="rail" />
                   {/each}
                 </g>
+                {@render tileCentre(preview.tile)}
               </g>
             </g>
           {/key}
@@ -641,7 +668,8 @@
                   <path d={pathD(p)} class="rail" />
                 {/each}
               </g>
-              <text class="fanid" y="2">#{tile}</text>
+              {@render tileCentre(tile)}
+              <text class="fanid" y={APOTHEM - 4} text-anchor="middle">#{tile}</text>
             </g>
           {/each}
         {/if}
@@ -937,8 +965,8 @@
     stroke-width: 2;
   }
   .town {
-    fill: #fbfbf7;
-    stroke: #2b2b2b;
+    fill: #1b1b1b;
+    stroke: #1b1b1b;
     stroke-width: 1.5;
   }
   .rev {
