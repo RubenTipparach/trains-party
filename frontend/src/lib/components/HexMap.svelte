@@ -5,6 +5,7 @@
   import type { HexDef, PathPart, TileColor } from '$lib/data/types';
   import { HEX_SIZE, APOTHEM, hexCenter, hexPolygon, edgeMidpoint } from '$lib/hexgeo';
   import { game } from '$lib/game/sandbox.svelte';
+  import { anim } from '$lib/game/anim.svelte';
   import { TILES, rotatePaths, trackLays } from '$lib/engine';
   import TileGraphic from './TileGraphic.svelte';
 
@@ -43,14 +44,39 @@
     const t = laid(coord);
     return t ? TILES[t.id] : null;
   };
+  function tilePaths(id: string, rotation: number): PathPart[] {
+    return rotatePaths(TILES[id], rotation).map((p) => ({
+      a: p.a === 'c' ? ('center' as const) : p.a,
+      b: p.b === 'c' ? ('center' as const) : p.b
+    }));
+  }
   function laidPaths(coord: string): PathPart[] {
     const t = laid(coord);
     if (!t) return [];
-    return rotatePaths(TILES[t.id], t.rotation).map((p) => ({
-      a: p.a === 'c' ? 'center' : p.a,
-      b: p.b === 'c' ? 'center' : p.b
-    }));
+    return tilePaths(t.id, t.rotation);
   }
+
+  // --- tile fly-in animation -----------------------------------------------
+  // When a new tile appears in state, fly a copy from a side "pool" onto the hex.
+  let flying = $state<{ id: string; rotation: number; from: { x: number; y: number }; to: { x: number; y: number }; on: boolean } | null>(null);
+  let known = new Set<string>();
+  $effect(() => {
+    const tiles = game.state.tiles ?? {};
+    const coords = Object.keys(tiles);
+    if (known.size === 0) {
+      known = new Set(coords);
+      return;
+    }
+    const fresh = coords.find((c) => !known.has(c));
+    known = new Set(coords);
+    if (fresh && anim.on) {
+      const to = hexCenter(fresh);
+      const from = { x: minX + 30, y: minY + 30 }; // the tile pool corner
+      flying = { id: tiles[fresh].id, rotation: tiles[fresh].rotation, from, to, on: false };
+      requestAnimationFrame(() => requestAnimationFrame(() => (flying && (flying = { ...flying, on: true }))));
+      setTimeout(() => (flying = null), 650);
+    }
+  });
 
   // Flat palette echoing the published 1889 board (no per-tile 3D shading).
   const FILL: Record<TileColor, string> = {
@@ -445,6 +471,22 @@
           <polygon points={poly} class="selring" />
         </g>
       {/if}
+
+      {#if flying}
+        <g
+          class="flyer"
+          transform="translate({flying.on ? flying.to.x : flying.from.x} {flying.on ? flying.to.y : flying.from.y}) scale({flying.on ? 1 : 0.4})"
+          style="opacity:{flying.on ? 1 : 0.2}"
+        >
+          <polygon points={poly} fill="#f3cf3e" stroke="#4a4332" stroke-width="1" />
+          <g clip-path="url(#hexclip)">
+            {#each tilePaths(flying.id, flying.rotation) as p}
+              <path d={pathD(p)} class="ties" />
+              <path d={pathD(p)} class="rail" />
+            {/each}
+          </g>
+        </g>
+      {/if}
     </svg>
   </div>
 
@@ -561,6 +603,13 @@
     stroke-width: 3;
     pointer-events: none;
     animation: laypulse 1.4s ease-in-out infinite;
+  }
+  .flyer {
+    pointer-events: none;
+    transition:
+      transform 0.6s cubic-bezier(0.34, 1.3, 0.5, 1),
+      opacity 0.45s ease;
+    filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.4));
   }
   @keyframes laypulse {
     0%,
