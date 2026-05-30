@@ -207,13 +207,65 @@ describe('stock round - selling', () => {
 });
 
 describe('stock round - ends on a full lap of passes', () => {
-  it('transitions to the operating round', () => {
+  it('with no floated corporations, the empty operating round returns to a stock round', () => {
     let s = toStockRound();
     s = apply(s, { type: 'pass', player: 'p1' });
     s = apply(s, { type: 'pass', player: 'p2' });
     s = apply(s, { type: 'pass', player: 'p3' });
+    expect(s.round).toBe('stock'); // empty OR is skipped
+    expect(s.or).toBeNull();
+  });
+});
+
+/** Float AR (par 65) and pass into the operating round, AR operating, p1 president. */
+function toOperatingRound(): GameState {
+  let s = toStockRound();
+  s = apply(s, { type: 'par', player: 'p1', corp: 'AR', price: 65 }); // p1 20%
+  s = apply(s, { type: 'buy', player: 'p2', corp: 'AR', from: 'ipo' }); // 30%
+  s = apply(s, { type: 'buy', player: 'p3', corp: 'AR', from: 'ipo' }); // 40%
+  s = apply(s, { type: 'buy', player: 'p1', corp: 'AR', from: 'ipo' }); // 50% -> floats
+  s = apply(s, { type: 'pass', player: 'p2' });
+  s = apply(s, { type: 'pass', player: 'p3' });
+  s = apply(s, { type: 'pass', player: 'p1' });
+  return s;
+}
+
+describe('operating round', () => {
+  it('floats AR and starts an operating round with AR operating', () => {
+    const s = toOperatingRound();
+    expect(corp(s, 'AR').floated).toBe(true);
+    expect(corp(s, 'AR').cash).toBe(650); // full cap = 10 x par(65)
     expect(s.round).toBe('operating');
-    expect(s.stock).toBeNull();
+    expect(s.or!.order).toEqual(['AR']);
+    expect(activePlayer(s)).toBe('p1'); // AR president
+  });
+
+  it('pays a dividend per share and moves the price right', () => {
+    let s = toOperatingRound();
+    // holdings: p1 30%, p2 10%, p3 10%, IPO 50%
+    const col = corp(s, 'AR').priceCol!;
+    const p1c = cash(s, 'p1');
+    s = apply(s, { type: 'run', player: 'p1', corp: 'AR', revenue: 100, dividend: 'pay' });
+    expect(cash(s, 'p1')).toBe(p1c + 30); // 3 shares x 10
+    expect(corp(s, 'AR').cash).toBe(650 + 50); // 5 IPO shares x 10 to treasury
+    expect(corp(s, 'AR').priceCol).toBe(col + 1);
+  });
+
+  it('withholds, buys a train from the depot, then returns to a stock round', () => {
+    let s = toOperatingRound();
+    s = apply(s, { type: 'run', player: 'p1', corp: 'AR', revenue: 0, dividend: 'withhold' });
+    s = apply(s, { type: 'buy_train', player: 'p1', corp: 'AR', train: '2' });
+    expect(corp(s, 'AR').trains).toEqual(['2']);
+    expect(corp(s, 'AR').cash).toBe(650 - 80);
+    expect(s.depot.find((d) => d.name === '2')!.remaining).toBe(5);
+    s = apply(s, { type: 'pass', player: 'p1' }); // AR finishes; phase 2 has 1 OR
+    expect(s.round).toBe('stock');
+  });
+
+  it('rejects buying out of depot order', () => {
+    let s = toOperatingRound();
+    s = apply(s, { type: 'run', player: 'p1', corp: 'AR', revenue: 0, dividend: 'withhold' });
+    expect(() => apply(s, { type: 'buy_train', player: 'p1', corp: 'AR', train: '3' })).toThrow();
   });
 });
 

@@ -19,6 +19,7 @@ import {
   type GameState,
   type PlayerState
 } from './types';
+import { startOperatingRound } from './operating';
 
 const PAR_COL = 3; // par cells live in market column 3 (rows 0..5)
 
@@ -92,11 +93,10 @@ function endStockRound(s: GameState): void {
   for (const c of s.corporations) {
     if (c.floated && c.poolShares === 0 && c.priceRow !== null) moveUp(c);
   }
-  s.round = 'operating';
   s.stock = null;
-  s.current = s.priority;
   s.players.forEach((p) => (p.passed = false));
-  s.log.push('Stock round complete; operating round begins');
+  s.log.push('Stock round complete');
+  startOperatingRound(s);
 }
 
 function maybeFloat(s: GameState, c: CorporationState): void {

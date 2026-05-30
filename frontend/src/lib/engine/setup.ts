@@ -2,7 +2,7 @@
  * Deterministic initial state for an 1889 game from static config + seats.
  */
 
-import { STARTING_CASH, BANK_CASH, COMPANIES, CORPORATIONS } from '$lib/data/g1889';
+import { STARTING_CASH, BANK_CASH, COMPANIES, CORPORATIONS, TRAINS } from '$lib/data/g1889';
 import { GameError, RULES_VERSION, type CompanyState, type CorporationState, type GameState } from './types';
 
 export interface Seat {
@@ -37,8 +37,11 @@ export function initialState(seats: Seat[], rulesVersion: string = RULES_VERSION
     president: null,
     parPrice: null,
     priceRow: null,
-    priceCol: null
+    priceCol: null,
+    trains: []
   }));
+
+  const depot = TRAINS.map((t) => ({ name: t.name, remaining: t.num }));
 
   return {
     rulesVersion,
@@ -53,6 +56,8 @@ export function initialState(seats: Seat[], rulesVersion: string = RULES_VERSION
     corporations,
     auction: { available, bids: {}, auctioning: null, cheapest: available[0] },
     stock: null,
+    or: null,
+    depot,
     log: [`Initial auction begins with ${available.length} private companies`],
     finished: false
   };

@@ -2,6 +2,7 @@
   import { game } from '$lib/game/sandbox.svelte';
   import AuctionPanel from './AuctionPanel.svelte';
   import StockPanel from './StockPanel.svelte';
+  import OperatingPanel from './OperatingPanel.svelte';
   import { PHASES, CURRENCY } from '$lib/data/g1889';
 
   const SEAT = ['#f5c542', '#3fb6a8', '#e0655c', '#9b8cf0', '#7cc36b', '#e8923a'];
@@ -53,7 +54,7 @@
   {:else if game.state.round === 'stock'}
     <StockPanel />
   {:else}
-    <p class="muted">Operating round actions arrive in Stage 3.</p>
+    <OperatingPanel />
   {/if}
   <div class="actions"><button class="reset" onclick={() => game.reset()}>Reset game</button></div>
 
@@ -162,9 +163,6 @@
     background: transparent;
     color: var(--muted);
     border-color: var(--line);
-  }
-  .muted {
-    color: var(--muted);
   }
   .log {
     margin-top: 0.5rem;

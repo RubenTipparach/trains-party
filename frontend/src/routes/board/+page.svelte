@@ -221,7 +221,7 @@
     </div>
   {/key}
 
-  <footer>1889 · auction and stock round playable. Operating round is next.</footer>
+  <footer>1889 · auction, stock, and operating rounds playable. Track laying and route revenue are next.</footer>
 </main>
 
 <style>

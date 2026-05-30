@@ -46,6 +46,27 @@ export interface CorporationState {
   /** Share-price token position in the market grid (null until pared). */
   priceRow: number | null;
   priceCol: number | null;
+  /** Train names owned. */
+  trains: string[];
+}
+
+export interface DepotTrain {
+  name: string;
+  /** Remaining in the bank, -1 = unlimited. */
+  remaining: number;
+}
+
+export interface ORState {
+  /** Corporation syms in operating order (share price descending). */
+  order: string[];
+  /** Index of the corporation currently operating. */
+  index: number;
+  /** Step within the corporation's turn. */
+  step: 'run' | 'trains';
+  /** Which operating round in the current set (1-based). */
+  orNumber: number;
+  /** Total operating rounds in this set (phase-dependent). */
+  orsThisSet: number;
 }
 
 export interface Bid {
@@ -89,6 +110,9 @@ export interface GameState {
   corporations: CorporationState[];
   auction: AuctionState | null;
   stock: StockState | null;
+  or: ORState | null;
+  /** Trains remaining in the bank by type. */
+  depot: DepotTrain[];
   log: string[];
   finished: boolean;
 }
@@ -98,6 +122,8 @@ export type GameAction =
   | { type: 'par'; player: string; corp: string; price: number }
   | { type: 'buy'; player: string; corp: string; from: 'ipo' | 'pool' }
   | { type: 'sell'; player: string; corp: string; count: number }
+  | { type: 'run'; player: string; corp: string; revenue: number; dividend: 'pay' | 'withhold' }
+  | { type: 'buy_train'; player: string; corp: string; train: string }
   | { type: 'pass'; player: string };
 
 /** Raised when an action is illegal for the current state. */

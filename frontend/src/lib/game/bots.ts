@@ -8,10 +8,11 @@ import {
   auctionView,
   maxBidFor,
   stockLegalActions,
+  operatingView,
   type GameAction,
   type GameState
 } from '$lib/engine';
-import { PAR_PRICES } from '$lib/data/g1889';
+import { PAR_PRICES, TRAINS } from '$lib/data/g1889';
 
 export type BotLevel = 'easy' | 'normal';
 
@@ -78,6 +79,23 @@ function botStock(s: GameState, level: BotLevel): GameAction {
   return { type: 'pass', player: me };
 }
 
+function botOperating(s: GameState): GameAction | null {
+  const v = operatingView(s);
+  if (!v || !v.president) return null;
+  const me = v.president;
+  const c = s.corporations.find((x) => x.sym === v.corp)!;
+  if (v.step === 'run') {
+    // No route revenue yet (Stage 3b); withhold.
+    return { type: 'run', player: me, corp: v.corp, revenue: 0, dividend: 'withhold' };
+  }
+  // Buy the cheapest train if the corporation has none and can afford it.
+  if (v.canBuyTrain && c.trains.length === 0) {
+    const def = TRAINS.find((t) => t.name === v.canBuyTrain)!;
+    if (c.cash >= def.price) return { type: 'buy_train', player: me, corp: v.corp, train: v.canBuyTrain };
+  }
+  return { type: 'pass', player: me };
+}
+
 /** Choose a legal action for the active (bot) player, or null if none. */
 export function botAction(s: GameState, level: BotLevel): GameAction | null {
   if (s.finished) return null;
@@ -87,5 +105,6 @@ export function botAction(s: GameState, level: BotLevel): GameAction | null {
     return botAuction(s, level);
   }
   if (s.round === 'stock' && s.stock) return botStock(s, level);
-  return null; // operating round: Stage 3
+  if (s.round === 'operating' && s.or) return botOperating(s);
+  return null;
 }
