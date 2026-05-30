@@ -1,6 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import { initialState } from './setup';
-import { apply, replay, activePlayer, legalActions, trackLays, routeRevenue, stockLegalActions, neighbor } from './index';
+import {
+  apply,
+  replay,
+  activePlayer,
+  legalActions,
+  trackLays,
+  routeRevenue,
+  stockLegalActions,
+  neighbor,
+  playerValue
+} from './index';
 import type { GameAction, GameState } from './types';
 
 const seats3 = [
@@ -408,5 +418,27 @@ describe('green upgrades and tokens', () => {
     const s = toOperatingRound();
     expect(corp(s, 'AR').tokenHexes).toEqual(['K8']);
     expect(corp(s, 'AR').tokens.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe('end game on bank break', () => {
+  it('triggers when the bank goes negative, finishes the OR set, and picks the highest-value winner', () => {
+    let s = toOperatingRound();
+    // Force the bank low so one dividend breaks it.
+    s.bank = 30;
+    s.corporations.find((c) => c.sym === 'AR')!.trains = ['2'];
+    s.tiles = { K8: { id: '5', rotation: 4 } }; // K8->L7 route = 40 > bank
+    // run + pay -> bank goes negative -> end triggered
+    s = apply(s, { type: 'run', player: 'p1', corp: 'AR', revenue: 0, dividend: 'pay' });
+    expect(s.bank).toBeLessThan(0);
+    expect(s.endTriggered).toBe(true);
+    // finish AR's turn (only floated corp) -> set completes -> game ends
+    s = apply(s, { type: 'pass', player: 'p1' }); // buy-trains step: finish operating
+    expect(s.finished).toBe(true);
+    expect(s.winner).not.toBeNull();
+    // winner is the player with the highest value
+    const values = s.players.map((p) => playerValue(s, p.id));
+    const maxVal = Math.max(...values);
+    expect(playerValue(s, s.winner!)).toBe(maxVal);
   });
 });

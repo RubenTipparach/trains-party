@@ -126,7 +126,11 @@ export interface GameState {
   /** Laid tiles by hex coordinate. */
   tiles: Record<string, { id: string; rotation: number }>;
   log: string[];
+  /** Set when the bank breaks; the current OR set finishes, then the game ends. */
+  endTriggered: boolean;
   finished: boolean;
+  /** Player id of the winner once finished (highest value). */
+  winner: string | null;
 }
 
 export type GameAction =

@@ -17,6 +17,7 @@ import { MARKET, TRAINS, PHASES } from '$lib/data/g1889';
 import { GameError, type CorporationState, type GameAction, type GameState } from './types';
 import { applyLayTile, legalLays, applyToken, legalTokens } from './track';
 import { routeRevenue } from './routes';
+import { playerValue } from './metrics';
 
 function corp(s: GameState, sym: string): CorporationState {
   const c = s.corporations.find((x) => x.sym === sym);
@@ -83,12 +84,30 @@ function payPrivateIncome(s: GameState): void {
 
 function finishOperatingSet(s: GameState): void {
   s.or = null;
+  // If the bank broke during this set, the game ends now (after the full set).
+  if (s.endTriggered) {
+    endGame(s);
+    return;
+  }
   s.round = 'stock';
   s.srCount += 1;
   s.stock = { acted: false, bought: false, passes: 0, soldThisTurn: [] };
   s.current = s.priority;
   s.players.forEach((p) => (p.passed = false));
   s.log.push('Operating rounds complete; stock round begins');
+}
+
+/** End the game: the player with the highest value wins. */
+function endGame(s: GameState): void {
+  s.finished = true;
+  let best: { id: string; value: number } | null = null;
+  for (const p of s.players) {
+    const v = playerValue(s, p.id);
+    if (!best || v > best.value) best = { id: p.id, value: v };
+  }
+  s.winner = best?.id ?? null;
+  const name = s.players.find((p) => p.id === s.winner)?.name ?? s.winner;
+  s.log.push(`Game over. ${name} wins with a value of ${best?.value ?? 0}.`);
 }
 
 function activeCorp(s: GameState): CorporationState {
@@ -129,6 +148,12 @@ function doRun(s: GameState, c: CorporationState, revenue: number, mode: 'pay' |
     s.bank -= revenue;
     moveLeft(c);
     s.log.push(`${c.sym} runs for ${revenue} and withholds`);
+  }
+  // End-game trigger: when the bank breaks (runs out of money), the current OR
+  // set is completed and then the game ends.
+  if (s.bank < 0 && !s.endTriggered) {
+    s.endTriggered = true;
+    s.log.push('The bank has broken. The game will end after this set of operating rounds.');
   }
   s.or!.step = 'trains';
 }

@@ -64,6 +64,8 @@ export function initialState(seats: Seat[], rulesVersion: string = RULES_VERSION
     depot,
     tiles: {},
     log: [`Initial auction begins with ${available.length} private companies`],
-    finished: false
+    endTriggered: false,
+    finished: false,
+    winner: null
   };
 }
