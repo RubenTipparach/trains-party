@@ -94,6 +94,8 @@ export interface StockState {
   bought: boolean;
   /** Consecutive pure passes; the round ends at one full lap of passes. */
   passes: number;
+  /** Corporation syms the active player sold this turn (cannot rebuy them). */
+  soldThisTurn: string[];
 }
 
 export interface GameState {

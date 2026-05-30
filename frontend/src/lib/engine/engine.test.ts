@@ -345,3 +345,20 @@ describe('route revenue', () => {
     expect(routeRevenue(s, corp(s, 'AR'))).toBe(0);
   });
 });
+
+describe('stock round - no buy after sell same turn', () => {
+  it('a corporation sold this turn cannot be bought back', () => {
+    let s = toStockRound();
+    // p1 pars AR, builds to 30%, so it can sell while keeping the cert
+    s = apply(s, { type: 'par', player: 'p1', corp: 'AR', price: 100 });
+    s = apply(s, { type: 'pass', player: 'p2' });
+    s = apply(s, { type: 'pass', player: 'p3' });
+    s = apply(s, { type: 'buy', player: 'p1', corp: 'AR', from: 'ipo' }); // 30%
+    s = apply(s, { type: 'pass', player: 'p2' });
+    s = apply(s, { type: 'pass', player: 'p3' });
+    // p1's turn: sell AR, then AR must not be buyable this turn
+    s = apply(s, { type: 'sell', player: 'p1', corp: 'AR', count: 1 });
+    expect(stockLegalActions(s).buyIpo).not.toContain('AR');
+    expect(() => apply(s, { type: 'buy', player: 'p1', corp: 'AR', from: 'ipo' })).toThrow();
+  });
+});

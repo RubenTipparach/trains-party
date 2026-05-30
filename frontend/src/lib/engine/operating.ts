@@ -85,7 +85,7 @@ function finishOperatingSet(s: GameState): void {
   s.or = null;
   s.round = 'stock';
   s.srCount += 1;
-  s.stock = { acted: false, bought: false, passes: 0 };
+  s.stock = { acted: false, bought: false, passes: 0, soldThisTurn: [] };
   s.current = s.priority;
   s.players.forEach((p) => (p.passed = false));
   s.log.push('Operating rounds complete; stock round begins');

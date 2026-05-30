@@ -160,7 +160,7 @@ function endAuction(s: GameState): void {
   s.round = 'stock';
   s.auction = null;
   s.srCount += 1;
-  s.stock = { acted: false, bought: false, passes: 0 };
+  s.stock = { acted: false, bought: false, passes: 0, soldThisTurn: [] };
   s.current = s.priority;
   s.players.forEach((p) => (p.passed = false));
   s.log.push('Initial auction complete; stock round begins');
