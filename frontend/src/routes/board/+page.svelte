@@ -1,18 +1,15 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { base } from '$app/paths';
   import { fade, fly } from 'svelte/transition';
   import HexMap from '$lib/components/HexMap.svelte';
   import StockMarket from '$lib/components/StockMarket.svelte';
   import CorporationCard from '$lib/components/CorporationCard.svelte';
   import CompanyCard from '$lib/components/CompanyCard.svelte';
-  import { onMount } from 'svelte';
   import GamePanel from '$lib/components/GamePanel.svelte';
   import Spreadsheet from '$lib/components/Spreadsheet.svelte';
   import TileGraphic from '$lib/components/TileGraphic.svelte';
   import { game } from '$lib/game/sandbox.svelte';
-
-  // Restore a locally-saved game (survives reloads) on the client.
-  onMount(() => game.load());
   import {
     CORPORATIONS,
     COMPANIES,
@@ -32,7 +29,18 @@
   import { TILE_MANIFEST } from '$lib/data/map1889';
   import type { TileColor } from '$lib/data/types';
 
-  // 18xx-style top navigation. Sections we can populate read-only at this stage.
+  // Restore a locally-saved game (survives reloads) on the client.
+  onMount(() => game.load());
+
+  // Auto-play bot turns. Re-runs whenever the active player changes.
+  $effect(() => {
+    const a = game.active;
+    if (a && game.isBot(a)) {
+      const t = setTimeout(() => game.botStep(), 650);
+      return () => clearTimeout(t);
+    }
+  });
+
   const tabs = [
     { id: 'game', label: 'Game' },
     { id: 'map', label: 'Map' },
@@ -51,16 +59,6 @@
   }
 
   const cash = [...new Set(Object.values(STARTING_CASH))].map((v) => `${CURRENCY}${v}`).join(' / ');
-
-  // Auto-play bot turns (single-player). Re-runs whenever the active player changes.
-  $effect(() => {
-    const a = game.active;
-    if (a && game.isBot(a)) {
-      const t = setTimeout(() => game.botStep(), 650);
-      return () => clearTimeout(t);
-    }
-  });
-  // Which train rusts when a given train is bought (inverse of rustsOn).
   const rustsWhenBought = (name: string) => TRAINS.find((x) => x.rustsOn === name)?.name;
   const TILE_FILL: Record<TileColor, string> = {
     white: '#cdcb92',
@@ -106,7 +104,6 @@
         <Spreadsheet />
       {:else if active === 'map'}
         <HexMap />
-
       {:else if active === 'market'}
         <h2>Stock market</h2>
         <StockMarket />
@@ -115,7 +112,6 @@
           <li><span class="chip yel">yellow</span> Shares do not count toward the certificate limit.</li>
           <li><span class="chip ora">orange</span> Shares may be held above 60%.</li>
         </ul>
-
       {:else if active === 'info'}
         <section>
           <h2>Trains</h2>
@@ -196,7 +192,6 @@
             </tbody>
           </table>
         </section>
-
       {:else if active === 'entities'}
         <section>
           <h2>Corporations <span class="count">{CORPORATIONS.length}</span></h2>
@@ -210,7 +205,6 @@
             {#each COMPANIES as company (company.sym)}<CompanyCard {company} />{/each}
           </div>
         </section>
-
       {:else if active === 'tiles'}
         <h2>Tile manifest <span class="count">{TILE_MANIFEST.reduce((n, t) => n + t.count, 0)} tiles</span></h2>
         <div class="tiles">
@@ -245,8 +239,6 @@
     margin: 0.3rem 0 0;
     color: var(--rail);
   }
-
-  /* 18xx-style horizontal text nav */
   .topnav {
     position: sticky;
     top: 0;
@@ -288,7 +280,6 @@
     color: var(--rail);
     border-bottom-color: var(--rail);
   }
-
   main {
     max-width: 1100px;
     margin: 0 auto;
@@ -362,37 +353,13 @@
   }
   .tiles {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
-    gap: 0.5rem;
-  }
-  .tilechip {
-    border-radius: 9px;
-    border: 1px solid var(--line);
-    padding: 0.5rem;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.15rem;
-    color: #1b1b1b;
-  }
-  .tilechip.plain {
-    color: var(--ink);
-  }
-  .tid {
-    font: 700 0.85rem ui-monospace, monospace;
-  }
-  .tcount {
-    font-size: 0.72rem;
-    opacity: 0.85;
+    grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+    gap: 0.7rem 0.5rem;
   }
   .legend {
     color: var(--muted);
     font-size: 0.8rem;
     margin-top: 0.8rem;
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    flex-wrap: wrap;
   }
   .legend-list {
     list-style: none;
@@ -408,12 +375,10 @@
     color: var(--muted);
     font-size: 0.85rem;
   }
-  .legend-list .chip {
+  .chip {
     flex: none;
     min-width: 48px;
     text-align: center;
-  }
-  .chip {
     display: inline-block;
     padding: 0.05rem 0.4rem;
     border-radius: 4px;

@@ -3,7 +3,7 @@
   import type { TileColor } from '$lib/data/types';
 
   let { id, count }: { id: string; count?: number } = $props();
-  const def = TILES[id];
+  const def = $derived(TILES[id]);
 
   const R = 28;
   const AP = (Math.sqrt(3) / 2) * R;
