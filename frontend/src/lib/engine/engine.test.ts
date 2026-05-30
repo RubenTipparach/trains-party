@@ -313,18 +313,34 @@ describe('operating round', () => {
     expect(s.or!.orNumber).toBe(1);
   });
 
-  it('pays a dividend per share and moves the price right', () => {
+  it('pays a dividend per share and moves the price right; IPO shares pay nobody', () => {
     let s = toOperatingRound();
     // Engine computes revenue from routes: give AR a train + a K8->L7 route (40).
     corp(s, 'AR').trains = ['2'];
     s.tiles = { K8: { id: '5', rotation: 4 } };
-    // holdings: p1 30%, p2 10%, p3 10%, IPO 50%; per-share = 40/10 = 4
+    // holdings: p1 30%, p2 10%, p3 10%, IPO 50%, pool 0%; per-share = 40/10 = 4
     const col = corp(s, 'AR').priceCol!;
     const p1c = cash(s, 'p1');
+    const arCash = corp(s, 'AR').cash;
     s = apply(s, { type: 'run', player: 'p1', corp: 'AR', revenue: 0, dividend: 'pay' });
     expect(cash(s, 'p1')).toBe(p1c + 12); // 3 shares x 4
-    expect(corp(s, 'AR').cash).toBe(650 + 20); // 5 IPO+pool shares x 4 to treasury
+    // IPO shares pay nobody, and there are no pool shares -> treasury unchanged
+    expect(corp(s, 'AR').cash).toBe(arCash);
     expect(corp(s, 'AR').priceCol).toBe(col + 1);
+  });
+
+  it('market (pool) shares pay the corporation treasury', () => {
+    let s = toOperatingRound();
+    const ar = corp(s, 'AR');
+    ar.trains = ['2'];
+    s.tiles = { K8: { id: '5', rotation: 4 } };
+    // move 20% from IPO into the market pool (as if shares were sold)
+    ar.ipoShares -= 20;
+    ar.poolShares += 20;
+    const arCash = ar.cash;
+    s = apply(s, { type: 'run', player: 'p1', corp: 'AR', revenue: 0, dividend: 'pay' });
+    // 40 revenue / 10 = 4 per share; 2 pool shares -> 8 to treasury
+    expect(corp(s, 'AR').cash).toBe(arCash + 8);
   });
 
   it('withholds, buys a train from the depot, then returns to a stock round', () => {
@@ -448,10 +464,11 @@ describe('green upgrades and tokens', () => {
 describe('end game on bank break', () => {
   it('triggers when the bank goes negative, finishes the OR set, and picks the highest-value winner', () => {
     let s = toOperatingRound();
-    // Force the bank low so one dividend breaks it.
-    s.bank = 30;
+    // Force the bank low so one dividend breaks it. Holdings pay 50% of the 40
+    // route revenue to players (IPO 50% pays nobody), so payout is ~20 > bank.
+    s.bank = 10;
     s.corporations.find((c) => c.sym === 'AR')!.trains = ['2'];
-    s.tiles = { K8: { id: '5', rotation: 4 } }; // K8->L7 route = 40 > bank
+    s.tiles = { K8: { id: '5', rotation: 4 } }; // K8->L7 route = 40
     // run + pay -> bank goes negative -> end triggered
     s = apply(s, { type: 'run', player: 'p1', corp: 'AR', revenue: 0, dividend: 'pay' });
     expect(s.bank).toBeLessThan(0);

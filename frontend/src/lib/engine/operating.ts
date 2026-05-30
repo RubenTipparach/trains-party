@@ -134,13 +134,21 @@ function doRun(s: GameState, c: CorporationState, revenue: number, mode: 'pay' |
   if (revenue < 0) throw new GameError('revenue cannot be negative');
   if (mode === 'pay' && revenue > 0) {
     const perShare = revenue / 10; // 10 shares of 10%
+    let paidOut = 0;
     for (const p of s.players) {
       const pct = p.shares[c.sym] ?? 0;
-      if (pct > 0) p.cash += perShare * (pct / 10);
+      if (pct > 0) {
+        const amt = perShare * (pct / 10);
+        p.cash += amt;
+        paidOut += amt;
+      }
     }
-    // Shares still in the IPO or pool pay their dividend to the corporation.
-    c.cash += perShare * ((c.ipoShares + c.poolShares) / 10);
-    s.bank -= revenue;
+    // Market (pool) shares pay their dividend to the corporation treasury.
+    // IPO shares pay NOBODY (that portion is simply not paid out) in 1889.
+    const toTreasury = perShare * (c.poolShares / 10);
+    c.cash += toTreasury;
+    paidOut += toTreasury;
+    s.bank -= paidOut;
     moveRight(c);
     s.log.push(`${c.sym} runs for ${revenue} and pays a dividend`);
   } else {
