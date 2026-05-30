@@ -86,11 +86,11 @@
       {:else if active === 'market'}
         <h2>Stock market</h2>
         <StockMarket />
-        <p class="legend">
-          <span class="chip par">par</span> par-price cells ·
-          <span class="chip yel">yellow</span> /
-          <span class="chip ora">orange</span> end-game movement zones
-        </p>
+        <ul class="legend-list">
+          <li><span class="chip par">par</span> Par price: a corporation's starting share price.</li>
+          <li><span class="chip yel">yellow</span> Shares do not count toward the certificate limit.</li>
+          <li><span class="chip ora">orange</span> Shares may be held above 60%.</li>
+        </ul>
 
       {:else if active === 'info'}
         <section>
@@ -372,6 +372,25 @@
     align-items: center;
     gap: 0.4rem;
     flex-wrap: wrap;
+  }
+  .legend-list {
+    list-style: none;
+    margin: 0.9rem 0 0;
+    padding: 0;
+    display: grid;
+    gap: 0.45rem;
+  }
+  .legend-list li {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--muted);
+    font-size: 0.85rem;
+  }
+  .legend-list .chip {
+    flex: none;
+    min-width: 48px;
+    text-align: center;
   }
   .chip {
     display: inline-block;
