@@ -5,6 +5,7 @@
   import type { CorporationState } from '$lib/engine';
   import HexMap from './HexMap.svelte';
   import PrivateChip from './PrivateChip.svelte';
+  import MoneyValue from './MoneyValue.svelte';
 
   const v = $derived(operatingView(game.state));
   const lays = $derived(trackLays(game.state));
@@ -69,7 +70,7 @@
             <span class="order">Order {v.index + 1}/{v.order.length}</span>
           </div>
           <div class="curbody">
-            <div class="stat"><span>Treasury</span><b>{CURRENCY}{c.cash}</b></div>
+            <div class="stat"><span>Treasury</span><b><MoneyValue value={c.cash} /></b></div>
             <div class="stat"><span>Price</span><b>{priceOf(c) !== null ? `${CURRENCY}${priceOf(c)}` : '-'}</b></div>
             <div class="stat"><span>Trains</span><b>{c.trains.join(', ') || 'none'}</b></div>
           </div>

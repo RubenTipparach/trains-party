@@ -1,0 +1,84 @@
+<script lang="ts">
+  import { anim } from '$lib/game/anim.svelte';
+  import { CURRENCY } from '$lib/data/g1889';
+
+  // Displays a cash value and pops a floating +/- delta when it changes.
+  let { value }: { value: number } = $props();
+
+  let shown = $state(0);
+  let prev: number | null = null;
+  let delta = $state<number | null>(null);
+  let key = $state(0);
+
+  $effect(() => {
+    const v = value;
+    if (prev === null) {
+      prev = v;
+      shown = v;
+      return;
+    }
+    if (v !== prev) {
+      const d = v - prev;
+      prev = v;
+      shown = v;
+      if (anim.on && d !== 0) {
+        delta = d;
+        key += 1;
+        const k = key;
+        setTimeout(() => {
+          if (key === k) delta = null;
+        }, 1100);
+      } else {
+        delta = null;
+      }
+    }
+  });
+</script>
+
+<span class="wrap">
+  {CURRENCY}{shown}
+  {#if delta !== null}
+    {#key key}
+      <span class="delta" class:up={delta > 0} class:down={delta < 0}>
+        {delta > 0 ? '+' : '−'}{CURRENCY}{Math.abs(delta)}
+      </span>
+    {/key}
+  {/if}
+</span>
+
+<style>
+  .wrap {
+    position: relative;
+    display: inline-block;
+  }
+  .delta {
+    position: absolute;
+    left: 50%;
+    bottom: 100%;
+    transform: translateX(-50%);
+    font-size: 0.72rem;
+    font-weight: 700;
+    white-space: nowrap;
+    pointer-events: none;
+    animation: floatup 1.1s ease-out forwards;
+  }
+  .delta.up {
+    color: #5fd39b;
+  }
+  .delta.down {
+    color: #ff8a7e;
+  }
+  @keyframes floatup {
+    0% {
+      opacity: 0;
+      transform: translate(-50%, 4px);
+    }
+    20% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0;
+      transform: translate(-50%, -18px);
+    }
+  }
+</style>

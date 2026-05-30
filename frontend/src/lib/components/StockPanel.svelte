@@ -4,6 +4,7 @@
   import { COMPANIES, MARKET, PAR_PRICES, CERT_LIMIT, CURRENCY } from '$lib/data/g1889';
   import type { CorporationState, PlayerState } from '$lib/engine';
   import PrivateChip from './PrivateChip.svelte';
+  import MoneyValue from './MoneyValue.svelte';
 
   const SEAT = ['#f5c542', '#3fb6a8', '#e0655c', '#9b8cf0', '#7cc36b', '#e8923a'];
   const seatColor = (id: string) => SEAT[game.state.players.findIndex((p) => p.id === id) % SEAT.length];
@@ -57,7 +58,7 @@
           {#if game.state.priority === i}<span class="pd">Priority</span>{/if}
         </div>
         <div class="pm">
-          <div><span>Cash</span><b>{CURRENCY}{p.cash}</b></div>
+          <div><span>Cash</span><b><MoneyValue value={p.cash} /></b></div>
           <div><span>Value</span><b>{CURRENCY}{playerValue(game.state, p.id)}</b></div>
           <div><span>Liquidity</span><b>{CURRENCY}{playerLiquidity(game.state, p.id)}</b></div>
           <div><span>Certs</span><b class:over={certs(p) > certLimit}>{certs(p)}/{certLimit}</b></div>
