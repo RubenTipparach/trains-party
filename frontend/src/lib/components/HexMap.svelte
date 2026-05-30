@@ -6,14 +6,21 @@
   import { HEX_SIZE, APOTHEM, hexCenter, hexPolygon, edgeMidpoint } from '$lib/hexgeo';
   import { game } from '$lib/game/sandbox.svelte';
   import { anim } from '$lib/game/anim.svelte';
-  import { TILES, rotatePaths, trackLays, corpRoutes } from '$lib/engine';
+  import { TILES, rotatePaths, trackLays, tokenPlays, corpRoutes } from '$lib/engine';
   import TileGraphic from './TileGraphic.svelte';
 
   // Optional: when in the operating-round track step, hexes that can receive a
-  // tile are highlighted and clickable.
-  let { layMode = false }: { layMode?: boolean } = $props();
+  // tile are highlighted and clickable. In the token step, tokenable cities are
+  // highlighted instead.
+  let { layMode = false, tokenMode = false }: { layMode?: boolean; tokenMode?: boolean } = $props();
   const lays = $derived(layMode ? trackLays(game.state) : []);
   const layHexes = $derived(new Set(lays.map((l) => l.hex)));
+  const tokenHexes = $derived(tokenMode ? new Set(tokenPlays(game.state).map((t) => t.hex)) : new Set<string>());
+  function placeToken(hex: string) {
+    const v = game.state.or;
+    if (!v) return;
+    game.act({ type: 'place_token', player: game.active!, corp: v.order[v.index], hex });
+  }
   function layOptions(hex: string) {
     return lays.filter((l) => l.hex === hex);
   }
@@ -182,6 +189,7 @@
     gray: '#aeb7bb',
     red: '#df6a5c'
   };
+  const fanFill = (tile: string) => FILL[TILES[tile]?.color ?? 'yellow'];
 
   // --- deterministic RNG for procedural city skylines ----------------------
   function rngFor(seed: string): () => number {
@@ -249,6 +257,12 @@
   ];
 
   const HOME = new Map(CORPORATIONS.map((c) => [c.coordinates, c]));
+  // Station tokens actually present on a hex (from live game state).
+  function tokensOn(coord: string) {
+    return game.state.corporations
+      .filter((c) => c.tokenHexes.includes(coord))
+      .map((c) => ({ sym: c.sym, color: c.color }));
+  }
 
   type Placed = HexDef & { cx: number; cy: number };
   const placed: Placed[] = HEXES.map((h) => {
@@ -381,6 +395,13 @@
       // In lay mode: tap the preview tile to rotate it; tap a highlighted hex to
       // start (or switch) a lay.
       if (layMode) {
+        // tapping a fan tile picks it
+        const fanEl = (document.elementFromPoint(e.clientX, e.clientY) as Element | null)?.closest('g.fanhex');
+        const fanTile = fanEl?.getAttribute('data-fantile');
+        if (fanTile) {
+          pickTile(fanTile);
+          return;
+        }
         if (preview && coord === layHex) {
           rotatePreview();
           return;
@@ -389,6 +410,10 @@
           clickLayHex(coord);
           return;
         }
+      }
+      if (tokenMode && coord && tokenHexes.has(coord)) {
+        placeToken(coord);
+        return;
       }
       if (el && coord) {
         if (tip?.coord === coord) hide();
@@ -477,6 +502,9 @@
           {#if layMode && layHexes.has(h.coord)}
             <polygon points={poly} class="layhi" />
           {/if}
+          {#if tokenMode && tokenHexes.has(h.coord)}
+            <polygon points={poly} class="tokenhi" />
+          {/if}
 
           {#if h.terrain?.includes('water')}
             <polygon points={poly} fill="#2f6f96" opacity="0.32" />
@@ -554,11 +582,12 @@
             {/each}
           {/if}
 
-          {#if HOME.has(h.coord)}
-            {@const corp = HOME.get(h.coord)!}
-            <circle r="11" fill={corp.color} stroke="#fff" stroke-width="1.5" />
-            <text class="tok" y="3.2" text-anchor="middle">{corp.sym}</text>
-          {/if}
+          {#each tokensOn(h.coord) as t, ti (t.sym)}
+            <g transform="translate({ti * 11 - (tokensOn(h.coord).length - 1) * 5.5} 0)">
+              <circle r="9" fill={t.color} stroke="#fff" stroke-width="1.5" />
+              <text class="tok" y="3" text-anchor="middle">{t.sym}</text>
+            </g>
+          {/each}
 
           {#if h.label}
             {@const lp = labelPos(h)}
@@ -594,6 +623,27 @@
           <g transform="translate({lc.x} {lc.y})">
             <polygon points={poly} class="laysel" />
           </g>
+          <!-- radial fan of candidate tiles, drawn as real hex tiles (no boxes) -->
+          {#each tileChoices(layHex) as tile, i (tile)}
+            {@const n = tileChoices(layHex).length}
+            {@const ang = (-90 + (i - (n - 1) / 2) * 46) * (Math.PI / 180)}
+            {@const fx = lc.x + Math.cos(ang) * HEX_SIZE * 2.2}
+            {@const fy = lc.y + Math.sin(ang) * HEX_SIZE * 2.2}
+            <g
+              class="fanhex"
+              data-fantile={tile}
+              transform="translate({fx} {fy}) scale(0.62)"
+            >
+              <polygon points={poly} fill={fanFill(tile)} stroke="#15252f" stroke-width="2.5" />
+              <g clip-path="url(#hexclip)">
+                {#each tilePaths(tile, 0) as p}
+                  <path d={pathD(p)} class="ties" />
+                  <path d={pathD(p)} class="rail" />
+                {/each}
+              </g>
+              <text class="fanid" y="2">#{tile}</text>
+            </g>
+          {/each}
         {/if}
       {/if}
 
@@ -658,21 +708,8 @@
   {/if}
 
   {#if layMode && layHex && !preview}
-    <!-- radial fan of candidate tile types around the chosen hex -->
-    <div class="fan" style="left:{fanPos.x}px; top:{fanPos.y}px">
-      {#each tileChoices(layHex) as tile, i (tile)}
-        {@const n = tileChoices(layHex).length}
-        {@const ang = (-90 + (i - (n - 1) / 2) * 42) * (Math.PI / 180)}
-        <button
-          class="fantile"
-          style="transform: translate(-50%,-50%) translate({Math.cos(ang) * 64}px, {Math.sin(ang) * 64}px)"
-          onclick={() => pickTile(tile)}
-          title="Tile {tile}"
-        >
-          <TileGraphic id={tile} bare />
-        </button>
-      {/each}
-      <button class="fancancel" onclick={cancelLay} title="Cancel">×</button>
+    <div class="layctl" style="left:{fanPos.x}px; top:{fanPos.y}px">
+      <button class="cancel" onclick={cancelLay} title="Cancel">× cancel</button>
     </div>
   {/if}
 
@@ -761,6 +798,13 @@
     pointer-events: none;
     animation: laypulse 1.4s ease-in-out infinite;
   }
+  .tokenhi {
+    fill: rgba(245, 197, 66, 0.28);
+    stroke: var(--rail, #f5c542);
+    stroke-width: 3;
+    pointer-events: none;
+    animation: laypulse 1.4s ease-in-out infinite;
+  }
   .laysel {
     fill: rgba(245, 197, 66, 0.25);
     stroke: var(--rail, #f5c542);
@@ -784,47 +828,27 @@
       opacity: 1;
     }
   }
-  .fan,
-  .layctl {
-    position: absolute;
-    transform: translate(-50%, -50%);
-    z-index: 14;
+  .fanhex {
+    cursor: pointer;
+    filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.45));
+    animation: tiledrop 0.2s ease-out;
+  }
+  .fanid {
+    font: 700 13px ui-sans-serif, sans-serif;
+    fill: #1b1b1b;
+    text-anchor: middle;
+    paint-order: stroke;
+    stroke: #fff;
+    stroke-width: 3;
     pointer-events: none;
   }
-  .fantile {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 52px;
-    padding: 2px;
-    border: 1px solid var(--rail-deep, #c9971f);
-    border-radius: 8px;
-    background: rgba(17, 32, 44, 0.95);
-    cursor: pointer;
-    pointer-events: auto;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
-  }
-  .fantile:hover {
-    border-color: var(--rail, #f5c542);
-  }
-  .fancancel {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
-    width: 26px;
-    height: 26px;
-    border-radius: 50%;
-    border: 1px solid var(--line, #243240);
-    background: rgba(17, 32, 44, 0.95);
-    color: var(--muted, #9fb0c0);
-    cursor: pointer;
-    pointer-events: auto;
-  }
   .layctl {
+    position: absolute;
+    z-index: 14;
+    pointer-events: none;
     display: flex;
     gap: 0.3rem;
-    transform: translate(-50%, 36px);
+    transform: translate(-50%, 40px);
   }
   .layctl button {
     pointer-events: auto;

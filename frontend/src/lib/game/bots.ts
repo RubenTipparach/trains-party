@@ -10,6 +10,7 @@ import {
   stockLegalActions,
   operatingView,
   trackLays,
+  tokenPlays,
   type GameAction,
   type GameState
 } from '$lib/engine';
@@ -92,6 +93,15 @@ function botOperating(s: GameState): GameAction | null {
     if (lays.length) {
       const pick = lays.find((l) => l.hex === c.coordinates) ?? lays[0];
       return { type: 'lay_tile', player: me, corp: v.corp, hex: pick.hex, tile: pick.tile, rotation: pick.rotation };
+    }
+    return { type: 'pass', player: me };
+  }
+  if (v.step === 'token') {
+    // Place a second token in a reachable city if affordable; else skip.
+    const tokens = tokenPlays(s);
+    if (tokens.length) {
+      const t = tokens[0];
+      return { type: 'place_token', player: me, corp: v.corp, hex: t.hex };
     }
     return { type: 'pass', player: me };
   }

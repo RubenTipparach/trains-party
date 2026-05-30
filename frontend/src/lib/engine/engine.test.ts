@@ -308,7 +308,7 @@ describe('track laying', () => {
     const lay = home[0];
     s = apply(s, { type: 'lay_tile', player: 'p1', corp: 'AR', hex: lay.hex, tile: lay.tile, rotation: lay.rotation });
     expect(s.tiles['K8']).toEqual({ id: lay.tile, rotation: lay.rotation });
-    expect(s.or!.step).toBe('run'); // one tile per OR -> advance to run
+    expect(s.or!.step).toBe('token'); // one tile per OR -> optional token step
   });
 
   it('rejects an illegal lay disconnected from the network', () => {
@@ -376,5 +376,37 @@ describe('track laying - no track into the sea', () => {
     for (const l of lays.filter((x) => x.hex === 'K8')) {
       expect(neighbor('K8', 0)).toBeNull();
     }
+  });
+});
+
+describe('green upgrades and tokens', () => {
+  it('only allows green city upgrades that preserve the city in phase 3', () => {
+    let s = toOperatingRound();
+    const lay = trackLays(s).find((l) => l.hex === 'K8' && l.tile === '5')!;
+    s = apply(s, { type: 'lay_tile', player: 'p1', corp: 'AR', hex: 'K8', tile: '5', rotation: lay.rotation });
+    s.phase = '3';
+    if (s.or) s.or.step = 'track';
+    const green = trackLays(s).filter((l) => l.hex === 'K8');
+    expect(green.length).toBeGreaterThan(0);
+    // all candidates are green city tiles (12/13/14/15/205/206), never towns/plain
+    expect(green.every((l) => ['12', '13', '14', '15', '205', '206'].includes(l.tile))).toBe(true);
+  });
+
+  it('restricts labelled hexes to matching labelled tiles (T = Takamatsu K4)', () => {
+    let s = toOperatingRound();
+    // K4 is the labelled "T" city (home of KO). A green upgrade there may only be
+    // a T tile (440), never a plain green city tile.
+    s.phase = '3';
+    if (s.or) s.or.step = 'track';
+    // Put AR's token reach onto K4 by giving it K4 in its network via a token.
+    corp(s, 'AR').tokenHexes = ['K4'];
+    const ups = trackLays(s).filter((l) => l.hex === 'K4');
+    expect(ups.every((l) => l.tile === '440')).toBe(true);
+  });
+
+  it('home token occupies the first slot and the corp has spare tokens', () => {
+    const s = toOperatingRound();
+    expect(corp(s, 'AR').tokenHexes).toEqual(['K8']);
+    expect(corp(s, 'AR').tokens.length).toBeGreaterThanOrEqual(2);
   });
 });

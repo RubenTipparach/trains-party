@@ -39,7 +39,8 @@ export function initialState(seats: Seat[], rulesVersion: string = RULES_VERSION
     priceRow: null,
     priceCol: null,
     trains: [],
-    tokenHexes: []
+    tokenHexes: [],
+    tokens: [...c.tokens]
   }));
 
   const depot = TRAINS.map((t) => ({ name: t.name, remaining: t.num }));

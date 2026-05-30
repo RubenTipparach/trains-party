@@ -1,16 +1,27 @@
 /**
- * Track laying (operating round): hex adjacency, a corporation's connected track
- * network, legal yellow-tile lays, and applying a lay.
+ * Track laying and station tokens (operating round).
  *
- * First pass: yellow tiles onto empty white hexes (plain / city / town), the lay
- * must connect to the corporation's network (seeded from its token), terrain
- * build cost is paid from the treasury. Green/brown upgrades, special-ability
- * lays, and routes follow.
+ * Hex adjacency, a corporation's connected network, and the set of legal tile
+ * plays: yellow tiles onto empty hexes plus green/brown UPGRADES of existing
+ * tiles. Upgrades follow the standard 18xx rules:
+ *   - the new tile's colour is exactly one step up (white->yellow->green->brown),
+ *     gated by the current phase;
+ *   - it preserves every existing track connection (old paths are a subset of
+ *     the new tile's paths in some rotation);
+ *   - labels match (T / H / K hexes only take the matching labelled tiles);
+ *   - the city/town count is preserved and slots do not drop below tokens placed;
+ *   - no track edge points into the sea;
+ *   - tile supply (the manifest count) is respected.
  */
 
-import { HEX_BY_COORD } from '$lib/data/map1889';
+import { HEX_BY_COORD, TILE_MANIFEST } from '$lib/data/map1889';
+import { PHASES } from '$lib/data/g1889';
 import { GameError, type CorporationState, type GameState } from './types';
-import { TILES, rotatePaths, yellowTilesFor, type TileEnd } from './tiles';
+import { TILES, rotatePaths, type TileEnd } from './tiles';
+import type { TileColor } from '$lib/data/types';
+
+const COLORS: TileColor[] = ['white', 'yellow', 'green', 'brown', 'gray', 'red'];
+const colorIdx = (c: TileColor) => COLORS.indexOf(c);
 
 // edge index -> [dCol, dRow] in the engine's doubled coordinates.
 const EDGE_DELTA: Record<number, [number, number]> = {
@@ -40,33 +51,68 @@ export function neighbor(coord: string, edge: number): string | null {
 }
 
 type Pair = { a: TileEnd; b: TileEnd };
-/** Current track on a hex: a laid tile (rotated) or the preprinted base paths. */
-function hexTrack(s: GameState, coord: string): Pair[] {
-  const laid = s.tiles[coord];
-  if (laid) return rotatePaths(TILES[laid.id], laid.rotation);
-  const base = HEX_BY_COORD[coord];
-  if (!base) return [];
-  return base.paths.map((p) => ({ a: p.a === 'center' ? 'c' : p.a, b: p.b === 'center' ? 'c' : p.b }));
+
+/** The effective tile on a hex: a laid tile (rotated) or the preprinted base. */
+interface TileInfo {
+  color: TileColor;
+  paths: Pair[];
+  cities: number;
+  towns: number;
+  slots: number;
+  label?: string;
 }
-function edgesTouched(paths: Pair[]): Set<number> {
-  const s = new Set<number>();
-  for (const p of paths) {
-    if (typeof p.a === 'number') s.add(p.a);
-    if (typeof p.b === 'number') s.add(p.b);
+function tileInfo(s: GameState, coord: string): TileInfo {
+  const laid = s.tiles[coord];
+  const base = HEX_BY_COORD[coord];
+  if (laid) {
+    const def = TILES[laid.id];
+    return {
+      color: def.color,
+      paths: rotatePaths(def, laid.rotation),
+      cities: def.cities,
+      towns: def.towns,
+      slots: def.slots,
+      label: def.label
+    };
   }
-  return s;
+  return {
+    color: base?.color ?? 'white',
+    paths: (base?.paths ?? []).map((p) => ({ a: p.a === 'center' ? 'c' : p.a, b: p.b === 'center' ? 'c' : p.b })),
+    cities: base?.cities.length ?? 0,
+    towns: base?.towns.length ?? 0,
+    slots: base?.cities[0]?.slots ?? 0,
+    label: base?.label
+  };
 }
 
-/** A white hex with no laid tile can receive a yellow tile. */
-function layable(s: GameState, coord: string): boolean {
-  const h = HEX_BY_COORD[coord];
-  return !!h && h.color === 'white' && !s.tiles[coord];
+function hexTrack(s: GameState, coord: string): Pair[] {
+  return tileInfo(s, coord).paths;
 }
-function baseKind(coord: string): 'plain' | 'city' | 'town' {
-  const h = HEX_BY_COORD[coord];
-  if (h && h.cities.length > 0) return 'city';
-  if (h && h.towns.length > 0) return 'town';
-  return 'plain';
+function edgesTouched(paths: Pair[]): Set<number> {
+  const set = new Set<number>();
+  for (const p of paths) {
+    if (typeof p.a === 'number') set.add(p.a);
+    if (typeof p.b === 'number') set.add(p.b);
+  }
+  return set;
+}
+const endKey = (e: TileEnd) => (e === 'c' ? 'c' : String(e));
+const pathKey = (p: Pair) => [endKey(p.a), endKey(p.b)].sort().join('-');
+
+/** Tiles already laid on the board, counted by id (for supply limits). */
+function tilesUsed(s: GameState): Record<string, number> {
+  const used: Record<string, number> = {};
+  for (const coord of Object.keys(s.tiles)) used[s.tiles[coord].id] = (used[s.tiles[coord].id] ?? 0) + 1;
+  return used;
+}
+function supplyLeft(s: GameState, id: string): number {
+  const total = TILE_MANIFEST.find((t) => t.id === id)?.count ?? 0;
+  return total - (tilesUsed(s)[id] ?? 0);
+}
+
+/** Colours allowed to be laid in the current phase. */
+function phaseColors(s: GameState): TileColor[] {
+  return (PHASES.find((p) => p.name === s.phase)?.tiles ?? ['yellow']) as TileColor[];
 }
 
 /** The set of hexes the corporation's track reaches from its token(s). */
@@ -86,41 +132,78 @@ function network(s: GameState, corp: CorporationState): Set<string> {
   return visited;
 }
 
+/** Number of station tokens currently in a hex (across all corporations). */
+function tokensInHex(s: GameState, hex: string): number {
+  return s.corporations.filter((c) => c.tokenHexes.includes(hex)).length;
+}
+
 export interface TileLay {
   hex: string;
   tile: string;
   rotation: number;
   cost: number;
+  /** true = upgrade of an existing tile, false = fresh lay on an empty hex. */
+  upgrade: boolean;
 }
 
-/** All legal yellow-tile lays for a corporation in the current state. */
+/** Candidate tile ids of a given colour that fit the tile currently on `hex`. */
+function candidateTiles(s: GameState, hex: string, color: TileColor): string[] {
+  const cur = tileInfo(s, hex);
+  const minSlots = tokensInHex(s, hex);
+  return Object.values(TILES)
+    .filter((t) => t.color === color)
+    .filter((t) => !t.id.startsWith('Beg')) // beginner-variant tiles only
+    .filter((t) => (t.label ?? '') === (cur.label ?? '')) // label must match
+    .filter((t) => t.cities === cur.cities && t.towns === cur.towns)
+    .filter((t) => t.slots >= Math.max(cur.slots, minSlots) || cur.cities === 0)
+    .filter((t) => supplyLeft(s, t.id) > 0)
+    .map((t) => t.id);
+}
+
+/** All legal tile plays (fresh yellow lays + green/brown upgrades) for a corp. */
 export function legalLays(s: GameState, corp: CorporationState): TileLay[] {
   if (corp.tokenHexes.length === 0) return [];
+  const allowed = phaseColors(s);
   const net = network(s, corp);
 
-  const candidates = new Set<string>();
+  // Hexes we might play on: every hex in the network (upgrades + on-token lays),
+  // and empty hexes adjacent to an open track end (fresh lays).
+  const candidates = new Set<string>(net);
   for (const h of net) {
-    if (layable(s, h)) candidates.add(h); // lay on the token/home hex
     for (const e of edgesTouched(hexTrack(s, h))) {
       const n = neighbor(h, e);
-      if (n && layable(s, n)) candidates.add(n); // extend off an open track end
+      if (n) candidates.add(n);
     }
   }
 
   const out: TileLay[] = [];
   const seen = new Set<string>();
   for (const hex of candidates) {
-    const kind = baseKind(hex);
+    const base = HEX_BY_COORD[hex];
+    if (!base) continue;
+    const cur = tileInfo(s, hex);
+    const nextColor = COLORS[colorIdx(cur.color) + 1];
+    if (!nextColor || !allowed.includes(nextColor)) continue; // phase gate / gray-red end
+    if (nextColor === 'yellow' && !net.has(hex)) {
+      // fresh lay into an empty adjacent hex (handled below via connection check)
+    }
+    const curKeys = cur.paths.map(pathKey);
     const onToken = corp.tokenHexes.includes(hex);
-    for (const tile of yellowTilesFor(kind)) {
+    const inNet = net.has(hex);
+
+    for (const tile of candidateTiles(s, hex, nextColor)) {
+      const def = TILES[tile];
       for (let r = 0; r < 6; r++) {
-        const rp = rotatePaths(TILES[tile], r);
+        const rp = rotatePaths(def, r);
         const tileEdges = [...edgesTouched(rp)];
-        // No track may point into the sea: every tile edge must border a hex.
+        // No track may point into the sea.
         if (tileEdges.some((e) => neighbor(hex, e) === null)) continue;
-        // The lay must connect to this corporation's network (its tokened
-        // cities and the track already linked to them).
-        let ok = onToken;
+        // Preserve every existing connection (old paths subset of new).
+        const newKeys = new Set(rp.map(pathKey));
+        if (!curKeys.every((k) => newKeys.has(k))) continue;
+        // Connectivity: on a token, already in the network, or a new tile edge
+        // links to a network neighbour's matching track end.
+        let ok = onToken || inNet;
         if (!ok) {
           for (const e of tileEdges) {
             const n = neighbor(hex, e);
@@ -131,11 +214,10 @@ export function legalLays(s: GameState, corp: CorporationState): TileLay[] {
           }
         }
         if (!ok) continue;
-        // dedupe rotations that yield the same edge footprint
         const key = `${hex}:${tile}:${tileEdges.slice().sort((a, b) => a - b).join('')}`;
         if (seen.has(key)) continue;
         seen.add(key);
-        out.push({ hex, tile, rotation: r, cost: HEX_BY_COORD[hex].upgradeCost ?? 0 });
+        out.push({ hex, tile, rotation: r, cost: base.upgradeCost ?? 0, upgrade: !!s.tiles[hex] || cur.color !== 'white' });
       }
     }
   }
@@ -151,6 +233,42 @@ export function applyLayTile(s: GameState, corp: CorporationState, hex: string, 
     corp.cash -= cost;
     s.bank += cost;
   }
+  const upgrade = !!s.tiles[hex];
   s.tiles[hex] = { id: tile, rotation };
-  s.log.push(`${corp.sym} lays tile ${tile} on ${hex}${cost ? ` for ${cost}` : ''}`);
+  s.log.push(`${corp.sym} ${upgrade ? 'upgrades' : 'lays'} tile ${tile} on ${hex}${cost ? ` for ${cost}` : ''}`);
+}
+
+// --- station tokens --------------------------------------------------------
+
+export interface TokenPlay {
+  hex: string;
+  cost: number;
+}
+
+/** Cities the corporation may place its next station token in. */
+export function legalTokens(s: GameState, corp: CorporationState): TokenPlay[] {
+  const used = corp.tokenHexes.length;
+  if (used >= corp.tokens.length) return []; // no tokens left
+  const cost = corp.tokens[used];
+  if (corp.cash < cost) return [];
+  const net = network(s, corp);
+  const out: TokenPlay[] = [];
+  for (const hex of net) {
+    if (corp.tokenHexes.includes(hex)) continue;
+    const info = tileInfo(s, hex);
+    if (info.cities === 0) continue; // only cities take tokens
+    if (tokensInHex(s, hex) >= info.slots) continue; // no open slot
+    out.push({ hex, cost });
+  }
+  return out;
+}
+
+export function applyToken(s: GameState, corp: CorporationState, hex: string): void {
+  const legal = legalTokens(s, corp).find((t) => t.hex === hex);
+  if (!legal) throw new GameError(`illegal token placement on ${hex}`);
+  if (corp.cash < legal.cost) throw new GameError(`${corp.sym} cannot afford the ${legal.cost} token`);
+  corp.cash -= legal.cost;
+  s.bank += legal.cost;
+  corp.tokenHexes.push(hex);
+  s.log.push(`${corp.sym} places a token on ${hex}${legal.cost ? ` for ${legal.cost}` : ''}`);
 }

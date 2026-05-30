@@ -15,7 +15,7 @@
 
 import { MARKET, TRAINS, PHASES } from '$lib/data/g1889';
 import { GameError, type CorporationState, type GameAction, type GameState } from './types';
-import { applyLayTile, legalLays } from './track';
+import { applyLayTile, legalLays, applyToken, legalTokens } from './track';
 import { routeRevenue } from './routes';
 
 function corp(s: GameState, sym: string): CorporationState {
@@ -185,7 +185,10 @@ export function applyOperating(s: GameState, action: GameAction): void {
   if (action.player !== active) throw new GameError(`it is ${active}'s turn (operating ${c.sym})`);
 
   if (
-    (action.type === 'lay_tile' || action.type === 'run' || action.type === 'buy_train') &&
+    (action.type === 'lay_tile' ||
+      action.type === 'place_token' ||
+      action.type === 'run' ||
+      action.type === 'buy_train') &&
     action.corp !== c.sym
   ) {
     throw new GameError(`${c.sym} is operating, not ${action.corp}`);
@@ -195,10 +198,17 @@ export function applyOperating(s: GameState, action: GameAction): void {
     case 'lay_tile':
       if (s.or.step !== 'track') throw new GameError(`${c.sym} is not laying track`);
       applyLayTile(s, c, action.hex, action.tile, action.rotation);
-      s.or.step = 'run'; // one tile per OR for now
+      s.or.step = 'token'; // one tile per OR, then the optional token step
+      break;
+    case 'place_token':
+      if (s.or.step !== 'token' && s.or.step !== 'track') throw new GameError(`${c.sym} cannot place a token now`);
+      applyToken(s, c, action.hex);
+      s.or.step = 'run'; // one token per OR
       break;
     case 'run': {
-      if (s.or.step !== 'run' && s.or.step !== 'track') throw new GameError(`${c.sym} has already run`);
+      if (s.or.step !== 'run' && s.or.step !== 'track' && s.or.step !== 'token') {
+        throw new GameError(`${c.sym} has already run`);
+      }
       // Revenue is computed authoritatively from the corporation's routes, not
       // taken from the action (which can't be trusted). The action only chooses
       // pay vs withhold.
@@ -212,7 +222,9 @@ export function applyOperating(s: GameState, action: GameAction): void {
       break;
     case 'pass':
       if (s.or.step === 'track') {
-        s.or.step = 'run'; // skip laying track
+        s.or.step = 'token'; // skip laying track -> optional token
+      } else if (s.or.step === 'token') {
+        s.or.step = 'run'; // skip the token
       } else if (s.or.step === 'trains') {
         s.log.push(`${c.sym} finishes operating`);
         nextCorp(s);
@@ -225,16 +237,22 @@ export function applyOperating(s: GameState, action: GameAction): void {
   }
 }
 
-/** Legal yellow-tile lays for the operating corporation (track step). */
+/** Legal tile plays for the operating corporation (track step). */
 export function trackLays(s: GameState) {
   if (!s.or || s.or.step !== 'track') return [];
   return legalLays(s, activeCorp(s));
 }
 
+/** Legal token placements for the operating corporation (token step). */
+export function tokenPlays(s: GameState) {
+  if (!s.or || (s.or.step !== 'token' && s.or.step !== 'track')) return [];
+  return legalTokens(s, activeCorp(s));
+}
+
 export interface OperatingView {
   corp: string;
   president: string | null;
-  step: 'track' | 'run' | 'trains';
+  step: 'track' | 'token' | 'run' | 'trains';
   order: string[];
   index: number;
   orNumber: number;

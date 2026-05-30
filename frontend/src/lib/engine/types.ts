@@ -50,6 +50,8 @@ export interface CorporationState {
   trains: string[];
   /** Hex coordinates where this corporation has a station token. */
   tokenHexes: string[];
+  /** Cost of each station token, in placement order (0 = free home token). */
+  tokens: number[];
 }
 
 export interface DepotTrain {
@@ -64,7 +66,7 @@ export interface ORState {
   /** Index of the corporation currently operating. */
   index: number;
   /** Step within the corporation's turn. */
-  step: 'track' | 'run' | 'trains';
+  step: 'track' | 'token' | 'run' | 'trains';
   /** Which operating round in the current set (1-based). */
   orNumber: number;
   /** Total operating rounds in this set (phase-dependent). */
@@ -133,6 +135,7 @@ export type GameAction =
   | { type: 'buy'; player: string; corp: string; from: 'ipo' | 'pool' }
   | { type: 'sell'; player: string; corp: string; count: number }
   | { type: 'lay_tile'; player: string; corp: string; hex: string; tile: string; rotation: number }
+  | { type: 'place_token'; player: string; corp: string; hex: string }
   | { type: 'run'; player: string; corp: string; revenue: number; dividend: 'pay' | 'withhold' }
   | { type: 'buy_train'; player: string; corp: string; train: string }
   | { type: 'pass'; player: string };

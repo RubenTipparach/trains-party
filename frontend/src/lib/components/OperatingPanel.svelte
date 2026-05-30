@@ -1,6 +1,6 @@
 <script lang="ts">
   import { game } from '$lib/game/sandbox.svelte';
-  import { operatingView, trackLays } from '$lib/engine';
+  import { operatingView, trackLays, tokenPlays } from '$lib/engine';
   import { TRAINS, MARKET, CURRENCY, COMPANIES } from '$lib/data/g1889';
   import type { CorporationState } from '$lib/engine';
   import HexMap from './HexMap.svelte';
@@ -10,6 +10,7 @@
 
   const v = $derived(operatingView(game.state));
   const lays = $derived(trackLays(game.state));
+  const tokens = $derived(tokenPlays(game.state));
 
   const SEAT = ['#f5c542', '#3fb6a8', '#e0655c', '#9b8cf0', '#7cc36b', '#e8923a'];
   const seatColor = (id: string) => SEAT[game.state.players.findIndex((p) => p.id === id) % SEAT.length];
@@ -47,7 +48,7 @@
   <div class="op">
     <!-- operating order -->
     <div class="order">
-      <span class="olabel">OR {v.orNumber}/{v.orsThisSet} · {v.step === 'track' ? 'Lay track' : v.step === 'run' ? 'Run trains' : 'Buy trains'}</span>
+      <span class="olabel">OR {v.orNumber}/{v.orsThisSet} · {v.step === 'track' ? 'Lay track' : v.step === 'token' ? 'Place token' : v.step === 'run' ? 'Run trains' : 'Buy trains'}</span>
       {#each v.order as sym, i (sym)}
         <span class="opill" class:on={i === v.index} class:done={i < v.index} style="--c:{corpOf(sym).color}">{sym}</span>
       {/each}
@@ -58,7 +59,7 @@
     <div class="cols">
       <!-- the board, with track laying live on it -->
       <div class="mapwrap">
-        <HexMap layMode={v.step === 'track'} />
+        <HexMap layMode={v.step === 'track'} tokenMode={v.step === 'token'} />
       </div>
 
       <!-- the operating corporation + its current action -->
@@ -106,6 +107,14 @@
               <button class="ghost" onclick={() => game.act({ type: 'pass', player: c.president! })}>Skip track</button>
             </div>
             <p class="hint">{game.isBot(c.president) ? 'Bot is choosing where to build…' : 'Lay one yellow tile connected to your network, or skip.'}</p>
+          {:else if v.step === 'token'}
+            <div class="act track">
+              <span class="tlabel">Tap a <em>highlighted</em> city to place a token ({tokens.length} legal)</span>
+            </div>
+            <div class="act">
+              <button class="ghost" onclick={() => game.act({ type: 'pass', player: c.president! })}>Skip token</button>
+            </div>
+            <p class="hint">{game.isBot(c.president) ? 'Bot is deciding on a token…' : 'Place a station token in a reachable city, or skip.'}</p>
           {:else if v.step === 'run'}
             <div class="runrev">
               {#if v.hasTrains}
