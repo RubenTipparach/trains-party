@@ -5,7 +5,37 @@
   import type { HexDef, PathPart, TileColor } from '$lib/data/types';
   import { HEX_SIZE, APOTHEM, hexCenter, hexPolygon, edgeMidpoint } from '$lib/hexgeo';
   import { game } from '$lib/game/sandbox.svelte';
-  import { TILES, rotatePaths } from '$lib/engine';
+  import { TILES, rotatePaths, trackLays } from '$lib/engine';
+  import TileGraphic from './TileGraphic.svelte';
+
+  // Optional: when in the operating-round track step, hexes that can receive a
+  // tile are highlighted and clickable.
+  let { layMode = false }: { layMode?: boolean } = $props();
+  const lays = $derived(layMode ? trackLays(game.state) : []);
+  const layHexes = $derived(new Set(lays.map((l) => l.hex)));
+  function layOptions(hex: string) {
+    return lays.filter((l) => l.hex === hex);
+  }
+  // Per-hex chooser when a target has multiple legal tiles/rotations.
+  let choosing = $state<string | null>(null);
+  function clickLayHex(hex: string) {
+    const opts = layOptions(hex);
+    if (opts.length === 0) return;
+    if (opts.length === 1) {
+      const l = opts[0];
+      const v = game.state.or;
+      const me = game.active!;
+      game.act({ type: 'lay_tile', player: me, corp: v!.order[v!.index], hex: l.hex, tile: l.tile, rotation: l.rotation });
+      choosing = null;
+    } else {
+      choosing = choosing === hex ? null : hex;
+    }
+  }
+  function chooseLay(l: { hex: string; tile: string; rotation: number }) {
+    const v = game.state.or!;
+    game.act({ type: 'lay_tile', player: game.active!, corp: v.order[v.index], hex: l.hex, tile: l.tile, rotation: l.rotation });
+    choosing = null;
+  }
 
   // Laid tiles (track placed during operating rounds).
   const laid = (coord: string) => game.state.tiles?.[coord];
@@ -223,12 +253,16 @@
     pointers.delete(e.pointerId);
     if (pointers.size === 0) dragging = false;
     if (!wasDrag) {
-      // treat as a tap: toggle the tooltip for the hex under the pointer
       const el = (document.elementFromPoint(e.clientX, e.clientY) as Element | null)?.closest('g.hex') as
         | SVGGraphicsElement
         | null;
-      if (el) {
-        const coord = el.getAttribute('data-coord')!;
+      const coord = el?.getAttribute('data-coord') ?? null;
+      // In lay mode, tapping a highlighted hex lays a tile there.
+      if (layMode && coord && layHexes.has(coord)) {
+        clickLayHex(coord);
+        return;
+      }
+      if (el && coord) {
         if (tip?.coord === coord) hide();
         else show(el, coord, el.getAttribute('data-name') || undefined);
       } else {
@@ -311,6 +345,10 @@
           onpointerleave={(e) => e.pointerType === 'mouse' && !dragging && hide()}
         >
           <polygon points={poly} class="tile" fill={laid(h.coord) ? '#f3cf3e' : tip?.coord === h.coord ? HOVER[h.color] : FILL[h.color]} stroke="#4a4332" stroke-width="1" />
+
+          {#if layMode && layHexes.has(h.coord)}
+            <polygon points={poly} class="layhi" />
+          {/if}
 
           {#if h.terrain?.includes('water')}
             <polygon points={poly} fill="#2f6f96" opacity="0.32" />
@@ -433,6 +471,20 @@
       <strong>{tip.coord}</strong>{#if tip.name} · {tip.name}{/if}
     </div>
   {/if}
+
+  {#if layMode && choosing}
+    <div class="chooser">
+      <span class="cl">Tile for {choosing}</span>
+      <div class="copts">
+        {#each layOptions(choosing) as l (l.tile + l.rotation)}
+          <button onclick={() => chooseLay(l)} title="rotate {l.rotation}">
+            <TileGraphic id={l.tile} />
+          </button>
+        {/each}
+      </div>
+      <button class="ccancel" onclick={() => (choosing = null)}>×</button>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -502,6 +554,22 @@
     stroke: #15252f;
     stroke-width: 3;
     pointer-events: none;
+  }
+  .layhi {
+    fill: rgba(63, 182, 168, 0.28);
+    stroke: #3fb6a8;
+    stroke-width: 3;
+    pointer-events: none;
+    animation: laypulse 1.4s ease-in-out infinite;
+  }
+  @keyframes laypulse {
+    0%,
+    100% {
+      fill-opacity: 0.45;
+    }
+    50% {
+      fill-opacity: 0.12;
+    }
   }
   .ties {
     fill: none;
@@ -598,5 +666,50 @@
   .tip strong {
     color: var(--rail, #f5c542);
     font-family: ui-monospace, monospace;
+  }
+  .chooser {
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: rgba(17, 32, 44, 0.95);
+    border: 1px solid var(--rail-deep, #c9971f);
+    border-radius: 10px;
+    padding: 0.4rem 0.6rem;
+    z-index: 12;
+    max-width: 90%;
+  }
+  .chooser .cl {
+    font: 600 0.78rem ui-sans-serif, sans-serif;
+    color: #fff;
+    white-space: nowrap;
+  }
+  .copts {
+    display: flex;
+    gap: 0.3rem;
+    overflow-x: auto;
+  }
+  .copts button {
+    width: 46px;
+    flex: none;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    cursor: pointer;
+    padding: 1px;
+  }
+  .copts button:hover {
+    border-color: var(--rail, #f5c542);
+  }
+  .ccancel {
+    background: none;
+    border: none;
+    color: var(--muted, #9fb0c0);
+    font-size: 1.1rem;
+    cursor: pointer;
+    line-height: 1;
   }
 </style>

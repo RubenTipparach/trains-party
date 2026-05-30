@@ -3,6 +3,7 @@
   import { operatingView, trackLays } from '$lib/engine';
   import { TRAINS, MARKET, CURRENCY } from '$lib/data/g1889';
   import type { CorporationState } from '$lib/engine';
+  import HexMap from './HexMap.svelte';
 
   const v = $derived(operatingView(game.state));
   const lays = $derived(trackLays(game.state));
@@ -22,80 +23,104 @@
   <div class="op">
     <!-- operating order -->
     <div class="order">
-      <span class="olabel">OR {v.orNumber}/{v.orsThisSet}</span>
+      <span class="olabel">OR {v.orNumber}/{v.orsThisSet} · {v.step === 'track' ? 'Lay track' : v.step === 'run' ? 'Run trains' : 'Buy trains'}</span>
       {#each v.order as sym, i (sym)}
-        <span class="opill" class:on={i === v.index} style="--c:{corpOf(sym).color}">{sym}</span>
+        <span class="opill" class:on={i === v.index} class:done={i < v.index} style="--c:{corpOf(sym).color}">{sym}</span>
       {/each}
     </div>
 
     {#if game.error}<p class="err">{game.error}</p>{/if}
 
-    <!-- operating corporation -->
-    <div class="cur" style="--c:{c.color}">
-      <div class="curhead" style="background:{c.color}">
-        <span class="csym">{c.sym}</span>
-        <span class="cname">{c.name}</span>
-        <span class="pres">{pname(c.president)}</span>
-      </div>
-      <div class="curbody">
-        <div class="stat"><span>Treasury</span><b>{CURRENCY}{c.cash}</b></div>
-        <div class="stat"><span>Price</span><b>{priceOf(c) !== null ? `${CURRENCY}${priceOf(c)}` : '-'}</b></div>
-        <div class="stat"><span>Trains</span><b>{c.trains.join(', ') || 'none'}</b></div>
+    <div class="cols">
+      <!-- the board, with track laying live on it -->
+      <div class="mapwrap">
+        <HexMap layMode={v.step === 'track'} />
       </div>
 
-      {#if v.step === 'track'}
-        <div class="act track">
-          <span class="tlabel">Lay track <em>{lays.length} legal</em></span>
-          <button class="ghost" onclick={() => game.act({ type: 'pass', player: c.president! })}>Skip track</button>
-        </div>
-        {#if lays.length}
-          <div class="laylist">
-            {#each lays as l (l.hex + l.tile + l.rotation)}
-              <button
-                onclick={() => game.act({ type: 'lay_tile', player: c.president!, corp: c.sym, hex: l.hex, tile: l.tile, rotation: l.rotation })}
-              >
-                #{l.tile} → {l.hex}{l.cost ? ` (${CURRENCY}${l.cost})` : ''}
-              </button>
-            {/each}
+      <!-- the operating corporation + its current action -->
+      <aside>
+        <div class="cur" style="--c:{c.color}">
+          <div class="curhead" style="background:{c.color}">
+            <span class="csym">{c.sym}</span>
+            <span class="cname">{c.name}</span>
+            <span class="pres">{pname(c.president)}</span>
           </div>
-        {/if}
-        <p class="hint">Lay one yellow tile connected to your network, or skip. Tokens, upgrades and routes come next.</p>
-      {:else if v.step === 'run'}
-        <div class="act">
-          <label>Revenue
-            <input type="number" min="0" step="10" bind:value={revenue} />
-          </label>
-          <button onclick={() => game.act({ type: 'run', player: c.president!, corp: c.sym, revenue, dividend: 'pay' })}>Pay dividend</button>
-          <button class="ghost" onclick={() => game.act({ type: 'run', player: c.president!, corp: c.sym, revenue, dividend: 'withhold' })}>Withhold</button>
-        </div>
-        <p class="hint">Route revenue is computed in the next stage; enter it manually for now.</p>
-      {:else}
-        <div class="act">
-          {#if v.canBuyTrain && c.cash >= trainCost(v.canBuyTrain)}
-            <button onclick={() => game.act({ type: 'buy_train', player: c.president!, corp: c.sym, train: v.canBuyTrain! })}>
-              Buy {v.canBuyTrain}-train ({CURRENCY}{trainCost(v.canBuyTrain)})
-            </button>
-          {/if}
-          <button class="ghost" onclick={() => game.act({ type: 'pass', player: c.president! })}>Finish turn</button>
-        </div>
-      {/if}
-    </div>
+          <div class="curbody">
+            <div class="stat"><span>Treasury</span><b>{CURRENCY}{c.cash}</b></div>
+            <div class="stat"><span>Price</span><b>{priceOf(c) !== null ? `${CURRENCY}${priceOf(c)}` : '-'}</b></div>
+            <div class="stat"><span>Trains</span><b>{c.trains.join(', ') || 'none'}</b></div>
+          </div>
 
-    <!-- all corporations summary -->
-    <div class="grid">
-      {#each game.state.corporations.filter((x) => x.floated) as x (x.sym)}
-        <div class="mini" style="--c:{x.color}">
-          <span class="ms"><i></i>{x.sym}</span>
-          <span>{priceOf(x) !== null ? `${CURRENCY}${priceOf(x)}` : '-'}</span>
-          <span>{CURRENCY}{x.cash}</span>
-          <span>{x.trains.join(',') || '-'}</span>
+          {#if v.step === 'track'}
+            <div class="act track">
+              <span class="tlabel">Tap a <em>highlighted</em> hex to lay track ({lays.length} legal)</span>
+            </div>
+            <div class="act">
+              <button class="ghost" onclick={() => game.act({ type: 'pass', player: c.president! })}>Skip track</button>
+            </div>
+            <p class="hint">{game.isBot(c.president) ? 'Bot is choosing where to build…' : 'Lay one yellow tile connected to your network, or skip.'}</p>
+          {:else if v.step === 'run'}
+            <div class="act">
+              <label>Revenue
+                <input type="number" min="0" step="10" bind:value={revenue} />
+              </label>
+            </div>
+            <div class="act">
+              <button onclick={() => game.act({ type: 'run', player: c.president!, corp: c.sym, revenue, dividend: 'pay' })}>Pay dividend</button>
+              <button class="ghost" onclick={() => game.act({ type: 'run', player: c.president!, corp: c.sym, revenue, dividend: 'withhold' })}>Withhold</button>
+            </div>
+            <p class="hint">Route revenue is computed in the next stage; enter it manually for now.</p>
+          {:else}
+            <div class="act">
+              {#if v.canBuyTrain && c.cash >= trainCost(v.canBuyTrain)}
+                <button onclick={() => game.act({ type: 'buy_train', player: c.president!, corp: c.sym, train: v.canBuyTrain! })}>
+                  Buy {v.canBuyTrain}-train ({CURRENCY}{trainCost(v.canBuyTrain)})
+                </button>
+              {/if}
+              <button class="ghost" onclick={() => game.act({ type: 'pass', player: c.president! })}>Finish turn</button>
+            </div>
+          {/if}
         </div>
-      {/each}
+
+        <!-- all floated corporations summary -->
+        <div class="grid">
+          {#each game.state.corporations.filter((x) => x.floated) as x (x.sym)}
+            <div class="mini" class:on={x.sym === v.corp} style="--c:{x.color}">
+              <span class="ms"><i></i>{x.sym}</span>
+              <span>{priceOf(x) !== null ? `${CURRENCY}${priceOf(x)}` : '-'}</span>
+              <span>{CURRENCY}{x.cash}</span>
+              <span>{x.trains.join(',') || '-'}</span>
+            </div>
+          {/each}
+        </div>
+      </aside>
     </div>
   </div>
 {/if}
 
 <style>
+  .cols {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1rem;
+    align-items: start;
+  }
+  @media (min-width: 880px) {
+    .cols {
+      grid-template-columns: minmax(0, 1.6fr) minmax(280px, 1fr);
+    }
+  }
+  .mapwrap {
+    min-width: 0;
+  }
+  aside {
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+  }
+  .mini.on {
+    box-shadow: 0 0 0 2px var(--rail) inset;
+  }
   .order {
     display: flex;
     align-items: center;
@@ -212,25 +237,9 @@
     font-style: normal;
     font-size: 0.75rem;
   }
-  .laylist {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.35rem;
-    padding: 0 0.8rem 0.6rem;
-    max-height: 140px;
-    overflow-y: auto;
-  }
-  .laylist button {
-    padding: 0.3rem 0.55rem;
-    border-radius: 7px;
-    border: 1px solid var(--line);
-    background: var(--bg);
-    color: var(--ink);
-    font: 600 0.75rem ui-monospace, monospace;
-    cursor: pointer;
-  }
-  .laylist button:hover {
-    border-color: var(--rail-deep);
+  .opill.done {
+    opacity: 0.7;
+    text-decoration: line-through;
   }
   .grid {
     display: grid;
