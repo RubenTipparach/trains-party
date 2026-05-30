@@ -13,23 +13,30 @@
   const cname = (sym: string) => COMPANIES.find((c) => c.sym === sym)?.name ?? sym;
 
   const av = $derived(auctionView(game.state));
+
+  const ownedPrivates = (id: string) => game.state.players.find((p) => p.id === id)?.companies ?? [];
+  const privVal = (id: string) =>
+    ownedPrivates(id).reduce((n, sym) => n + (COMPANIES.find((c) => c.sym === sym)?.value ?? 0), 0);
 </script>
 
 <div class="auction">
-  <!-- player liquidity strip -->
+  <!-- player summary cards -->
   <div class="players">
-    {#each av.players as pl (pl.id)}
+    {#each av.players as pl, i (pl.id)}
       <div class="pcard" class:active={pl.id === av.active} style="--p:{seatColor(pl.id)}">
-        <div class="pname">
-          {pl.name}{#if game.isBot(pl.id)}<span class="botbadge">BOT</span>{/if}
-          {#if pl.id === av.active}<span class="turn">to act</span>{/if}
+        <div class="ph">
+          <span class="pn">{pl.name}{#if game.isBot(pl.id)}<span class="bot">BOT</span>{/if}</span>
+          {#if game.state.priority === i}<span class="pd">Priority</span>{:else if pl.id === av.active}<span class="turn">to act</span>{/if}
         </div>
-        <div class="pmoney">
-          <span class="avail">{CURRENCY}{pl.available}</span>
-          <span class="sub">available</span>
+        <div class="pm">
+          <div><span>Cash</span><b>{CURRENCY}{pl.cash}</b></div>
+          <div><span>Value</span><b>{CURRENCY}{pl.cash + privVal(pl.id)}</b></div>
+          <div><span>Available</span><b>{CURRENCY}{pl.available}</b></div>
+          <div><span>In bids</span><b class="locked">{CURRENCY}{pl.committed}</b></div>
         </div>
-        <div class="prow"><span>Cash</span><span>{CURRENCY}{pl.cash}</span></div>
-        <div class="prow locked"><span>In bids</span><span>{CURRENCY}{pl.committed}</span></div>
+        <div class="holdings">
+          {#each ownedPrivates(pl.id) as sym (sym)}<span class="hpriv">{sym}</span>{/each}
+        </div>
       </div>
     {/each}
   </div>
@@ -99,57 +106,74 @@
     border: 1px solid var(--line);
     border-top: 3px solid var(--p);
     border-radius: 10px;
-    padding: 0.6rem 0.7rem;
+    padding: 0.55rem 0.7rem;
     background: var(--bg-soft);
-    opacity: 0.8;
+    opacity: 0.85;
   }
   .pcard.active {
     opacity: 1;
     box-shadow: 0 0 0 2px var(--p) inset;
   }
-  .pname {
-    font-weight: 700;
-    color: var(--p);
+  .ph {
     display: flex;
     justify-content: space-between;
     align-items: baseline;
+    margin-bottom: 0.3rem;
+  }
+  .pn {
+    font-weight: 700;
+    color: var(--p);
+  }
+  .bot {
+    font-size: 0.58rem;
+    color: var(--muted);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 0 0.3rem;
+    margin-left: 0.3rem;
+  }
+  .pd {
+    font-size: 0.62rem;
+    color: var(--rail);
+    border: 1px solid var(--rail-deep);
+    border-radius: 999px;
+    padding: 0.02rem 0.35rem;
   }
   .turn {
-    font-size: 0.65rem;
+    font-size: 0.62rem;
     color: #0f1419;
     background: var(--p);
     border-radius: 999px;
     padding: 0.05rem 0.4rem;
   }
-  .botbadge {
-    font-size: 0.6rem;
-    color: var(--muted);
-    border: 1px solid var(--line);
-    border-radius: 999px;
-    padding: 0.02rem 0.35rem;
-    margin-left: 0.3rem;
-    letter-spacing: 0.05em;
+  .pm {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.05rem 0.6rem;
+    font-size: 0.76rem;
+    margin-bottom: 0.4rem;
   }
-  .pmoney {
-    margin: 0.3rem 0;
-  }
-  .avail {
-    font-size: 1.3rem;
-    font-weight: 800;
-  }
-  .pmoney .sub {
-    font-size: 0.7rem;
-    color: var(--muted);
-    margin-left: 0.3rem;
-  }
-  .prow {
+  .pm div {
     display: flex;
     justify-content: space-between;
-    font-size: 0.78rem;
+  }
+  .pm span {
     color: var(--muted);
   }
-  .prow.locked span:last-child {
+  .pm b.locked {
     color: #e6b34a;
+  }
+  .holdings {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+  }
+  .hpriv {
+    font-size: 0.66rem;
+    color: var(--muted);
+    border: 1px dashed var(--line);
+    border-radius: 999px;
+    padding: 0.02rem 0.35rem;
   }
   .companies {
     display: grid;
