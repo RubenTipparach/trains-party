@@ -18,6 +18,15 @@ import type {
 
 export const TITLE = '1889';
 export const CURRENCY = '¥';
+export const PUBLISHER = 'Grand Trunk Games';
+export const DESIGNER = 'Yasutaka Ikeda';
+export const RULEBOOK_URL = 'https://drive.google.com/file/d/14NH7j0hhTQDvJKcP2Qa6mC2Blki14Q0-/view';
+
+/** Static end-game triggers (1889). */
+export const END_GAME: Array<{ reason: string; timing: string }> = [
+  { reason: 'Any player is bankrupt', timing: 'Immediately' },
+  { reason: 'The bank runs out of money', timing: 'Next end of a complete OR set' }
+];
 
 export const BANK_CASH = 7000;
 
@@ -97,7 +106,7 @@ export const TRAINS: TrainDef[] = [
   { name: '4', distance: 4, price: 300, num: 4, rustsOn: 'D' },
   { name: '5', distance: 5, price: 450, num: 3, closesCompanies: true },
   { name: '6', distance: 6, price: 630, num: 2 },
-  { name: 'D', distance: 999, price: 1100, num: -1, availableOn: '6' }
+  { name: 'D', distance: 999, price: 1100, num: -1, availableOn: '6', discount: { '4': 300, '5': 300, '6': 300 } }
 ];
 
 // --- Corporations ----------------------------------------------------------

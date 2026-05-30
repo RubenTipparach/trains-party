@@ -15,7 +15,11 @@
     TRAINS,
     PAR_PRICES,
     CURRENCY,
-    TITLE
+    TITLE,
+    PUBLISHER,
+    DESIGNER,
+    RULEBOOK_URL,
+    END_GAME
   } from '$lib/data/g1889';
   import { TILE_MANIFEST } from '$lib/data/map1889';
   import type { TileColor } from '$lib/data/types';
@@ -37,6 +41,8 @@
   }
 
   const cash = [...new Set(Object.values(STARTING_CASH))].map((v) => `${CURRENCY}${v}`).join(' / ');
+  // Which train rusts when a given train is bought (inverse of rustsOn).
+  const rustsWhenBought = (name: string) => TRAINS.find((x) => x.rustsOn === name)?.name;
   const TILE_FILL: Record<TileColor, string> = {
     white: '#cdcb92',
     yellow: '#f3cf3e',
@@ -88,6 +94,68 @@
 
       {:else if active === 'info'}
         <section>
+          <h2>Trains</h2>
+          <div class="scroll">
+            <table>
+              <thead>
+                <tr><th>Type</th><th>Price</th><th>Count</th><th>Rusts</th><th>Upgrade discount</th><th>Available</th></tr>
+              </thead>
+              <tbody>
+                {#each TRAINS as t (t.name)}
+                  <tr>
+                    <td><strong>{t.name}</strong></td>
+                    <td>{CURRENCY}{t.price}</td>
+                    <td>{t.num === -1 ? '∞' : t.num}</td>
+                    <td>{rustsWhenBought(t.name) ?? '-'}</td>
+                    <td>{t.discount ? `${Object.keys(t.discount).join(', ')} → ${CURRENCY}${Object.values(t.discount)[0]}` : '-'}</td>
+                    <td>{t.availableOn ? `phase ${t.availableOn}` : '-'}</td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+          <p class="legend">The 5-train closes all private companies when the first one is bought.</p>
+        </section>
+
+        <section>
+          <h2>Game phases</h2>
+          <div class="scroll">
+            <table>
+              <thead>
+                <tr><th>Phase</th><th>On train</th><th>ORs</th><th>Train limit</th><th>Tiles</th><th>Status</th></tr>
+              </thead>
+              <tbody>
+                {#each PHASES as p (p.name)}
+                  {@const hi = p.tiles[p.tiles.length - 1]}
+                  <tr>
+                    <td><strong>{p.name}</strong></td>
+                    <td>{p.on ?? 'start'}</td>
+                    <td>{p.operatingRounds}</td>
+                    <td>{p.trainLimit}</td>
+                    <td><span class="tilebadge" style:background={TILE_FILL[hi]}>{hi}</span></td>
+                    <td>{p.canBuyCompanies ? 'Can buy companies' : '-'}</td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section>
+          <h2>Reasons for end of game</h2>
+          <table>
+            <thead>
+              <tr><th>Reason</th><th>Timing</th></tr>
+            </thead>
+            <tbody>
+              {#each END_GAME as e (e.reason)}
+                <tr><td>{e.reason}</td><td>{e.timing}</td></tr>
+              {/each}
+            </tbody>
+          </table>
+        </section>
+
+        <section>
           <h2>Game info</h2>
           <table>
             <tbody>
@@ -98,54 +166,11 @@
               <tr><th>Certificate limit</th><td>{Object.entries(CERT_LIMIT).map(([p, n]) => `${p}p: ${n}`).join(' · ')}</td></tr>
               <tr><th>Par prices</th><td>{PAR_PRICES.map((p) => `${CURRENCY}${p}`).join(' · ')}</td></tr>
               <tr><th>Capitalization</th><td>Full</td></tr>
+              <tr><th>Published by</th><td>{PUBLISHER}</td></tr>
+              <tr><th>Designed by</th><td>{DESIGNER}</td></tr>
+              <tr><th>Rules</th><td><a href={RULEBOOK_URL} target="_blank" rel="noreferrer">Rulebook (PDF)</a></td></tr>
             </tbody>
           </table>
-        </section>
-
-        <section>
-          <h2>Phases</h2>
-          <div class="scroll">
-            <table>
-              <thead>
-                <tr><th>Phase</th><th>On train</th><th>Tiles</th><th>ORs</th><th>Train limit</th><th>Buy privates</th></tr>
-              </thead>
-              <tbody>
-                {#each PHASES as p (p.name)}
-                  <tr>
-                    <td><strong>{p.name}</strong></td>
-                    <td>{p.on ?? 'start'}</td>
-                    <td>{p.tiles.join(', ')}</td>
-                    <td>{p.operatingRounds}</td>
-                    <td>{p.trainLimit}</td>
-                    <td>{p.canBuyCompanies ? 'yes' : '-'}</td>
-                  </tr>
-                {/each}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <section>
-          <h2>Trains</h2>
-          <div class="scroll">
-            <table>
-              <thead>
-                <tr><th>Train</th><th>Cost</th><th>Qty</th><th>Notes</th></tr>
-              </thead>
-              <tbody>
-                {#each TRAINS as t (t.name)}
-                  <tr>
-                    <td><strong>{t.name}</strong></td>
-                    <td>{CURRENCY}{t.price}</td>
-                    <td>{t.num === -1 ? '∞' : t.num}</td>
-                    <td>
-                      {#if t.rustsOn}rusts when {t.rustsOn} bought{:else if t.closesCompanies}closes private companies{:else if t.availableOn}available in phase {t.availableOn}{:else}-{/if}
-                    </td>
-                  </tr>
-                {/each}
-              </tbody>
-            </table>
-          </div>
         </section>
 
       {:else if active === 'entities'}
@@ -304,6 +329,15 @@
   }
   td strong {
     color: var(--rail);
+  }
+  .tilebadge {
+    display: inline-block;
+    padding: 0.1rem 0.5rem;
+    border-radius: 4px;
+    color: #1b1b1b;
+    font-weight: 600;
+    font-size: 0.78rem;
+    text-transform: capitalize;
   }
   .tiles {
     display: grid;

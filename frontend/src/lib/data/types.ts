@@ -12,6 +12,8 @@ export interface TrainDef {
   availableOn?: string;
   /** e.g. closes private companies. */
   closesCompanies?: boolean;
+  /** Trade-in discount when upgrading from older trains, keyed by train name. */
+  discount?: Record<string, number>;
 }
 
 export interface PhaseDef {
