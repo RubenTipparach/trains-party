@@ -179,9 +179,11 @@
       <!-- coordinate axis labels (outside the tiles) -->
       {#each cols as [letter, x] (letter)}
         <text class="axis" {x} y={minY + 16} text-anchor="middle">{letter}</text>
+        <text class="axis" {x} y={minY + height - 8} text-anchor="middle">{letter}</text>
       {/each}
       {#each rows as [num, y] (num)}
         <text class="axis" x={minX + 13} y={y + 4} text-anchor="middle">{num}</text>
+        <text class="axis" x={minX + width - 13} y={y + 4} text-anchor="middle">{num}</text>
       {/each}
 
       {#each placed as h (h.coord)}
