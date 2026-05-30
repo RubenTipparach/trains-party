@@ -1,6 +1,17 @@
 <script lang="ts">
   import { COMPANIES, CURRENCY } from '$lib/data/g1889';
 
+  // Move a node to <body> so a fixed-position popover is never trapped behind a
+  // sibling card's stacking context (player cards use opacity < 1).
+  function portal(node: HTMLElement) {
+    document.body.appendChild(node);
+    return {
+      destroy() {
+        node.remove();
+      }
+    };
+  }
+
   let { sym }: { sym: string } = $props();
   const c = COMPANIES.find((x) => x.sym === sym);
   let open = $state(false);
@@ -11,7 +22,6 @@
     if (!open && wrapEl) {
       const r = wrapEl.getBoundingClientRect();
       const width = 240;
-      // Anchor below the chip, clamped to the viewport.
       let left = r.left;
       if (left + width > window.innerWidth - 8) left = window.innerWidth - width - 8;
       pos = { left: Math.max(8, left), top: r.bottom + 4 };
@@ -45,12 +55,23 @@
 </span>
 
 {#if open}
-  <!-- Rendered in the viewport (position: fixed) so it is never clipped by, or
-       stacked behind, the player cards (which have opacity < 1). -->
-  <div class="pop" style="left:{pos.left}px; top:{pos.top}px">
-    <div class="poph"><b>{c?.name}</b><span class="sym">{c?.sym}</span></div>
-    <div class="popm">Cost {CURRENCY}{c?.value} · Income {CURRENCY}{c?.revenue}/OR</div>
-    <p>{c?.desc}</p>
+  <!-- Portaled to <body> so it is never clipped by, or stacked behind, the
+       player cards (which create stacking contexts via opacity < 1). Critical
+       layout is inlined because scoped styles do not follow the portal. -->
+  <div
+    use:portal
+    style="position:fixed; z-index:3000; width:240px; left:{pos.left}px; top:{pos.top}px;
+           background:#11202c; border:1px solid #c9971f; border-radius:9px;
+           padding:0.55rem 0.65rem; box-shadow:0 8px 24px rgba(0,0,0,.5);"
+  >
+    <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:0.2rem;">
+      <b style="color:#f5c542; font-size:0.85rem;">{c?.name}</b>
+      <span style="font:700 0.7rem ui-monospace,monospace; color:#9fb0c0;">{c?.sym}</span>
+    </div>
+    <div style="font-size:0.72rem; color:#3fb6a8; margin-bottom:0.35rem;">
+      Cost {CURRENCY}{c?.value} · Income {CURRENCY}{c?.revenue}/OR
+    </div>
+    <p style="margin:0; font-size:0.76rem; color:#cdd6df; line-height:1.4;">{c?.desc}</p>
   </div>
 {/if}
 
@@ -83,40 +104,5 @@
     font-size: 0.64rem;
     color: var(--rail);
     white-space: nowrap;
-  }
-  .pop {
-    position: fixed;
-    z-index: 1000;
-    width: 240px;
-    background: #11202c;
-    border: 1px solid var(--rail-deep);
-    border-radius: 9px;
-    padding: 0.55rem 0.65rem;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
-  }
-  .poph {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    margin-bottom: 0.2rem;
-  }
-  .poph b {
-    color: var(--rail);
-    font-size: 0.85rem;
-  }
-  .poph .sym {
-    font: 700 0.7rem ui-monospace, monospace;
-    color: var(--muted);
-  }
-  .popm {
-    font-size: 0.72rem;
-    color: var(--accent);
-    margin-bottom: 0.35rem;
-  }
-  .pop p {
-    margin: 0;
-    font-size: 0.76rem;
-    color: #cdd6df;
-    line-height: 1.4;
   }
 </style>

@@ -16,6 +16,7 @@
 import { MARKET, TRAINS, PHASES } from '$lib/data/g1889';
 import { GameError, type CorporationState, type GameAction, type GameState } from './types';
 import { applyLayTile, legalLays } from './track';
+import { routeRevenue } from './routes';
 
 function corp(s: GameState, sym: string): CorporationState {
   const c = s.corporations.find((x) => x.sym === sym);
@@ -196,10 +197,15 @@ export function applyOperating(s: GameState, action: GameAction): void {
       applyLayTile(s, c, action.hex, action.tile, action.rotation);
       s.or.step = 'run'; // one tile per OR for now
       break;
-    case 'run':
+    case 'run': {
       if (s.or.step !== 'run' && s.or.step !== 'track') throw new GameError(`${c.sym} has already run`);
-      doRun(s, c, action.revenue, action.dividend);
+      // Revenue is computed authoritatively from the corporation's routes, not
+      // taken from the action (which can't be trusted). The action only chooses
+      // pay vs withhold.
+      const revenue = routeRevenue(s, c);
+      doRun(s, c, revenue, action.dividend);
       break;
+    }
     case 'buy_train':
       if (s.or.step !== 'trains') throw new GameError(`${c.sym} must run before buying trains`);
       doBuyTrain(s, c, action.train);
@@ -234,6 +240,10 @@ export interface OperatingView {
   orNumber: number;
   orsThisSet: number;
   canBuyTrain: string | null; // cheapest depot train name, or null
+  /** Best route revenue the operating corporation can earn this OR. */
+  revenue: number;
+  /** Whether the corporation owns any train to run. */
+  hasTrains: boolean;
 }
 
 export function operatingView(s: GameState): OperatingView | null {
@@ -248,6 +258,8 @@ export function operatingView(s: GameState): OperatingView | null {
     index: s.or.index,
     orNumber: s.or.orNumber,
     orsThisSet: s.or.orsThisSet,
-    canBuyTrain: cheapest ? cheapest.name : null
+    canBuyTrain: cheapest ? cheapest.name : null,
+    revenue: c.trains.length ? routeRevenue(s, c) : 0,
+    hasTrains: c.trains.length > 0
   };
 }

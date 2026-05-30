@@ -96,8 +96,10 @@ function botOperating(s: GameState): GameAction | null {
     return { type: 'pass', player: me };
   }
   if (v.step === 'run') {
-    // No route revenue yet (Stage 3b); withhold.
-    return { type: 'run', player: me, corp: v.corp, revenue: 0, dividend: 'withhold' };
+    // Revenue is computed by the engine; pay it out when the corporation earns,
+    // otherwise withhold. (A smarter bot may withhold to build treasury for a
+    // train; keep it simple: pay when there is income.)
+    return { type: 'run', player: me, corp: v.corp, revenue: v.revenue, dividend: v.revenue > 0 ? 'pay' : 'withhold' };
   }
   // Buy the cheapest train if the corporation has none and can afford it.
   if (v.canBuyTrain && c.trains.length === 0) {

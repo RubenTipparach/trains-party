@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { initialState } from './setup';
-import { apply, replay, activePlayer, legalActions, trackLays } from './index';
+import { apply, replay, activePlayer, legalActions, trackLays, routeRevenue } from './index';
 import type { GameAction, GameState } from './types';
 
 const seats3 = [
@@ -246,12 +246,15 @@ describe('operating round', () => {
 
   it('pays a dividend per share and moves the price right', () => {
     let s = toOperatingRound();
-    // holdings: p1 30%, p2 10%, p3 10%, IPO 50%
+    // Engine computes revenue from routes: give AR a train + a K8->L7 route (40).
+    corp(s, 'AR').trains = ['2'];
+    s.tiles = { K8: { id: '5', rotation: 4 } };
+    // holdings: p1 30%, p2 10%, p3 10%, IPO 50%; per-share = 40/10 = 4
     const col = corp(s, 'AR').priceCol!;
     const p1c = cash(s, 'p1');
-    s = apply(s, { type: 'run', player: 'p1', corp: 'AR', revenue: 100, dividend: 'pay' });
-    expect(cash(s, 'p1')).toBe(p1c + 30); // 3 shares x 10
-    expect(corp(s, 'AR').cash).toBe(650 + 50); // 5 IPO shares x 10 to treasury
+    s = apply(s, { type: 'run', player: 'p1', corp: 'AR', revenue: 0, dividend: 'pay' });
+    expect(cash(s, 'p1')).toBe(p1c + 12); // 3 shares x 4
+    expect(corp(s, 'AR').cash).toBe(650 + 20); // 5 IPO+pool shares x 4 to treasury
     expect(corp(s, 'AR').priceCol).toBe(col + 1);
   });
 
@@ -306,5 +309,21 @@ describe('determinism', () => {
     const a = replay(initialState(seats3), actions);
     const b = replay(initialState(seats3), actions);
     expect(a).toEqual(b);
+  });
+});
+
+describe('route revenue', () => {
+  it('computes a 2-stop route from a tokened city to an adjacent offboard', () => {
+    const s = toOperatingRound();
+    corp(s, 'AR').trains = ['2'];
+    s.tiles = { K8: { id: '5', rotation: 4 } }; // city tile, centre<->edges 4 & 5
+    // K8 city (tile 5 = 20) + L7 offboard (yellow = 20) = 40
+    expect(routeRevenue(s, corp(s, 'AR'))).toBe(40);
+  });
+
+  it('earns nothing with no train', () => {
+    const s = toOperatingRound();
+    s.tiles = { K8: { id: '5', rotation: 4 } };
+    expect(routeRevenue(s, corp(s, 'AR'))).toBe(0);
   });
 });

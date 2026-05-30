@@ -29,6 +29,8 @@ export type { TileLay } from './track';
 export { TILES, rotatePaths } from './tiles';
 export type { TileDef } from './tiles';
 export { playerValue, playerLiquidity } from './metrics';
+export { corpRoutes, routeRevenue } from './routes';
+export type { Route } from './routes';
 
 /** Apply one action, returning the next state. Pure: the input is not mutated. */
 export function apply(state: GameState, action: GameAction): GameState {

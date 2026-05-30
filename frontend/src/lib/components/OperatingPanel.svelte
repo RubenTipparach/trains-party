@@ -10,7 +10,6 @@
 
   const v = $derived(operatingView(game.state));
   const lays = $derived(trackLays(game.state));
-  let revenue = $state(0);
 
   const SEAT = ['#f5c542', '#3fb6a8', '#e0655c', '#9b8cf0', '#7cc36b', '#e8923a'];
   const seatColor = (id: string) => SEAT[game.state.players.findIndex((p) => p.id === id) % SEAT.length];
@@ -108,16 +107,22 @@
             </div>
             <p class="hint">{game.isBot(c.president) ? 'Bot is choosing where to build…' : 'Lay one yellow tile connected to your network, or skip.'}</p>
           {:else if v.step === 'run'}
-            <div class="act">
-              <label>Revenue
-                <input type="number" min="0" step="10" bind:value={revenue} />
-              </label>
+            <div class="runrev">
+              {#if v.hasTrains}
+                Route revenue <b>{CURRENCY}{v.revenue}</b>
+              {:else}
+                <span class="norun">No trains to run</span>
+              {/if}
             </div>
             <div class="act">
-              <button onclick={() => game.act({ type: 'run', player: c.president!, corp: c.sym, revenue, dividend: 'pay' })}>Pay dividend</button>
-              <button class="ghost" onclick={() => game.act({ type: 'run', player: c.president!, corp: c.sym, revenue, dividend: 'withhold' })}>Withhold</button>
+              <button disabled={v.revenue === 0} onclick={() => game.act({ type: 'run', player: c.president!, corp: c.sym, revenue: v.revenue, dividend: 'pay' })}>
+                Pay dividend
+              </button>
+              <button class="ghost" onclick={() => game.act({ type: 'run', player: c.president!, corp: c.sym, revenue: v.revenue, dividend: 'withhold' })}>
+                {v.revenue > 0 ? 'Withhold' : 'Run (no income)'}
+              </button>
             </div>
-            <p class="hint">Route revenue is computed in the next stage; enter it manually for now.</p>
+            <p class="hint">Revenue is the best route your trains can run from your tokened cities.</p>
           {:else}
             <div class="act">
               {#if v.canBuyTrain && c.cash >= trainCost(v.canBuyTrain)}
@@ -304,14 +309,6 @@
     align-items: center;
     gap: 0.4rem;
   }
-  .act input {
-    width: 90px;
-    background: var(--bg);
-    color: var(--ink);
-    border: 1px solid var(--line);
-    border-radius: 7px;
-    padding: 0.35rem 0.4rem;
-  }
   .act button {
     padding: 0.45rem 0.85rem;
     border-radius: 8px;
@@ -330,6 +327,22 @@
     margin: 0 0.8rem 0.7rem;
     font-size: 0.74rem;
     color: var(--muted);
+  }
+  .runrev {
+    padding: 0.2rem 0.8rem 0;
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+  .runrev b {
+    color: var(--accent);
+    font-size: 1.05rem;
+  }
+  .norun {
+    color: #ff8a7e;
+  }
+  .act button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
   }
   .track .tlabel {
     font-size: 0.85rem;
