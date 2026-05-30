@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { HEXES } from '$lib/data/map1889';
+  import { HEXES, HEX_BY_COORD } from '$lib/data/map1889';
   import { CORPORATIONS } from '$lib/data/g1889';
   import type { HexDef, PathPart, TileColor } from '$lib/data/types';
   import { HEX_SIZE, APOTHEM, hexCenter, hexPolygon, edgeMidpoint } from '$lib/hexgeo';
@@ -55,6 +55,61 @@
     if (!t) return [];
     return tilePaths(t.id, t.rotation);
   }
+
+  // --- train run animation -------------------------------------------------
+  // When a corporation pays a dividend, send a train across its network hexes,
+  // popping a coin at each revenue centre.
+  let train = $state<{ pts: { x: number; y: number }[]; at: number; running: boolean } | null>(null);
+  let coins = $state<{ id: number; x: number; y: number }[]>([]);
+  let coinId = 0;
+  let lastLogLen = 0;
+
+  function corpNetworkHexes(corpSym: string): string[] {
+    const c = game.state.corporations.find((x) => x.sym === corpSym);
+    if (!c) return [];
+    // token hexes + any hex with track, as a simple ordered trail
+    const set = new Set<string>(c.tokenHexes);
+    for (const coord of Object.keys(game.state.tiles ?? {})) set.add(coord);
+    // keep only this corp's reachable area cheaply: token hexes first
+    return [...set];
+  }
+
+  async function runTrain(corpSym: string) {
+    const hexes = corpNetworkHexes(corpSym);
+    if (hexes.length === 0) return;
+    const pts = hexes.map((h) => hexCenter(h));
+    if (pts.length === 1) pts.push({ x: pts[0].x + 1, y: pts[0].y });
+    train = { pts, at: 0, running: true };
+    for (let i = 0; i < pts.length; i++) {
+      train = { ...train, at: i };
+      // pop a coin at city hexes
+      const hx = hexes[i];
+      const def = HEX_BY_COORD[hx];
+      if (def && (def.cities.length || def.towns.length || game.state.tiles?.[hx])) {
+        const id = ++coinId;
+        coins = [...coins, { id, x: pts[i].x, y: pts[i].y }];
+        setTimeout(() => (coins = coins.filter((c) => c.id !== id)), 900);
+      }
+      if (!(await anim.wait(260))) break; // skipped
+    }
+    train = null;
+  }
+
+  $effect(() => {
+    const log = game.state.log;
+    if (lastLogLen === 0) {
+      lastLogLen = log.length;
+      return;
+    }
+    const added = log.slice(lastLogLen);
+    lastLogLen = log.length;
+    if (!anim.on) return;
+    const ran = added.find((l) => / runs for .* and pays a dividend/.test(l));
+    if (ran) {
+      const v = game.state.or;
+      if (v) runTrain(v.order[v.index]);
+    }
+  });
 
   // --- tile fly-in animation -----------------------------------------------
   // When a new tile appears in state, fly a copy from a side "pool" onto the hex.
@@ -472,6 +527,24 @@
         </g>
       {/if}
 
+      {#if train && train.pts[train.at]}
+        <g class="train" transform="translate({train.pts[train.at].x} {train.pts[train.at].y})">
+          <rect x="-11" y="-7" width="22" height="14" rx="3" fill="#1b1b1b" stroke="#f5c542" stroke-width="1.5" />
+          <circle cx="-6" cy="8" r="2.4" fill="#f5c542" />
+          <circle cx="6" cy="8" r="2.4" fill="#f5c542" />
+          <rect x="-7" y="-4" width="5" height="5" fill="#3fb6a8" />
+          <rect x="2" y="-4" width="5" height="5" fill="#3fb6a8" />
+        </g>
+      {/if}
+      {#each coins as coin (coin.id)}
+        <g transform="translate({coin.x} {coin.y})">
+          <g class="coin">
+            <circle r="8" fill="#f5c542" stroke="#c9971f" stroke-width="1.5" />
+            <text y="3" text-anchor="middle" class="coint">¥</text>
+          </g>
+        </g>
+      {/each}
+
       {#if flying}
         <g
           class="flyer"
@@ -610,6 +683,32 @@
       transform 0.6s cubic-bezier(0.34, 1.3, 0.5, 1),
       opacity 0.45s ease;
     filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.4));
+  }
+  .train {
+    pointer-events: none;
+    transition: transform 0.26s linear;
+    filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.5));
+  }
+  .coin {
+    pointer-events: none;
+    animation: coinpop 0.9s ease-out forwards;
+  }
+  .coint {
+    font: 700 9px ui-sans-serif, sans-serif;
+    fill: #1b1b1b;
+  }
+  @keyframes coinpop {
+    0% {
+      opacity: 0;
+      transform: translateY(0) scale(0.5);
+    }
+    25% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0;
+      transform: translateY(-22px) scale(1);
+    }
   }
   @keyframes laypulse {
     0%,
