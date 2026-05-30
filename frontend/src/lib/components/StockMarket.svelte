@@ -16,7 +16,7 @@
   {#each MARKET as row}
     {#each Array(cols) as _, c}
       {#if row[c]}
-        <div class="cell" class:par={row[c].par} style="background:{ZONE[row[c].zone]}">
+        <div class="cell" class:par={row[c].par} style="background:{row[c].par ? '#f6a39c' : ZONE[row[c].zone]}">
           <span>{row[c].price}</span>
           {#if row[c].par}<small>par</small>{/if}
         </div>
@@ -51,7 +51,7 @@
     border: none;
   }
   .cell.par {
-    outline: 2px solid #1b2b3a;
+    outline: 2px solid #c25a52;
     outline-offset: -2px;
   }
   .cell small {

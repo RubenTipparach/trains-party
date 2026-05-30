@@ -382,8 +382,8 @@
     font-size: 0.72rem;
   }
   .chip.par {
-    background: #f3efe4;
-    outline: 2px solid #1b2b3a;
+    background: #f6a39c;
+    outline: 2px solid #c25a52;
     outline-offset: -2px;
   }
   .chip.yel {
