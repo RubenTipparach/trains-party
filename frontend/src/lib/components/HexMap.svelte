@@ -147,6 +147,15 @@
     view = { x: minX, y: minY, w: width, h: height };
   }
 
+  // Coordinate guides: pinned to the viewport edges, sliding along their axis to
+  // stay aligned with each column/row as the map pans/zooms.
+  let colMarks = $derived(
+    cols.map(([l, x]) => ({ l, f: (x - view.x) / view.w })).filter((m) => m.f >= 0 && m.f <= 1)
+  );
+  let rowMarks = $derived(
+    rows.map(([n, y]) => ({ n, f: (y - view.y) / view.h })).filter((m) => m.f >= 0 && m.f <= 1)
+  );
+
   function onDown(e: PointerEvent) {
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -260,16 +269,6 @@
       <!-- animated water (enlarged so it stays visible while panning/zooming) -->
       <rect x={minX - width} y={minY - height} width={width * 3} height={height * 3} fill="url(#ripples)" />
 
-      <!-- coordinate guides on all four edges -->
-      {#each cols as [letter, x] (letter)}
-        <text class="axis" {x} y={minY + 16} text-anchor="middle">{letter}</text>
-        <text class="axis" {x} y={minY + height - 8} text-anchor="middle">{letter}</text>
-      {/each}
-      {#each rows as [num, y] (num)}
-        <text class="axis" x={minX + 13} y={y + 4} text-anchor="middle">{num}</text>
-        <text class="axis" x={minX + width - 13} y={y + 4} text-anchor="middle">{num}</text>
-      {/each}
-
       {#each placed as h (h.coord)}
         <g
           class="hex"
@@ -363,6 +362,18 @@
     </svg>
   </div>
 
+  <!-- coordinate guides pinned to the four edges -->
+  <div class="guides" aria-hidden="true">
+    {#each colMarks as m (m.l)}
+      <span class="g top" style="left:{m.f * 100}%">{m.l}</span>
+      <span class="g bot" style="left:{m.f * 100}%">{m.l}</span>
+    {/each}
+    {#each rowMarks as m (m.n)}
+      <span class="g left" style="top:{m.f * 100}%">{m.n}</span>
+      <span class="g right" style="top:{m.f * 100}%">{m.n}</span>
+    {/each}
+  </div>
+
   <div class="controls">
     <button type="button" aria-label="Zoom in" onclick={() => zoomCenter(1 / 1.25)}>+</button>
     <button type="button" aria-label="Zoom out" onclick={() => zoomCenter(1.25)}>−</button>
@@ -397,11 +408,36 @@
   .map.grabbing {
     cursor: grabbing;
   }
-  .axis {
-    font: 700 11px ui-monospace, monospace;
-    fill: #0e3942;
-    opacity: 0.7;
+  .guides {
+    position: absolute;
+    inset: 0;
     pointer-events: none;
+    z-index: 4;
+  }
+  .g {
+    position: absolute;
+    font: 700 10px ui-monospace, monospace;
+    color: #0e3942;
+    background: rgba(255, 255, 255, 0.72);
+    border-radius: 4px;
+    padding: 0 3px;
+    line-height: 15px;
+  }
+  .g.top {
+    top: 3px;
+    transform: translateX(-50%);
+  }
+  .g.bot {
+    bottom: 3px;
+    transform: translateX(-50%);
+  }
+  .g.left {
+    left: 3px;
+    transform: translateY(-50%);
+  }
+  .g.right {
+    right: 3px;
+    transform: translateY(-50%);
   }
   .hex {
     cursor: inherit;
