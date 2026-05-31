@@ -11,6 +11,15 @@
   const pname = (id: string) => game.state.players.find((p) => p.id === id)?.name ?? id;
 
   const sl = $derived(stockLegalActions(game.state));
+  // Has the active player already bought/sold this turn? If so a "pass" ends the
+  // turn rather than counting as a consecutive pass, so the button reads "Done".
+  const acted = $derived(game.state.stock?.acted ?? false);
+
+  // Buy a share, then end the turn in one click (the common stock-round move).
+  function buyAndDone(corp: string, from: 'ipo' | 'pool') {
+    game.act({ type: 'buy', player: sl.player, corp, from });
+    if (!game.error) game.act({ type: 'pass', player: sl.player });
+  }
 
   function priceOf(c: CorporationState): number | null {
     if (c.priceRow === null || c.priceCol === null) return null;
@@ -85,7 +94,9 @@
 
   <div class="paronce">
     <span class="turnnote">{playerName(sl.player)} to act</span>
-    <button class="pass" onclick={() => game.act({ type: 'pass', player: sl.player })}>Pass</button>
+    <button class="pass" class:done={acted} onclick={() => game.act({ type: 'pass', player: sl.player })}>
+      {acted ? 'Done' : 'Pass'}
+    </button>
   </div>
 
   <!-- corporation cards -->
@@ -134,9 +145,11 @@
           <div class="cact">
             {#if sl.buyIpo.includes(c.sym)}
               <button onclick={() => game.act({ type: 'buy', player: sl.player, corp: c.sym, from: 'ipo' })}>Buy IPO {CURRENCY}{c.parPrice}</button>
+              <button class="combo" onclick={() => buyAndDone(c.sym, 'ipo')}>Buy &amp; done</button>
             {/if}
             {#if sl.buyPool.includes(c.sym)}
               <button class="ghost" onclick={() => game.act({ type: 'buy', player: sl.player, corp: c.sym, from: 'pool' })}>Buy pool {CURRENCY}{priceOf(c)}</button>
+              <button class="combo" onclick={() => buyAndDone(c.sym, 'pool')}>Buy &amp; done</button>
             {/if}
             {#if sl.sell.includes(c.sym)}
               <button class="ghost" onclick={() => game.act({ type: 'sell', player: sl.player, corp: c.sym, count: 1 })}>Sell</button>
@@ -366,6 +379,11 @@
     color: var(--ink);
     border-color: var(--line);
   }
+  .cact button.combo {
+    background: var(--rail-deep);
+    color: #fff;
+    border-color: var(--rail-deep);
+  }
   .pass {
     padding: 0.45rem 1.1rem;
     border-radius: 8px;
@@ -374,6 +392,12 @@
     color: var(--muted);
     font: 600 0.85rem ui-sans-serif, sans-serif;
     cursor: pointer;
+  }
+  .pass.done {
+    background: var(--rail);
+    border-color: var(--rail-deep);
+    color: #1b1b1b;
+    font-weight: 700;
   }
   .err {
     color: #ff8a7e;
