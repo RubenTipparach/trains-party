@@ -6,7 +6,7 @@
   import { HEX_SIZE, APOTHEM, hexCenter, hexPolygon, edgeMidpoint } from '$lib/hexgeo';
   import { game } from '$lib/game/sandbox.svelte';
   import { anim } from '$lib/game/anim.svelte';
-  import { TILES, rotatePaths, trackLays, tokenPlays, corpRoutes } from '$lib/engine';
+  import { TILES, rotatePaths, trackLays, tokenPlays, corpRoutes, tileSupply, exhaustedTilesOnHex } from '$lib/engine';
   import TileGraphic from './TileGraphic.svelte';
 
   // Optional: when in the operating-round track step, hexes that can receive a
@@ -28,6 +28,20 @@
   function tileChoices(hex: string): string[] {
     return [...new Set(layOptions(hex).map((l) => l.tile))];
   }
+  /** Tiles that fit this hex but are out of supply (shown greyed, "0 left"). */
+  function exhaustedChoices(hex: string): string[] {
+    return exhaustedTilesOnHex($state.snapshot(game.state) as typeof game.state, hex);
+  }
+  /**
+   * Fan entries: every selectable tile (available), then every fitting-but-
+   * exhausted tile, each tagged with how many copies remain in the depot.
+   */
+  function fanEntries(hex: string): { tile: string; left: number; available: boolean }[] {
+    const snap = $state.snapshot(game.state) as typeof game.state;
+    const avail = tileChoices(hex).map((tile) => ({ tile, left: tileSupply(snap, tile), available: true }));
+    const out = exhaustedChoices(hex).map((tile) => ({ tile, left: 0, available: false }));
+    return [...avail, ...out];
+  }
   /** Valid rotations of a tile on a hex (sorted). */
   function rotationsFor(hex: string, tile: string): number[] {
     return layOptions(hex)
@@ -43,22 +57,6 @@
 
   function clickLayHex(hex: string) {
     if (layOptions(hex).length === 0) return;
-    // Ground-truth log: exactly what the engine offers on this hex, so the fan's
-    // content can be checked against the rules directly in the browser console.
-    const opts = layOptions(hex);
-    const byTile: Record<string, number[]> = {};
-    for (const l of opts) (byTile[l.tile] ??= []).push(l.rotation);
-    // Also report tile-5/6/57 supply remaining + how many of each are already laid,
-    // so a "missing" tile that is actually out of supply is unambiguous.
-    const laidCount: Record<string, number> = {};
-    for (const co of Object.keys(game.state.tiles ?? {})) {
-      const id = game.state.tiles[co].id;
-      laidCount[id] = (laidCount[id] ?? 0) + 1;
-    }
-    // eslint-disable-next-line no-console
-    console.log(`[lay ${hex}] tiles=${JSON.stringify(tileChoices(hex))} rotations=`, byTile,
-      '| laid #5/#6/#57 =', laidCount['5'] ?? 0, laidCount['6'] ?? 0, laidCount['57'] ?? 0,
-      '| all laid tiles:', JSON.stringify(game.state.tiles));
     layHex = hex;
     preview = null;
     centerOn(hex); // pan so the hex (and its fan of options) is centred and fully visible
@@ -443,7 +441,8 @@
         const fanEl = (document.elementFromPoint(e.clientX, e.clientY) as Element | null)?.closest('g.fanhex');
         const fanTile = fanEl?.getAttribute('data-fantile');
         if (fanTile) {
-          pickTile(fanTile);
+          // Exhausted tiles are shown greyed ("0 left") but cannot be selected.
+          if (layHex && tileChoices(layHex).includes(fanTile)) pickTile(fanTile);
           return;
         }
         if (preview && coord === layHex) {
@@ -687,26 +686,30 @@
           </g>
           <!-- radial fan of candidate tiles, drawn as real hex tiles on a dark disc
                so they float above (and never blend into) the board hexes behind. -->
-          {#each tileChoices(layHex) as tile, i (tile)}
-            {@const n = tileChoices(layHex).length}
+          {#each fanEntries(layHex) as entry, i (entry.tile)}
+            {@const n = fanEntries(layHex).length}
             {@const ang = fanBaseAngle(layHex) + (i - (n - 1) / 2) * (54 * Math.PI / 180)}
             {@const fx = lc.x + Math.cos(ang) * HEX_SIZE * 3.05}
             {@const fy = lc.y + Math.sin(ang) * HEX_SIZE * 3.05}
             <g
               class="fanhex"
-              data-fantile={tile}
+              class:exhausted={!entry.available}
+              data-fantile={entry.tile}
               transform="translate({fx} {fy}) scale(0.7)"
             >
               <circle r={HEX_SIZE + 9} fill="#0b1622" opacity="0.92" />
-              <polygon points={poly} fill={fanFill(tile)} stroke="#f5c542" stroke-width="3" />
+              <polygon points={poly} fill={fanFill(entry.tile)} stroke={entry.available ? '#f5c542' : '#5b6b7a'} stroke-width="3" />
               <g clip-path="url(#hexclip)">
-                {#each tilePaths(tile, 0) as p}
+                {#each tilePaths(entry.tile, 0) as p}
                   <path d={pathD(p)} class="ties" />
                   <path d={pathD(p)} class="rail" />
                 {/each}
               </g>
-              {@render tileCentre(tile)}
-              <text class="fanid" y={APOTHEM - 4} text-anchor="middle">#{tile}</text>
+              {@render tileCentre(entry.tile)}
+              <text class="fanid" y={APOTHEM - 4} text-anchor="middle">#{entry.tile}</text>
+              <text class="fanleft" class:none={entry.left === 0} y={-APOTHEM - 6} text-anchor="middle">
+                {entry.left} left
+              </text>
             </g>
           {/each}
         {/if}
@@ -898,6 +901,13 @@
     filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.45));
     animation: tiledrop 0.2s ease-out;
   }
+  /* Out-of-supply tiles: darkened and not selectable, but still shown so the
+     player can see the option exists and that 0 copies remain. */
+  .fanhex.exhausted {
+    cursor: not-allowed;
+    opacity: 0.4;
+    filter: grayscale(0.85) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.4));
+  }
   .fanid {
     font: 700 13px ui-sans-serif, sans-serif;
     fill: #1b1b1b;
@@ -906,6 +916,17 @@
     stroke: #fff;
     stroke-width: 3;
     pointer-events: none;
+  }
+  .fanleft {
+    font: 700 11px ui-sans-serif, sans-serif;
+    fill: #9fe0c0;
+    paint-order: stroke;
+    stroke: #0b1622;
+    stroke-width: 3;
+    pointer-events: none;
+  }
+  .fanleft.none {
+    fill: #ff9a8e;
   }
   .layctl {
     position: absolute;

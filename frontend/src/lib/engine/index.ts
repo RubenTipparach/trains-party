@@ -24,7 +24,7 @@ export type { AuctionView, AuctionCompanyView, AuctionPlayerView } from './aucti
 export { stockLegalActions } from './stock';
 export { operatingView, operatingActivePlayer, trackLays, tokenPlays } from './operating';
 export type { OperatingView } from './operating';
-export { legalLays, neighbor } from './track';
+export { legalLays, neighbor, tileSupply, exhaustedTilesOnHex } from './track';
 export type { TileLay } from './track';
 export { TILES, rotatePaths } from './tiles';
 export type { TileDef } from './tiles';

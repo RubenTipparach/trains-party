@@ -146,8 +146,8 @@ export interface TileLay {
   upgrade: boolean;
 }
 
-/** Candidate tile ids of a given colour that fit the tile currently on `hex`. */
-function candidateTiles(s: GameState, hex: string, color: TileColor): string[] {
+/** Tile ids of a given colour that geometrically fit `hex` (ignoring supply). */
+function fittingTiles(s: GameState, hex: string, color: TileColor): string[] {
   const cur = tileInfo(s, hex);
   const minSlots = tokensInHex(s, hex);
   return Object.values(TILES)
@@ -156,8 +156,17 @@ function candidateTiles(s: GameState, hex: string, color: TileColor): string[] {
     .filter((t) => (t.label ?? '') === (cur.label ?? '')) // label must match
     .filter((t) => t.cities === cur.cities && t.towns === cur.towns)
     .filter((t) => t.slots >= Math.max(cur.slots, minSlots) || cur.cities === 0)
-    .filter((t) => supplyLeft(s, t.id) > 0)
     .map((t) => t.id);
+}
+
+/** Candidate tile ids of a given colour that fit `hex` AND are still in supply. */
+function candidateTiles(s: GameState, hex: string, color: TileColor): string[] {
+  return fittingTiles(s, hex, color).filter((id) => supplyLeft(s, id) > 0);
+}
+
+/** Remaining copies of a tile id in the depot (manifest count minus laid). */
+export function tileSupply(s: GameState, id: string): number {
+  return supplyLeft(s, id);
 }
 
 /** All legal tile plays (fresh yellow lays + green/brown upgrades) for a corp. */
@@ -222,6 +231,20 @@ export function legalLays(s: GameState, corp: CorporationState): TileLay[] {
     }
   }
   return out;
+}
+
+/**
+ * Tiles that would geometrically fit `hex` for the current phase but are out of
+ * supply (every copy is already on the board). The UI shows these greyed with a
+ * "0 left" badge so an exhausted tile is visibly unavailable rather than silently
+ * missing from the option fan. Only reports a colour the phase allows on this hex.
+ */
+export function exhaustedTilesOnHex(s: GameState, hex: string): string[] {
+  if (!HEX_BY_COORD[hex]) return [];
+  const cur = tileInfo(s, hex);
+  const nextColor = COLORS[colorIdx(cur.color) + 1];
+  if (!nextColor || !phaseColors(s).includes(nextColor)) return [];
+  return fittingTiles(s, hex, nextColor).filter((id) => supplyLeft(s, id) <= 0);
 }
 
 export function applyLayTile(s: GameState, corp: CorporationState, hex: string, tile: string, rotation: number): void {
