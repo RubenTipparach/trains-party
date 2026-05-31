@@ -43,6 +43,13 @@
 
   function clickLayHex(hex: string) {
     if (layOptions(hex).length === 0) return;
+    // Ground-truth log: exactly what the engine offers on this hex, so the fan's
+    // content can be checked against the rules directly in the browser console.
+    const opts = layOptions(hex);
+    const byTile: Record<string, number[]> = {};
+    for (const l of opts) (byTile[l.tile] ??= []).push(l.rotation);
+    // eslint-disable-next-line no-console
+    console.log(`[lay ${hex}] tiles=${JSON.stringify(tileChoices(hex))} rotations=`, byTile);
     layHex = hex;
     preview = null;
     centerOn(hex); // pan so the hex (and its fan of options) is centred and fully visible
