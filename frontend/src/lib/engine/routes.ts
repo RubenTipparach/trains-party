@@ -96,6 +96,8 @@ const linkId = (hex: string, e: number) => {
 export interface Route {
   hexes: string[]; // ordered revenue-centre hexes visited
   revenue: number;
+  /** Track segments used by the route, as `${hex}|${a}-${b}` ids (for highlighting). */
+  segs?: string[];
 }
 
 /**
@@ -124,7 +126,7 @@ function bestRouteFrom(
     // A valid train route connects at least two revenue centres. Since the walk
     // is anchored at a tokened city (start), every route includes a token.
     if (stops.length >= 2 && (!best || revenue > best.route.revenue)) {
-      best = { route: { hexes: [...stops], revenue }, segs: new Set(segs), links: new Set(links) };
+      best = { route: { hexes: [...stops], revenue, segs: [...segs] }, segs: new Set(segs), links: new Set(links) };
     }
     if (stops.length >= maxStops) return;
 
@@ -225,4 +227,86 @@ export function corpRoutes(s: GameState, corp: CorporationState): { routes: Rout
 /** Total run revenue a corporation can earn this OR. */
 export function routeRevenue(s: GameState, corp: CorporationState): number {
   return corpRoutes(s, corp).revenue;
+}
+
+/** Distinct colours assigned to a corporation's trains, in train order. */
+export const TRAIN_ROUTE_COLORS = ['#39b3ff', '#ff5da2', '#ffd23f', '#7cf06b', '#b07cff', '#ff9442'];
+
+/**
+ * Build the best simple route that visits the given ordered stop hexes (each a
+ * city/town/offboard the player clicked), for a train of `maxStops`, avoiding the
+ * already-used track in `usedSegs`/`usedLinks`. Returns null if the stops are not
+ * connectable in order under the train's reach. Used by manual route assignment.
+ */
+export function routeThroughStops(
+  s: GameState,
+  stops: string[],
+  maxStops: number,
+  usedSegs: Set<string> = new Set(),
+  usedLinks: Set<string> = new Set()
+): { route: Route; segs: Set<string>; links: Set<string> } | null {
+  if (stops.length < 2 || stops.length > maxStops) return null;
+
+  // Find a track-only path between two adjacent stops, not reusing track. Returns
+  // the segment/link ids consumed (centre-to-centre), or null if unreachable.
+  function connect(
+    from: string,
+    to: string,
+    segs: Set<string>,
+    links: Set<string>
+  ): { segs: Set<string>; links: Set<string> } | null {
+    let found: { segs: Set<string>; links: Set<string> } | null = null;
+    function leave(hex: string, segs2: Set<string>, links2: Set<string>) {
+      for (const seg of hexSegments(s, hex)) {
+        if (seg.a !== 'c' && seg.b !== 'c') continue;
+        const edge = (seg.a === 'c' ? seg.b : seg.a) as number;
+        const sid = segId(hex, seg);
+        if (segs2.has(sid) || usedSegs.has(sid)) continue;
+        const nb = neighbor(hex, edge);
+        if (!nb) continue;
+        const lid = linkId(hex, edge);
+        if (links2.has(lid) || usedLinks.has(lid)) continue;
+        cross(nb, opposite(edge), withAdd(segs2, sid), withAdd(links2, lid));
+      }
+    }
+    function cross(hex: string, enterEdge: number, segs2: Set<string>, links2: Set<string>) {
+      if (found) return;
+      for (const seg of hexSegments(s, hex)) {
+        const ends = [seg.a, seg.b];
+        if (!ends.includes(enterEdge)) continue;
+        const other = (seg.a === enterEdge ? seg.b : seg.a) as End;
+        const sid = segId(hex, seg);
+        if (segs2.has(sid) || usedSegs.has(sid)) continue;
+        const segs3 = withAdd(segs2, sid);
+        if (other === 'c') {
+          if (hex === to) {
+            found = { segs: segs3, links: links2 };
+            return;
+          }
+          // reached a different centre before the target: not a direct connection
+          continue;
+        }
+        const edge = other as number;
+        const nb = neighbor(hex, edge);
+        if (!nb) continue;
+        const lid = linkId(hex, edge);
+        if (links2.has(lid) || usedLinks.has(lid)) continue;
+        cross(nb, opposite(edge), segs3, withAdd(links2, lid));
+      }
+    }
+    leave(from, segs, links);
+    return found;
+  }
+
+  const segs = new Set<string>();
+  const links = new Set<string>();
+  let revenue = centreRevenue(s, stops[0]);
+  for (let i = 0; i < stops.length - 1; i++) {
+    const link = connect(stops[i], stops[i + 1], segs, links);
+    if (!link) return null;
+    link.segs.forEach((x) => segs.add(x));
+    link.links.forEach((x) => links.add(x));
+    revenue += centreRevenue(s, stops[i + 1]);
+  }
+  return { route: { hexes: [...stops], revenue, segs: [...segs] }, segs, links };
 }

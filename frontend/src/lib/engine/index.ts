@@ -29,7 +29,7 @@ export type { TileLay } from './track';
 export { TILES, rotatePaths } from './tiles';
 export type { TileDef } from './tiles';
 export { playerValue, playerLiquidity } from './metrics';
-export { corpRoutes, routeRevenue } from './routes';
+export { corpRoutes, routeRevenue, routeThroughStops, TRAIN_ROUTE_COLORS } from './routes';
 export type { Route } from './routes';
 
 /** Apply one action, returning the next state. Pure: the input is not mutated. */

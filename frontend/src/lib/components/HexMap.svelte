@@ -6,16 +6,44 @@
   import { HEX_SIZE, APOTHEM, hexCenter, hexPolygon, edgeMidpoint } from '$lib/hexgeo';
   import { game } from '$lib/game/sandbox.svelte';
   import { anim } from '$lib/game/anim.svelte';
-  import { TILES, rotatePaths, trackLays, tokenPlays, corpRoutes, tileSupply, exhaustedTilesOnHex } from '$lib/engine';
+  import { routing } from '$lib/game/routing.svelte';
+  import { TILES, rotatePaths, trackLays, tokenPlays, corpRoutes, routeThroughStops, tileSupply, exhaustedTilesOnHex } from '$lib/engine';
   import TileGraphic from './TileGraphic.svelte';
 
   // Optional: when in the operating-round track step, hexes that can receive a
   // tile are highlighted and clickable. In the token step, tokenable cities are
   // highlighted instead.
-  let { layMode = false, tokenMode = false }: { layMode?: boolean; tokenMode?: boolean } = $props();
+  let {
+    layMode = false,
+    tokenMode = false,
+    runMode = false
+  }: { layMode?: boolean; tokenMode?: boolean; runMode?: boolean } = $props();
   const lays = $derived(layMode ? trackLays(game.state) : []);
   const layHexes = $derived(new Set(lays.map((l) => l.hex)));
   const tokenHexes = $derived(tokenMode ? new Set(tokenPlays(game.state).map((t) => t.hex)) : new Set<string>());
+  // Track-segment -> train colour map for route highlighting during the run step.
+  const routeSegColors = $derived(runMode ? routing.segColors() : {});
+  // Coloured stripes for the routes being animated (held during the run animation).
+  let animSegColors = $state<Record<string, string>>({});
+  /** Colour to tint a hex's segment (a,b ends) if it is on an assigned/animating route. */
+  function segColor(hex: string, a: PathPart['a'], b: PathPart['b']): string | null {
+    const ka = a === 'center' ? 'c' : String(a);
+    const kb = b === 'center' ? 'c' : String(b);
+    const id = `${hex}|${[ka, kb].sort().join('-')}`;
+    return animSegColors[id] ?? routeSegColors[id] ?? null;
+  }
+  /** Whether route stripes should be drawn at all (assigning, or animating a run). */
+  const showRoutes = $derived(runMode || Object.keys(animSegColors).length > 0);
+  /** Is this hex a revenue centre (city / town / offboard) the player can route through? */
+  function isStopHex(hex: string): boolean {
+    const t = game.state.tiles?.[hex];
+    if (t) {
+      const def = TILES[t.id];
+      return def.cities > 0 || def.towns > 0;
+    }
+    const base = HEX_BY_COORD[hex];
+    return !!base && (base.cities.length > 0 || base.towns.length > 0 || !!base.offboard);
+  }
   function placeToken(hex: string) {
     const v = game.state.or;
     if (!v) return;
@@ -140,35 +168,76 @@
   // --- train run animation -------------------------------------------------
   // When a corporation pays a dividend, drive a train along its best route,
   // popping a coin at each revenue centre it visits.
-  let train = $state<{ pts: { x: number; y: number }[]; at: number; running: boolean } | null>(null);
-  let coins = $state<{ id: number; x: number; y: number; val: number }[]>([]);
+  let train = $state<{ pts: { x: number; y: number }[]; at: number; running: boolean; color: string } | null>(null);
+  let coins = $state<{ id: number; x: number; y: number; val: number; color: string }[]>([]);
   let coinId = 0;
   let lastLogLen = 0;
 
   async function runTrain(corpSym: string) {
-    const c = game.state.corporations.find((x) => x.sym === corpSym);
+    const snap = $state.snapshot(game.state) as typeof game.state;
+    const c = snap.corporations.find((x) => x.sym === corpSym);
     if (!c) return;
-    const { routes } = corpRoutes($state.snapshot(game.state) as typeof game.state, c);
-    // Animate each train's route in turn, the train gliding stop to stop.
+    // Prefer the player's assigned (coloured) routes; fall back to the auto best.
+    const pending = routing.takePending();
+    const routes =
+      pending.length > 0
+        ? pending
+        : corpRoutes(snap, c).routes.map((r, i) => ({
+            color: ['#39b3ff', '#ff5da2', '#ffd23f', '#7cf06b', '#b07cff', '#ff9442'][i % 6],
+            hexes: r.hexes,
+            revenue: r.revenue
+          }));
+
+    // Pre-colour every animated route's track so the trail is visible throughout.
+    const segs: Record<string, string> = {};
+    for (const route of routes) {
+      const res = routeThroughStops(snap, route.hexes, 99);
+      if (res?.route.segs) for (const sid of res.route.segs) segs[sid] = route.color;
+    }
+    animSegColors = segs;
+
+    // Animate each train's route in turn, the train gliding stop to stop, leaving a
+    // coloured trail and popping a coin worth that stop's revenue.
     for (const route of routes) {
       if (route.hexes.length < 2) continue;
       const pts = route.hexes.map((h) => hexCenter(h));
-      // smooth path: start just off the first stop so the entry glides in
-      train = { pts, at: 0, running: true };
-      const per = Math.max(2, route.hexes.length);
-      const perStop = route.revenue / per; // rough split for the coin pops
+      train = { pts, at: 0, running: true, color: route.color };
+      const stopRev = route.hexes.map((h) => stopRevenue(snap, h));
       for (let i = 0; i < pts.length; i++) {
         train = { ...train, at: i };
-        const id = ++coinId;
-        coins = [...coins, { id, x: pts[i].x, y: pts[i].y, val: Math.round(perStop) }];
-        setTimeout(() => (coins = coins.filter((x) => x.id !== id)), 1000);
+        const val = stopRev[i] || 0;
+        if (val > 0) {
+          const id = ++coinId;
+          coins = [...coins, { id, x: pts[i].x, y: pts[i].y, val, color: route.color }];
+          setTimeout(() => (coins = coins.filter((x) => x.id !== id)), 1100);
+        }
         if (!(await anim.wait(360))) {
           train = null;
+          animSegColors = {};
           return; // skipped
         }
       }
     }
     train = null;
+    animSegColors = {};
+  }
+
+  /** Revenue of a single revenue centre hex under its current tile / base. */
+  function stopRevenue(s: typeof game.state, hex: string): number {
+    const t = s.tiles?.[hex];
+    if (t) {
+      const def = TILES[t.id];
+      if (def.cities || def.towns) return def.revenue;
+    }
+    const base = HEX_BY_COORD[hex];
+    if (!base) return 0;
+    if (base.offboard) {
+      const tier = s.phase === '2' || s.phase === '3' ? 'yellow' : s.phase === '4' || s.phase === '5' ? 'brown' : 'diesel';
+      return base.offboard.revenue[tier] ?? Object.values(base.offboard.revenue)[0] ?? 0;
+    }
+    if (base.cities.length) return base.cities[0].revenue;
+    if (base.towns.length) return base.towns[0].revenue;
+    return 0;
   }
 
   $effect(() => {
@@ -179,11 +248,16 @@
     }
     const added = log.slice(lastLogLen);
     lastLogLen = log.length;
-    if (!anim.on) return;
-    const ran = added.find((l) => / runs for .* and pays a dividend/.test(l));
+    if (!anim.on) {
+      routing.takePending(); // discard captured routes if animations are off
+      return;
+    }
+    // The train runs whether the dividend is paid or withheld; animate either.
+    const ran = added.find((l) => / runs for .* and (pays a dividend|withholds)/.test(l));
     if (ran) {
       const v = game.state.or;
       if (v) runTrain(v.order[v.index]);
+      else routing.takePending();
     }
   });
 
@@ -458,6 +532,11 @@
         placeToken(coord);
         return;
       }
+      // Run step: click a revenue centre to add/remove it from the armed train's route.
+      if (runMode && coord && isStopHex(coord)) {
+        routing.toggleStop($state.snapshot(game.state) as typeof game.state, coord);
+        return;
+      }
       if (el && coord) {
         if (tip?.coord === coord) hide();
         else show(el, coord, el.getAttribute('data-name') || undefined);
@@ -548,6 +627,9 @@
           {#if tokenMode && tokenHexes.has(h.coord)}
             <polygon points={poly} class="tokenhi" />
           {/if}
+          {#if runMode && isStopHex(h.coord)}
+            <circle r="17" class="routestop" />
+          {/if}
 
           {#if h.terrain?.includes('water')}
             <polygon points={poly} fill="#2f6f96" opacity="0.32" />
@@ -574,6 +656,7 @@
             {#each h.paths as p}
               <path d={pathD(p)} class="ties" />
               <path d={pathD(p)} class="rail" />
+              {#if showRoutes}{@const sc = segColor(h.coord, p.a, p.b)}{#if sc}<path d={pathD(p)} class="routeline" style="stroke:{sc}" />{/if}{/if}
             {/each}
           </g>
 
@@ -583,6 +666,7 @@
               {#each laidPaths(h.coord) as p}
                 <path d={pathD(p)} class="ties" />
                 <path d={pathD(p)} class="rail" />
+                {#if showRoutes}{@const sc = segColor(h.coord, p.a, p.b)}{#if sc}<path d={pathD(p)} class="routeline" style="stroke:{sc}" />{/if}{/if}
               {/each}
             </g>
             {#if def && def.cities > 0}
@@ -717,17 +801,17 @@
 
       {#if train && train.pts[train.at]}
         <g class="train" transform="translate({train.pts[train.at].x} {train.pts[train.at].y})">
-          <rect x="-11" y="-7" width="22" height="14" rx="3" fill="#1b1b1b" stroke="#f5c542" stroke-width="1.5" />
-          <circle cx="-6" cy="8" r="2.4" fill="#f5c542" />
-          <circle cx="6" cy="8" r="2.4" fill="#f5c542" />
-          <rect x="-7" y="-4" width="5" height="5" fill="#3fb6a8" />
-          <rect x="2" y="-4" width="5" height="5" fill="#3fb6a8" />
+          <rect x="-11" y="-7" width="22" height="14" rx="3" fill="#1b1b1b" stroke={train.color} stroke-width="2" />
+          <circle cx="-6" cy="8" r="2.4" fill={train.color} />
+          <circle cx="6" cy="8" r="2.4" fill={train.color} />
+          <rect x="-7" y="-4" width="5" height="5" fill="#e9f3ff" />
+          <rect x="2" y="-4" width="5" height="5" fill="#e9f3ff" />
         </g>
       {/if}
       {#each coins as coin (coin.id)}
         <g transform="translate({coin.x} {coin.y})">
           <g class="coin">
-            <circle r="10" fill="#f5c542" stroke="#c9971f" stroke-width="1.5" />
+            <circle r="11" fill="#f5c542" stroke={coin.color} stroke-width="2" />
             <text y="3.5" text-anchor="middle" class="coint">{coin.val > 0 ? coin.val : '¥'}</text>
           </g>
         </g>
@@ -1010,6 +1094,26 @@
     stroke: #111;
     stroke-width: 3.4;
     stroke-linecap: round;
+  }
+  /* Coloured stripe down the centre of a routed segment, in the train's colour. */
+  .routeline {
+    fill: none;
+    stroke-width: 5.5;
+    stroke-linecap: round;
+    opacity: 0.95;
+    filter: drop-shadow(0 0 3px currentColor);
+  }
+  .routestop {
+    fill: none;
+    stroke: #ffd23f;
+    stroke-width: 2.5;
+    opacity: 0.9;
+    pointer-events: none;
+    animation: stoppulse 1.4s ease-in-out infinite;
+  }
+  @keyframes stoppulse {
+    0%, 100% { opacity: 0.35; }
+    50% { opacity: 0.95; }
   }
   .wave {
     fill: none;

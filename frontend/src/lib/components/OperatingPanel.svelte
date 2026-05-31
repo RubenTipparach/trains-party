@@ -1,5 +1,6 @@
 <script lang="ts">
   import { game } from '$lib/game/sandbox.svelte';
+  import { routing } from '$lib/game/routing.svelte';
   import { operatingView, trackLays, tokenPlays } from '$lib/engine';
   import { TRAINS, MARKET, CURRENCY, COMPANIES } from '$lib/data/g1889';
   import type { CorporationState } from '$lib/engine';
@@ -10,6 +11,19 @@
 
   const v = $derived(operatingView(game.state));
   const lays = $derived(trackLays(game.state));
+  // Revenue to run: the player's assigned routes if they've started routing,
+  // otherwise the engine's auto-best.
+  const runRevenue = $derived(routing.active ? routing.revenue : (v?.revenue ?? 0));
+
+  // Initialise / tear down manual route assignment as the run step comes and goes.
+  $effect(() => {
+    if (v && v.step === 'run' && v.hasTrains) {
+      const c = game.state.corporations.find((x) => x.sym === v.corp);
+      if (c && !routing.isForCorp(v.corp)) routing.begin(v.corp, c.trains);
+    } else if (routing.trains.length) {
+      routing.clear();
+    }
+  });
   // Ground-truth list of which tile ids the engine actually offers, per hex, so
   // the available options are never ambiguous (independent of the fan rendering).
   const layTileSummary = $derived.by(() => {
@@ -71,7 +85,11 @@
     <div class="cols">
       <!-- the board, with track laying live on it (only interactive on your turn) -->
       <div class="mapwrap">
-        <HexMap layMode={game.canAct && v.step === 'track'} tokenMode={game.canAct && v.step === 'token'} />
+        <HexMap
+          layMode={game.canAct && v.step === 'track'}
+          tokenMode={game.canAct && v.step === 'token'}
+          runMode={game.canAct && v.step === 'run'}
+        />
       </div>
 
       <!-- the operating corporation + its current action -->
@@ -139,22 +157,52 @@
             </div>
             <p class="hint">{game.isBot(c.president) ? 'Bot is deciding on a token…' : 'Place a station token in a reachable city, or skip.'}</p>
           {:else if v.step === 'run'}
-            <div class="runrev">
-              {#if v.hasTrains}
-                Route revenue <b>{CURRENCY}{v.revenue}</b>
-              {:else}
-                <span class="norun">No trains to run</span>
-              {/if}
-            </div>
-            <div class="act">
-              <button disabled={v.revenue === 0} onclick={() => game.act({ type: 'run', player: c.president!, corp: c.sym, revenue: v.revenue, dividend: 'pay' })}>
-                Pay dividend
-              </button>
-              <button class="ghost" onclick={() => game.act({ type: 'run', player: c.president!, corp: c.sym, revenue: v.revenue, dividend: 'withhold' })}>
-                {v.revenue > 0 ? 'Withhold' : 'Run (no income)'}
-              </button>
-            </div>
-            <p class="hint">Revenue is the best route your trains can run from your tokened cities.</p>
+            {#if v.hasTrains}
+              <!-- per-train route chips: click to arm, then click stops on the map -->
+              <div class="trains">
+                {#each routing.trains as t, i (t.train)}
+                  <button
+                    class="trainchip"
+                    class:armed={routing.armed === i}
+                    style="--tc:{t.color}"
+                    onclick={() => routing.arm(i)}
+                  >
+                    <span class="tdot"></span>
+                    <b>{t.train}-train</b>
+                    <span class="tstops">{t.stops.length} stops</span>
+                    <span class="trev">{CURRENCY}{t.revenue}</span>
+                  </button>
+                {/each}
+              </div>
+              <div class="runrev">
+                Route revenue <b>{CURRENCY}{routing.active ? routing.revenue : v.revenue}</b>
+                {#if !routing.active}<span class="autonote"> (auto)</span>{/if}
+              </div>
+              <div class="act">
+                <button class="ghost" onclick={() => routing.auto(game.state, c.sym)}>Auto-calculate</button>
+                {#if routing.active}
+                  <button class="ghost small" onclick={() => routing.begin(c.sym, c.trains)}>Clear routes</button>
+                {/if}
+              </div>
+              <div class="act">
+                <button disabled={runRevenue === 0} onclick={() => { routing.capture(); game.act({ type: 'run', player: c.president!, corp: c.sym, revenue: runRevenue, dividend: 'pay' }); }}>
+                  Pay dividend
+                </button>
+                <button class="ghost" onclick={() => { routing.capture(); game.act({ type: 'run', player: c.president!, corp: c.sym, revenue: runRevenue, dividend: 'withhold' }); }}>
+                  {runRevenue > 0 ? 'Withhold' : 'Run (no income)'}
+                </button>
+              </div>
+              <p class="hint">
+                Click a train, then click the cities/towns it visits on the map. Or use Auto-calculate for the best routes.
+              </p>
+            {:else}
+              <div class="runrev"><span class="norun">No trains to run</span></div>
+              <div class="act">
+                <button onclick={() => game.act({ type: 'run', player: c.president!, corp: c.sym, revenue: 0, dividend: 'withhold' })}>
+                  Run (no income)
+                </button>
+              </div>
+            {/if}
           {:else}
             <div class="act">
               {#if v.canBuyTrain && c.cash >= trainCost(v.canBuyTrain)}
@@ -371,8 +419,52 @@
     color: var(--accent);
     font-size: 1.05rem;
   }
+  .autonote {
+    font-size: 0.72rem;
+    color: var(--muted);
+  }
   .norun {
     color: #ff8a7e;
+  }
+  .trains {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    padding: 0.2rem 0.8rem 0.4rem;
+  }
+  .trainchip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.28rem 0.55rem;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: var(--bg);
+    color: var(--ink);
+    font: 600 0.76rem ui-sans-serif, sans-serif;
+    cursor: pointer;
+  }
+  .trainchip.armed {
+    border-color: var(--tc);
+    box-shadow: 0 0 0 2px var(--tc) inset;
+  }
+  .trainchip .tdot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--tc);
+  }
+  .trainchip .tstops {
+    color: var(--muted);
+    font-weight: 500;
+  }
+  .trainchip .trev {
+    color: var(--accent);
+    font-weight: 700;
+  }
+  .small {
+    font-size: 0.72rem;
+    padding: 0.2rem 0.5rem;
   }
   .act button:disabled {
     opacity: 0.4;
