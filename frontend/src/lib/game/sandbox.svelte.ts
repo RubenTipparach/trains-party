@@ -78,6 +78,14 @@ class Sandbox {
   isBot(id: string | null): boolean {
     return !!this.seats.find((s) => s.id === id)?.bot;
   }
+  /**
+   * Whether the local human may act right now: there is an active player, that
+   * player is not a bot, and we are not reviewing a past position. Action buttons
+   * are gated on this so you cannot act on a bot's (or another player's) turn.
+   */
+  get canAct(): boolean {
+    return !this.reviewing && !!this.active && !this.isBot(this.active);
+  }
   level(id: string): BotLevel {
     return this.seats.find((s) => s.id === id)?.level ?? 'normal';
   }

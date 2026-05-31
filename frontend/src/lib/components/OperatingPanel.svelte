@@ -57,9 +57,9 @@
     {#if game.error}<p class="err">{game.error}</p>{/if}
 
     <div class="cols">
-      <!-- the board, with track laying live on it -->
+      <!-- the board, with track laying live on it (only interactive on your turn) -->
       <div class="mapwrap">
-        <HexMap layMode={v.step === 'track'} tokenMode={v.step === 'token'} />
+        <HexMap layMode={game.canAct && v.step === 'track'} tokenMode={game.canAct && v.step === 'token'} />
       </div>
 
       <!-- the operating corporation + its current action -->
@@ -99,7 +99,11 @@
             </div>
           {/if}
 
-          {#if v.step === 'track'}
+          {#if !game.canAct}
+            <p class="waiting" style="--p:{seatColor(c.president ?? '')}">
+              {game.isBot(c.president) ? `${pname(c.president)} (bot) is operating ${c.sym}…` : `Waiting for ${pname(c.president)} to operate ${c.sym}…`}
+            </p>
+          {:else if v.step === 'track'}
             <div class="act track">
               <span class="tlabel">Tap a <em>highlighted</em> hex to lay track ({lays.length} legal)</span>
             </div>
@@ -329,6 +333,15 @@
     margin: 0 0.8rem 0.7rem;
     font-size: 0.74rem;
     color: var(--muted);
+  }
+  .waiting {
+    margin: 0.4rem 0.8rem 0.8rem;
+    padding: 0.4rem 0.7rem;
+    font-size: 0.82rem;
+    color: var(--p);
+    border: 1px solid var(--p);
+    border-radius: 8px;
+    opacity: 0.85;
   }
   .runrev {
     padding: 0.2rem 0.8rem 0;

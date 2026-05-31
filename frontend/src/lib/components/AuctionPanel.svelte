@@ -79,8 +79,8 @@
           </div>
         {/if}
 
-        <!-- active player's action on this company -->
-        {#if av.auctioning ? c.inAuction : true}
+        <!-- active player's action on this company (only on your turn) -->
+        {#if game.canAct && (av.auctioning ? c.inAuction : true)}
           <div class="cact">
             {#if c.inAuction}
               <button onclick={() => bid(c.sym, c.minBid)}>
@@ -102,9 +102,16 @@
     {/each}
   </div>
 
-  <button class="pass" onclick={() => av && game.act({ type: 'pass', player: av.active })}>
-    Pass{av.auctioning ? ` on ${av.auctioning}` : ''}
-  </button>
+  {#if game.canAct}
+    <div class="turnbar" style="--p:{seatColor(av.active)}">
+      <span class="myturn">Your turn, {pname(av.active)}</span>
+      <button class="pass" onclick={() => av && game.act({ type: 'pass', player: av.active })}>
+        Pass{av.auctioning ? ` on ${av.auctioning}` : ''}
+      </button>
+    </div>
+  {:else}
+    <p class="turnbar waiting">{pname(av.active)} is {game.isBot(av.active) ? 'thinking' : 'acting'}…</p>
+  {/if}
 </div>
 {/if}
 
@@ -288,6 +295,27 @@
   .maxhint {
     font-size: 0.72rem;
     color: var(--muted);
+  }
+  .turnbar {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    margin-top: 1rem;
+  }
+  .turnbar .pass {
+    margin-top: 0;
+  }
+  .myturn {
+    color: var(--p);
+    font-weight: 700;
+    border: 1px solid var(--p);
+    border-radius: 999px;
+    padding: 0.15rem 0.7rem;
+    font-size: 0.85rem;
+  }
+  .turnbar.waiting {
+    color: var(--muted);
+    font-size: 0.85rem;
   }
   .pass {
     margin-top: 1rem;

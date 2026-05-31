@@ -54,12 +54,12 @@
     <span class="phase">Phase {game.state.phase}</span>
   </div>
 
-  <!-- status -->
-  <div class="status">
+  <!-- status (tints to the active player's seat colour when it's your turn) -->
+  <div class="status" class:myturn={game.canAct} style="--p:{seatColor(game.active ?? '')}">
     <div><span class="k">Round</span><span class="v">{roundLabel}<span class="rname"> · {roundName}</span></span></div>
     <div>
-      <span class="k">Active</span>
-      <span class="v player" style="--p:{seatColor(game.active ?? '')}">{playerName(game.active)}</span>
+      <span class="k">{game.canAct ? 'Your turn' : 'Active'}</span>
+      <span class="v player">{playerName(game.active)}{#if game.isBot(game.active)}<span class="botflag">BOT</span>{/if}</span>
     </div>
     <div><span class="k">Bank</span><span class="v">{CURRENCY}{game.state.bank.toLocaleString()}</span></div>
   </div>
@@ -242,6 +242,25 @@
     background: var(--bg-soft);
     border: 1px solid var(--line);
     border-radius: 10px;
+    transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+  }
+  /* When it's the local player's turn, tint the whole banner to their seat colour. */
+  .status.myturn {
+    border-color: var(--p);
+    box-shadow: 0 0 0 2px var(--p) inset;
+    background: color-mix(in srgb, var(--p) 12%, var(--bg-soft));
+  }
+  .status.myturn .k {
+    color: var(--p);
+  }
+  .botflag {
+    font-size: 0.58rem;
+    color: var(--muted);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 0 0.3rem;
+    margin-left: 0.35rem;
+    vertical-align: middle;
   }
   .status .k {
     display: block;

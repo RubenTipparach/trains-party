@@ -93,10 +93,14 @@
   {#if game.error}<p class="err">{game.error}</p>{/if}
 
   <div class="paronce">
-    <span class="turnnote">{playerName(sl.player)} to act</span>
-    <button class="pass" class:done={acted} onclick={() => game.act({ type: 'pass', player: sl.player })}>
-      {acted ? 'Done' : 'Pass'}
-    </button>
+    {#if game.canAct}
+      <span class="turnnote myturn" style="--p:{seatColor(sl.player)}">Your turn, {playerName(sl.player)}</span>
+      <button class="pass" class:done={acted} onclick={() => game.act({ type: 'pass', player: sl.player })}>
+        {acted ? 'Done' : 'Pass'}
+      </button>
+    {:else}
+      <span class="turnnote">{playerName(sl.player)} is {game.isBot(sl.player) ? 'thinking' : 'acting'}…</span>
+    {/if}
   </div>
 
   <!-- corporation cards -->
@@ -127,7 +131,7 @@
           </table>
           {#if c.floated}<div class="treasury">Treasury {CURRENCY}{c.cash}</div>{/if}
 
-          {#if sl.par.includes(c.sym)}
+          {#if game.canAct && sl.par.includes(c.sym)}
             <div class="parrow">
               <span class="parlabel">Par at</span>
               {#each PAR_PRICES as price (price)}
@@ -142,6 +146,7 @@
             </div>
           {/if}
 
+          {#if game.canAct}
           <div class="cact">
             {#if sl.buyIpo.includes(c.sym)}
               <button onclick={() => game.act({ type: 'buy', player: sl.player, corp: c.sym, from: 'ipo' })}>Buy IPO {CURRENCY}{c.parPrice}</button>
@@ -155,6 +160,7 @@
               <button class="ghost" onclick={() => game.act({ type: 'sell', player: sl.player, corp: c.sym, count: 1 })}>Sell</button>
             {/if}
           </div>
+          {/if}
         </div>
       </div>
     {/each}
@@ -263,6 +269,13 @@
   .turnnote {
     font-size: 0.85rem;
     color: var(--muted);
+  }
+  .turnnote.myturn {
+    color: var(--p);
+    font-weight: 700;
+    border: 1px solid var(--p);
+    border-radius: 999px;
+    padding: 0.15rem 0.7rem;
   }
   .parrow {
     display: flex;
