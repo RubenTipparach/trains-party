@@ -48,8 +48,17 @@
     const opts = layOptions(hex);
     const byTile: Record<string, number[]> = {};
     for (const l of opts) (byTile[l.tile] ??= []).push(l.rotation);
+    // Also report tile-5/6/57 supply remaining + how many of each are already laid,
+    // so a "missing" tile that is actually out of supply is unambiguous.
+    const laidCount: Record<string, number> = {};
+    for (const co of Object.keys(game.state.tiles ?? {})) {
+      const id = game.state.tiles[co].id;
+      laidCount[id] = (laidCount[id] ?? 0) + 1;
+    }
     // eslint-disable-next-line no-console
-    console.log(`[lay ${hex}] tiles=${JSON.stringify(tileChoices(hex))} rotations=`, byTile);
+    console.log(`[lay ${hex}] tiles=${JSON.stringify(tileChoices(hex))} rotations=`, byTile,
+      '| laid #5/#6/#57 =', laidCount['5'] ?? 0, laidCount['6'] ?? 0, laidCount['57'] ?? 0,
+      '| all laid tiles:', JSON.stringify(game.state.tiles));
     layHex = hex;
     preview = null;
     centerOn(hex); // pan so the hex (and its fan of options) is centred and fully visible
