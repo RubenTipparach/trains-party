@@ -9,7 +9,8 @@ import {
   routeRevenue,
   stockLegalActions,
   neighbor,
-  playerValue
+  playerValue,
+  operatingView
 } from './index';
 import type { GameAction, GameState } from './types';
 
@@ -447,6 +448,73 @@ describe('operating round', () => {
     s = apply(s, { type: 'pass', player: 'p1' });
     s = apply(s, { type: 'run', player: 'p1', corp: 'AR', revenue: 0, dividend: 'withhold' });
     expect(() => apply(s, { type: 'buy_company', player: 'p1', corp: 'AR', company: co.sym, price: 1 })).toThrow();
+  });
+});
+
+describe('mandatory trains and emergency money raising', () => {
+  // AR in its trains step with 0 trains and a runnable 2-stop route (so it must buy).
+  function toARTrainStep(): GameState {
+    let s = toOperatingRound();
+    s.tiles = { K8: { id: '5', rotation: 4 } }; // opens a route from AR's home token
+    s = apply(s, { type: 'pass', player: 'p1' }); // skip track
+    s = apply(s, { type: 'pass', player: 'p1' }); // skip token
+    s = apply(s, { type: 'run', player: 'p1', corp: 'AR', revenue: 0, dividend: 'withhold' });
+    return s;
+  }
+
+  it('a train-less corporation that can run must buy and cannot pass', () => {
+    const s = toARTrainStep();
+    expect(corp(s, 'AR').trains).toEqual([]);
+    expect(operatingView(s)!.mustBuy).toBe(true);
+    expect(() => apply(s, { type: 'pass', player: 'p1' })).toThrow();
+  });
+
+  it('buys the mandatory train when affordable', () => {
+    let s = toARTrainStep();
+    s = apply(s, { type: 'buy_train', player: 'p1', corp: 'AR', train: '2' });
+    expect(corp(s, 'AR').trains).toEqual(['2']);
+  });
+
+  it('president contributes personal cash when the treasury falls short', () => {
+    let s = toARTrainStep();
+    corp(s, 'AR').cash = 50; // 2-train costs 80 -> shortfall 30
+    const p1Before = cash(s, 'p1');
+    const emg = operatingView(s)!.emergency!;
+    expect(emg.shortfall).toBe(30);
+    expect(emg.canAfford).toBe(true);
+    s = apply(s, { type: 'buy_train', player: 'p1', corp: 'AR', train: '2' });
+    expect(corp(s, 'AR').trains).toEqual(['2']);
+    expect(corp(s, 'AR').cash).toBe(0);
+    expect(cash(s, 'p1')).toBe(p1Before - 30);
+  });
+
+  it('president sells shares to raise emergency cash, then buys', () => {
+    let s = toARTrainStep();
+    corp(s, 'AR').cash = 50;
+    s.players.find((p) => p.id === 'p1')!.cash = 10; // shortfall 30, has only 10
+    const emg = operatingView(s)!.emergency!;
+    expect(emg.canAfford).toBe(false);
+    expect(emg.sellable.some((x) => x.corp === 'AR')).toBe(true);
+    s = apply(s, { type: 'emr_sell', player: 'p1', corp: 'AR', count: 1 });
+    expect(cash(s, 'p1')).toBeGreaterThanOrEqual(30);
+    s = apply(s, { type: 'buy_train', player: 'p1', corp: 'AR', train: '2' });
+    expect(corp(s, 'AR').trains).toEqual(['2']);
+  });
+
+  it('declares bankruptcy and ends the game when nothing can fund the train', () => {
+    let s = toARTrainStep();
+    corp(s, 'AR').cash = 0;
+    const p1 = s.players.find((p) => p.id === 'p1')!;
+    p1.cash = 0;
+    p1.shares = { AR: 20 }; // only the president cert, no >=20% successor -> unsellable
+    s.players.find((p) => p.id === 'p2')!.shares = {};
+    s.players.find((p) => p.id === 'p3')!.shares = {};
+    const emg = operatingView(s)!.emergency!;
+    expect(emg.canDeclareBankruptcy).toBe(true);
+    expect(() => apply(s, { type: 'buy_train', player: 'p1', corp: 'AR', train: '2' })).toThrow();
+    s = apply(s, { type: 'declare_bankruptcy', player: 'p1' });
+    expect(s.finished).toBe(true);
+    expect(s.bankrupt).toBe('p1');
   });
 });
 

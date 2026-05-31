@@ -111,7 +111,21 @@ function botOperating(s: GameState): GameAction | null {
     // train; keep it simple: pay when there is income.)
     return { type: 'run', player: me, corp: v.corp, revenue: v.revenue, dividend: v.revenue > 0 ? 'pay' : 'withhold' };
   }
-  // Buy the cheapest train if the corporation has none and can afford it.
+  // Emergency money raising: the corporation must buy a train it cannot afford.
+  if (v.emergency) {
+    const e = v.emergency;
+    if (e.canAfford) return { type: 'buy_train', player: me, corp: v.corp, train: e.train };
+    if (e.sellable.length) {
+      // Sell just enough shares of the first option to cover the shortfall.
+      const opt = e.sellable[0];
+      const need = e.shortfall - e.presidentCash;
+      const count = Math.min(opt.count, Math.max(1, Math.ceil(need / opt.price)));
+      return { type: 'emr_sell', player: me, corp: opt.corp, count };
+    }
+    if (e.canDeclareBankruptcy) return { type: 'declare_bankruptcy', player: me };
+  }
+  // Buy the cheapest train if the corporation has none and can afford it (forced
+  // when it can run a route, optional otherwise).
   if (v.canBuyTrain && c.trains.length === 0) {
     const def = TRAINS.find((t) => t.name === v.canBuyTrain)!;
     if (c.cash >= def.price) return { type: 'buy_train', player: me, corp: v.corp, train: v.canBuyTrain };

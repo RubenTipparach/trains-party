@@ -38,7 +38,7 @@ function pname(s: GameState, id: string): string {
 function cellExists(row: number, col: number): boolean {
   return !!MARKET[row] && col < MARKET[row].length;
 }
-function currentPrice(c: CorporationState): number {
+export function currentPrice(c: CorporationState): number {
   if (c.priceRow === null || c.priceCol === null) return c.parPrice ?? 0;
   return MARKET[c.priceRow][c.priceCol].price;
 }
@@ -96,20 +96,26 @@ function topOtherPct(s: GameState, id: string, sym: string): number {
  *   president certificate (drop below 20%) if another player holds at least 20%
  *   to take over the presidency.
  */
-function canSell(s: GameState, id: string, sym: string): boolean {
+export function canSell(s: GameState, id: string, sym: string): boolean {
+  return maxSellCount(s, id, sym) > 0;
+}
+
+/** Greatest number of 10% shares of `sym` player `id` may sell to the pool now. */
+export function maxSellCount(s: GameState, id: string, sym: string): number {
   const c = corp(s, sym);
   const p = player(s, id);
-  if (c.priceRow === null) return false;
+  if (c.priceRow === null) return 0;
   const have = holds(p, sym);
-  if (have < 10) return false;
-  if (c.poolShares >= 50) return false; // no room in the pool
+  const poolRoom = 50 - c.poolShares;
+  let max = Math.min(Math.floor(have / 10), Math.floor(poolRoom / 10));
+  if (max <= 0) return 0;
   if (c.president === id) {
-    // regular (non-president-cert) shares are freely sellable
-    if (have - 20 >= 10) return true;
-    // otherwise selling means giving up the cert: need a >=20% successor
-    return topOtherPct(s, id, sym) >= 20;
+    // Sell down to 20% freely; below that means giving up the cert, allowed only
+    // when another player holds at least 20% to take over.
+    const minKeep = topOtherPct(s, id, sym) >= 20 ? 0 : 20;
+    max = Math.min(max, Math.floor(Math.max(0, have - minKeep) / 10));
   }
-  return true;
+  return max;
 }
 
 function endTurn(s: GameState, acted: boolean): void {
@@ -211,8 +217,13 @@ function doBuy(s: GameState, id: string, sym: string, from: 'ipo' | 'pool'): voi
   s.priority = (s.current + 1) % s.players.length;
 }
 
-function doSell(s: GameState, id: string, sym: string, count: number): void {
-  const st = s.stock!;
+/**
+ * Move `count` shares of `sym` from player `id` to the bank pool: validates
+ * holdings and pool room, handles presidency transfer, pays the player, and
+ * drops the price one step per share. Returns the proceeds. Shared by the stock
+ * round and emergency money raising; it does no round-specific bookkeeping.
+ */
+export function sellSharesToPool(s: GameState, id: string, sym: string, count: number): number {
   if (count < 1) throw new GameError('must sell at least one share');
   const c = corp(s, sym);
   const p = player(s, id);
@@ -234,7 +245,6 @@ function doSell(s: GameState, id: string, sym: string, count: number): void {
     );
     const topPct = top ? holds(top, sym) : 0;
     if (remaining >= 20) {
-      // keeps the certificate; presidency only moves if someone now holds more
       newPresident = top && topPct > remaining && topPct >= 20 ? top.id : id;
     } else if (top && topPct >= 20) {
       newPresident = top.id; // gives up the cert to an eligible successor
@@ -252,7 +262,12 @@ function doSell(s: GameState, id: string, sym: string, count: number): void {
   c.president = newPresident;
   for (let i = 0; i < count; i++) moveDown(c);
   s.log.push(`${pname(s, id)} sells ${count} share(s) of ${sym} for ${proceeds}`);
+  return proceeds;
+}
 
+function doSell(s: GameState, id: string, sym: string, count: number): void {
+  const st = s.stock!;
+  sellSharesToPool(s, id, sym, count);
   // Record the sale: this player may not buy this corporation again this round.
   (st.soldThisRound[id] ??= []).push(sym);
   st.acted = true;

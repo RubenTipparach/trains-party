@@ -229,6 +229,20 @@ export function routeRevenue(s: GameState, corp: CorporationState): number {
   return corpRoutes(s, corp).revenue;
 }
 
+/**
+ * Could this corporation run a revenue route if it owned a train? Train-independent
+ * (tests a minimal 2-stop route from a tokened city), used by the mandatory-train
+ * rule: a train-less corporation must buy a train only when it can actually run.
+ */
+export function canRunRoute(s: GameState, corp: CorporationState): boolean {
+  const tokenCities = corp.tokenHexes.filter((h) => isCity(s, h));
+  for (const anchor of tokenCities) {
+    const r = bestRouteFrom(s, anchor, 2, new Set(), new Set());
+    if (r && r.route.revenue > 0) return true;
+  }
+  return false;
+}
+
 /** Distinct colours assigned to a corporation's trains, in train order. */
 export const TRAIN_ROUTE_COLORS = ['#39b3ff', '#ff5da2', '#ffd23f', '#7cf06b', '#b07cff', '#ff9442'];
 

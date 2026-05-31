@@ -137,6 +137,8 @@ export interface GameState {
   finished: boolean;
   /** Player id of the winner once finished (highest value). */
   winner: string | null;
+  /** Player id who went bankrupt and ended the game, if any. */
+  bankrupt: string | null;
 }
 
 export type GameAction =
@@ -156,6 +158,10 @@ export type GameAction =
   // twice the company's face value, and within the buyer's treasury). Income
   // then flows to the corporation instead of the player.
   | { type: 'buy_company'; player: string; corp: string; company: string; price: number }
+  // Emergency money raising: a president forced to fund a mandatory train sells
+  // shares to the pool (emr_sell), or declares bankruptcy when nothing can cover it.
+  | { type: 'emr_sell'; player: string; corp: string; count: number }
+  | { type: 'declare_bankruptcy'; player: string }
   | { type: 'pass'; player: string };
 
 /** Raised when an action is illegal for the current state. */

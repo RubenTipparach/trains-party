@@ -67,6 +67,7 @@ export function initialState(seats: Seat[], rulesVersion: string = RULES_VERSION
     log: [`Initial auction begins with ${available.length} private companies`],
     endTriggered: false,
     finished: false,
-    winner: null
+    winner: null,
+    bankrupt: null
   };
 }

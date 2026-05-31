@@ -243,15 +243,51 @@
               </div>
             {/if}
           {:else}
-            <div class="act">
-              {#if v.canBuyTrain && c.cash >= trainCost(v.canBuyTrain)}
-                <button onclick={() => game.act({ type: 'buy_train', player: c.president!, corp: c.sym, train: v.canBuyTrain! })}>
-                  Buy {v.canBuyTrain}-train ({CURRENCY}{trainCost(v.canBuyTrain)})
-                </button>
+            {#if v.emergency}
+              {@const e = v.emergency}
+              <div class="emr">
+                <div class="emrhead">
+                  Emergency: {c.sym} must buy the {e.train}-train ({CURRENCY}{e.price}) but has only {CURRENCY}{c.cash}.
+                </div>
+                <div class="emrline">
+                  President {pname(c.president)} owes {CURRENCY}{e.shortfall}; you hold {CURRENCY}{e.presidentCash}.
+                </div>
+                {#if e.canAfford}
+                  <button onclick={() => game.act({ type: 'buy_train', player: c.president!, corp: c.sym, train: e.train })}>
+                    Buy {e.train}-train (contribute {CURRENCY}{e.shortfall})
+                  </button>
+                {:else if e.sellable.length}
+                  <div class="emrnote">Sell shares to raise {CURRENCY}{e.shortfall - e.presidentCash} more:</div>
+                  {#each e.sellable as opt (opt.corp)}
+                    <div class="cbrow">
+                      <span class="cbtrain"><b>{opt.corp}</b> · up to {opt.count} share(s) at {CURRENCY}{opt.price}</span>
+                      <button class="small" onclick={() => game.act({ type: 'emr_sell', player: c.president!, corp: opt.corp, count: 1 })}>Sell 1</button>
+                      {#if opt.count > 1}
+                        <button class="small" onclick={() => game.act({ type: 'emr_sell', player: c.president!, corp: opt.corp, count: opt.count })}>Sell {opt.count}</button>
+                      {/if}
+                    </div>
+                  {/each}
+                {:else if e.canDeclareBankruptcy}
+                  <div class="emrnote danger">No shares left to sell and the train is unaffordable.</div>
+                  <button class="danger" onclick={() => game.act({ type: 'declare_bankruptcy', player: c.president! })}>Declare bankruptcy (ends game)</button>
+                {/if}
+              </div>
+            {:else}
+              {#if v.mustBuy}
+                <div class="runrev"><span class="norun">{c.sym} has no train and can run. It must buy one.</span></div>
               {/if}
-              <button class="ghost" onclick={() => game.act({ type: 'pass', player: c.president! })}>Finish turn</button>
-            </div>
-            {#if crossBuyOptions(c).length}
+              <div class="act">
+                {#if v.canBuyTrain && c.cash >= trainCost(v.canBuyTrain)}
+                  <button onclick={() => game.act({ type: 'buy_train', player: c.president!, corp: c.sym, train: v.canBuyTrain! })}>
+                    Buy {v.canBuyTrain}-train ({CURRENCY}{trainCost(v.canBuyTrain)})
+                  </button>
+                {/if}
+                {#if !v.mustBuy}
+                  <button class="ghost" onclick={() => game.act({ type: 'pass', player: c.president! })}>Finish turn</button>
+                {/if}
+              </div>
+            {/if}
+            {#if !v.emergency && crossBuyOptions(c).length}
               <div class="crossbuy">
                 <div class="cbhead">Buy from your other companies (price {CURRENCY}1 to {CURRENCY}{c.cash})</div>
                 {#each crossBuyOptions(c) as opt (opt.from + ':' + opt.train)}
@@ -271,7 +307,7 @@
                 {/each}
               </div>
             {/if}
-            {#if companyBuyOptions().length}
+            {#if !v.emergency && companyBuyOptions().length}
               <div class="crossbuy">
                 <div class="cbhead">Buy a private company (price {CURRENCY}1 up to 2x face value)</div>
                 {#each companyBuyOptions() as opt (opt.sym)}
@@ -554,6 +590,37 @@
     display: flex;
     flex-direction: column;
     gap: 0.3rem;
+  }
+  .emr {
+    margin: 0.2rem 0.8rem 0.4rem;
+    padding: 0.5rem 0.6rem;
+    border: 1px solid #ff8a7e;
+    border-radius: 8px;
+    background: rgba(255, 138, 126, 0.08);
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+  .emrhead {
+    font-weight: 700;
+    color: #ff8a7e;
+    font-size: 0.82rem;
+  }
+  .emrline,
+  .emrnote {
+    font-size: 0.76rem;
+    color: var(--muted);
+  }
+  .emrnote.danger {
+    color: #ff8a7e;
+  }
+  .emr button {
+    align-self: flex-start;
+  }
+  .emr button.danger,
+  button.danger {
+    border-color: #ff8a7e;
+    color: #ff8a7e;
   }
   .cbhead {
     font-size: 0.74rem;

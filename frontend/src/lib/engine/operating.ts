@@ -16,8 +16,9 @@
 import { MARKET, TRAINS, PHASES } from '$lib/data/g1889';
 import { GameError, type CorporationState, type GameAction, type GameState } from './types';
 import { applyLayTile, legalLays, applyToken, legalTokens } from './track';
-import { routeRevenue } from './routes';
+import { routeRevenue, canRunRoute } from './routes';
 import { playerValue } from './metrics';
+import { sellSharesToPool, currentPrice, canSell, maxSellCount } from './stock';
 
 function corp(s: GameState, sym: string): CorporationState {
   const c = s.corporations.find((x) => x.sym === sym);
@@ -127,6 +128,10 @@ function activeCorp(s: GameState): CorporationState {
   return corp(s, s.or!.order[s.or!.index]);
 }
 
+function pname(s: GameState, id: string): string {
+  return s.players.find((p) => p.id === id)?.name ?? id;
+}
+
 /** The player who must act in the operating round (the operating corp's president). */
 export function operatingActivePlayer(s: GameState): string | null {
   if (!s.or) return null;
@@ -215,7 +220,22 @@ function doBuyTrain(s: GameState, c: CorporationState, train: string): void {
   // (depot trains must be bought in order).
   const cheapest = s.depot.find((x) => x.remaining !== 0)!;
   if (cheapest.name !== train) throw new GameError(`must buy the ${cheapest.name}-train next from the depot`);
-  if (c.cash < def.price) throw new GameError(`${c.sym} cannot afford a ${train}-train`);
+
+  if (c.cash < def.price) {
+    // The corporation cannot pay outright. This is only allowed under a forced
+    // (emergency) purchase, where the president must cover the shortfall from
+    // personal cash (after raising money by selling shares if needed).
+    const emg = emergencyFor(s, c);
+    if (!emg || emg.train !== train) throw new GameError(`${c.sym} cannot afford a ${train}-train`);
+    const pres = s.players.find((p) => p.id === c.president);
+    const shortfall = def.price - c.cash;
+    if (!pres || pres.cash < shortfall) {
+      throw new GameError(`${c.sym} must raise ${shortfall} more before buying the ${train}-train`);
+    }
+    pres.cash -= shortfall;
+    c.cash += shortfall;
+    s.log.push(`${pname(s, pres.id)} contributes ${shortfall} to ${c.sym} (emergency)`);
+  }
 
   c.cash -= def.price;
   s.bank += def.price;
@@ -223,6 +243,66 @@ function doBuyTrain(s: GameState, c: CorporationState, train: string): void {
   if (d.remaining > 0) d.remaining -= 1;
   s.log.push(`${c.sym} buys a ${train}-train for ${def.price}`);
   advancePhaseAndRust(s, train);
+}
+
+/** Cheapest depot train still available (the only new train a corp may buy next). */
+function cheapestDepotTrain(s: GameState): { name: string; price: number } | null {
+  const d = s.depot.find((x) => x.remaining !== 0);
+  if (!d) return null;
+  const def = TRAINS.find((t) => t.name === d.name)!;
+  return { name: d.name, price: def.price };
+}
+
+/** A corporation must own a train when it has none and could actually run a route. */
+export function mustBuyTrain(s: GameState, c: CorporationState): boolean {
+  return c.trains.length === 0 && canRunRoute(s, c);
+}
+
+/**
+ * If the operating corporation is forced to buy a train it cannot pay for outright,
+ * returns the emergency target (cheapest depot train + price); otherwise null. The
+ * president must cover the shortfall, raising money by selling shares first.
+ */
+export function emergencyFor(s: GameState, c: CorporationState): { train: string; price: number } | null {
+  if (!s.or || s.or.step !== 'trains') return null;
+  if (!mustBuyTrain(s, c)) return null;
+  const cheapest = cheapestDepotTrain(s);
+  if (!cheapest) return null;
+  if (c.cash >= cheapest.price) return null; // affordable: mandatory but not an emergency
+  return { train: cheapest.name, price: cheapest.price };
+}
+
+/** Shares the president may sell to raise emergency cash (corp sym + count + price). */
+export function emrSellable(s: GameState, presId: string): { corp: string; count: number; price: number }[] {
+  const out: { corp: string; count: number; price: number }[] = [];
+  for (const c of s.corporations) {
+    const n = maxSellCount(s, presId, c.sym);
+    if (n > 0 && canSell(s, presId, c.sym)) out.push({ corp: c.sym, count: n, price: currentPrice(c) });
+  }
+  return out;
+}
+
+/** President sells shares mid-OR to fund a forced train purchase. */
+function doEmrSell(s: GameState, c: CorporationState, sym: string, count: number): void {
+  if (!emergencyFor(s, c)) throw new GameError(`${c.sym} is not in emergency money raising`);
+  sellSharesToPool(s, c.president!, sym, count);
+}
+
+/**
+ * The president cannot fund the mandatory train even after selling everything:
+ * they go bankrupt and the game ends immediately.
+ */
+function doDeclareBankruptcy(s: GameState, c: CorporationState): void {
+  const emg = emergencyFor(s, c);
+  if (!emg) throw new GameError('no emergency purchase is pending');
+  const pres = s.players.find((p) => p.id === c.president)!;
+  const shortfall = emg.price - c.cash;
+  // Only valid when the president truly cannot pay and has nothing left to sell.
+  if (pres.cash >= shortfall) throw new GameError('the president can still pay for the train');
+  if (emrSellable(s, pres.id).length > 0) throw new GameError('the president must sell shares before declaring bankruptcy');
+  s.bankrupt = pres.id;
+  s.log.push(`${pname(s, pres.id)} cannot fund a train for ${c.sym} and goes bankrupt`);
+  endGame(s);
 }
 
 /**
@@ -337,12 +417,21 @@ export function applyOperating(s: GameState, action: GameAction): void {
       if (s.or.step !== 'trains') throw new GameError(`${c.sym} can only buy companies in its buy step`);
       doBuyCompany(s, c, action.company, action.price);
       break;
+    case 'emr_sell':
+      doEmrSell(s, c, action.corp, action.count);
+      break;
+    case 'declare_bankruptcy':
+      doDeclareBankruptcy(s, c);
+      break;
     case 'pass':
       if (s.or.step === 'track') {
         s.or.step = 'token'; // skip laying track -> optional token
       } else if (s.or.step === 'token') {
         s.or.step = 'run'; // skip the token
       } else if (s.or.step === 'trains') {
+        // A corporation that can run but owns no train must buy one; it cannot
+        // finish its turn train-less.
+        if (mustBuyTrain(s, c)) throw new GameError(`${c.sym} must own a train (buy one before finishing)`);
         s.log.push(`${c.sym} finishes operating`);
         nextCorp(s);
       } else {
@@ -379,6 +468,18 @@ export interface OperatingView {
   revenue: number;
   /** Whether the corporation owns any train to run. */
   hasTrains: boolean;
+  /** The corporation must buy a train before finishing (0 trains but can run). */
+  mustBuy: boolean;
+  /** Set when the forced buy is unaffordable: the president must raise money. */
+  emergency: {
+    train: string;
+    price: number;
+    shortfall: number; // still owed after the corporation's own treasury
+    presidentCash: number;
+    sellable: { corp: string; count: number; price: number }[];
+    canAfford: boolean; // president cash now covers the shortfall -> may buy
+    canDeclareBankruptcy: boolean;
+  } | null;
 }
 
 export function operatingView(s: GameState): OperatingView | null {
@@ -395,6 +496,26 @@ export function operatingView(s: GameState): OperatingView | null {
     orsThisSet: s.or.orsThisSet,
     canBuyTrain: cheapest ? cheapest.name : null,
     revenue: c.trains.length ? routeRevenue(s, c) : 0,
-    hasTrains: c.trains.length > 0
+    hasTrains: c.trains.length > 0,
+    mustBuy: mustBuyTrain(s, c),
+    emergency: emergencyView(s, c)
+  };
+}
+
+function emergencyView(s: GameState, c: CorporationState): OperatingView['emergency'] {
+  const emg = emergencyFor(s, c);
+  if (!emg) return null;
+  const pres = s.players.find((p) => p.id === c.president);
+  const presidentCash = pres?.cash ?? 0;
+  const shortfall = emg.price - c.cash;
+  const sellable = pres ? emrSellable(s, pres.id) : [];
+  return {
+    train: emg.train,
+    price: emg.price,
+    shortfall,
+    presidentCash,
+    sellable,
+    canAfford: presidentCash >= shortfall,
+    canDeclareBankruptcy: presidentCash < shortfall && sellable.length === 0
   };
 }
