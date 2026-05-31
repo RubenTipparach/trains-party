@@ -18,6 +18,14 @@
   const ownedPrivates = (id: string) => game.state.players.find((p) => p.id === id)?.companies ?? [];
   const privVal = (id: string) =>
     ownedPrivates(id).reduce((n, sym) => n + (COMPANIES.find((c) => c.sym === sym)?.value ?? 0), 0);
+
+  // Place a bid for whoever is currently active. Guarded because a delegated
+  // click can fire after the auction has just ended (av === null) but before
+  // the button is removed from the DOM.
+  function bid(company: string, price: number) {
+    if (!av) return;
+    game.act({ type: 'bid', player: av.active, company, price });
+  }
 </script>
 
 {#if av}
@@ -75,15 +83,15 @@
         {#if av.auctioning ? c.inAuction : true}
           <div class="cact">
             {#if c.inAuction}
-              <button onclick={() => game.act({ type: 'bid', player: av.active, company: c.sym, price: c.minBid })}>
+              <button onclick={() => bid(c.sym, c.minBid)}>
                 Raise to {CURRENCY}{c.minBid}
               </button>
             {:else if c.buyable}
-              <button onclick={() => game.act({ type: 'bid', player: av.active, company: c.sym, price: c.minBid })}>
+              <button onclick={() => bid(c.sym, c.minBid)}>
                 Buy {CURRENCY}{c.minBid}
               </button>
             {:else}
-              <button class="ghost" onclick={() => game.act({ type: 'bid', player: av.active, company: c.sym, price: c.minBid })}>
+              <button class="ghost" onclick={() => bid(c.sym, c.minBid)}>
                 Bid {CURRENCY}{c.minBid}
               </button>
             {/if}
@@ -94,7 +102,7 @@
     {/each}
   </div>
 
-  <button class="pass" onclick={() => game.act({ type: 'pass', player: av.active })}>
+  <button class="pass" onclick={() => av && game.act({ type: 'pass', player: av.active })}>
     Pass{av.auctioning ? ` on ${av.auctioning}` : ''}
   </button>
 </div>

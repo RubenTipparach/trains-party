@@ -26,7 +26,7 @@
     <span class="lbl">Trains</span>
     <span class="val">
       {#if corp.trains.length}
-        {#each corp.trains as t (t)}<span class="train">{t}</span>{/each}
+        {#each corp.trains as t, i (i)}<span class="train">{t}</span>{/each}
         <span class="sub">{CURRENCY}{trainsWorth}</span>
       {:else}
         <span class="none">none</span>
