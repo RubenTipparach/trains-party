@@ -39,6 +39,7 @@ export function initialState(seats: Seat[], rulesVersion: string = RULES_VERSION
     priceRow: null,
     priceCol: null,
     trains: [],
+    companies: [],
     tokenHexes: [],
     tokens: [...c.tokens]
   }));

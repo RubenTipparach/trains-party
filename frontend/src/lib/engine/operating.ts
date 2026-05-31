@@ -80,6 +80,19 @@ function payPrivateIncome(s: GameState): void {
       s.log.push(`${p.name} collects ${income} in private income`);
     }
   }
+  // Privates a corporation has bought pay their revenue into its treasury.
+  for (const c of s.corporations) {
+    let income = 0;
+    for (const sym of c.companies) {
+      const co = s.companies.find((x) => x.sym === sym);
+      if (co && !co.closed) income += co.revenue;
+    }
+    if (income > 0) {
+      c.cash += income;
+      s.bank -= income;
+      s.log.push(`${c.sym} collects ${income} in private income`);
+    }
+  }
 }
 
 function finishOperatingSet(s: GameState): void {
@@ -181,6 +194,7 @@ function advancePhaseAndRust(s: GameState, train: string): void {
         }
       }
       for (const p of s.players) p.companies = [];
+      for (const co of s.corporations) co.companies = [];
       s.log.push('Private companies close');
     }
   }
@@ -236,6 +250,42 @@ function doBuyTrainFromCorp(s: GameState, buyer: CorporationState, fromSym: stri
   s.log.push(`${buyer.sym} buys a ${train}-train from ${fromSym} for ${price}`);
 }
 
+/** Corporations may buy private companies once the green (phase 3) trains arrive. */
+const COMPANY_BUY_PHASE = '3';
+export function corporationsCanBuyPrivates(s: GameState): boolean {
+  const i = PHASES.findIndex((p) => p.name === s.phase);
+  const j = PHASES.findIndex((p) => p.name === COMPANY_BUY_PHASE);
+  return i >= j;
+}
+
+/**
+ * A corporation buys a player-owned private company. The price is negotiable,
+ * from 1 up to twice the company's face value (and within the buyer's treasury).
+ * The selling player is paid; income afterwards flows to the corporation.
+ */
+function doBuyCompany(s: GameState, buyer: CorporationState, companySym: string, price: number): void {
+  if (!corporationsCanBuyPrivates(s)) {
+    throw new GameError(`corporations cannot buy private companies until phase ${COMPANY_BUY_PHASE}`);
+  }
+  const co = s.companies.find((x) => x.sym === companySym);
+  if (!co) throw new GameError(`no such company ${companySym}`);
+  if (co.closed) throw new GameError(`${companySym} has closed`);
+  if (!co.owner) throw new GameError(`${companySym} is not owned by a player`);
+  const seller = s.players.find((p) => p.id === co.owner);
+  if (!seller) throw new GameError(`${companySym} has no owner to sell it`);
+  if (!Number.isInteger(price) || price < 1) throw new GameError('company price must be at least 1');
+  if (price > 2 * co.value) throw new GameError(`${companySym} costs at most ${2 * co.value} (twice its face value)`);
+  if (price > buyer.cash) throw new GameError(`${buyer.sym} cannot pay ${price} (treasury ${buyer.cash})`);
+
+  // Money moves between the corporation and the player, not the bank.
+  buyer.cash -= price;
+  seller.cash += price;
+  seller.companies = seller.companies.filter((x) => x !== companySym);
+  co.owner = null;
+  buyer.companies.push(companySym);
+  s.log.push(`${buyer.sym} buys the ${co.name} private from ${seller.name} for ${price}`);
+}
+
 export function applyOperating(s: GameState, action: GameAction): void {
   if (!s.or) throw new GameError('no operating round in progress');
   const c = activeCorp(s);
@@ -246,7 +296,8 @@ export function applyOperating(s: GameState, action: GameAction): void {
     (action.type === 'lay_tile' ||
       action.type === 'place_token' ||
       action.type === 'run' ||
-      action.type === 'buy_train') &&
+      action.type === 'buy_train' ||
+      action.type === 'buy_company') &&
     action.corp !== c.sym
   ) {
     throw new GameError(`${c.sym} is operating, not ${action.corp}`);
@@ -281,6 +332,10 @@ export function applyOperating(s: GameState, action: GameAction): void {
       } else {
         doBuyTrain(s, c, action.train);
       }
+      break;
+    case 'buy_company':
+      if (s.or.step !== 'trains') throw new GameError(`${c.sym} can only buy companies in its buy step`);
+      doBuyCompany(s, c, action.company, action.price);
       break;
     case 'pass':
       if (s.or.step === 'track') {

@@ -22,7 +22,7 @@ export * from './types';
 export { minBid, auctionActivePlayer, auctionView, maxBidFor } from './auction';
 export type { AuctionView, AuctionCompanyView, AuctionPlayerView } from './auction';
 export { stockLegalActions } from './stock';
-export { operatingView, operatingActivePlayer, trackLays, tokenPlays } from './operating';
+export { operatingView, operatingActivePlayer, trackLays, tokenPlays, corporationsCanBuyPrivates } from './operating';
 export type { OperatingView } from './operating';
 export { legalLays, neighbor, tileSupply, exhaustedTilesOnHex } from './track';
 export type { TileLay } from './track';

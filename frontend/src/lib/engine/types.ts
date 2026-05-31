@@ -48,6 +48,8 @@ export interface CorporationState {
   priceCol: number | null;
   /** Train names owned. */
   trains: string[];
+  /** Private company syms this corporation has bought (pay income to its treasury). */
+  companies: string[];
   /** Hex coordinates where this corporation has a station token. */
   tokenHexes: string[];
   /** Cost of each station token, in placement order (0 = free home token). */
@@ -150,6 +152,10 @@ export type GameAction =
   // (>= 1, up to the buyer's treasury), allowed between corporations the acting
   // player controls (presidents both that player).
   | { type: 'buy_train'; player: string; corp: string; train: string; from?: string; price?: number }
+  // A corporation buys a player-owned private company for `price` (>= 1, up to
+  // twice the company's face value, and within the buyer's treasury). Income
+  // then flows to the corporation instead of the player.
+  | { type: 'buy_company'; player: string; corp: string; company: string; price: number }
   | { type: 'pass'; player: string };
 
 /** Raised when an action is illegal for the current state. */

@@ -402,6 +402,52 @@ describe('operating round', () => {
     s = apply(s, { type: 'run', player: 'p1', corp: 'AR', revenue: 0, dividend: 'withhold' });
     expect(() => apply(s, { type: 'buy_train', player: 'p1', corp: 'AR', train: '2', from: seller.sym, price: 1 })).toThrow();
   });
+
+  // Give player p2 a private company, with the game in phase 3 so corps may buy.
+  function withPrivateInPhase3() {
+    let s = toOperatingRound();
+    s.phase = '3';
+    const co = s.companies[0];
+    co.owner = 'p2';
+    co.closed = false;
+    s.players.find((p) => p.id === 'p2')!.companies = [co.sym];
+    s = apply(s, { type: 'pass', player: 'p1' }); // skip track
+    s = apply(s, { type: 'run', player: 'p1', corp: 'AR', revenue: 0, dividend: 'withhold' });
+    return { s, co };
+  }
+
+  it('lets a corporation buy a private company and then earns its income', () => {
+    let { s, co } = withPrivateInPhase3();
+    const p2Cash = cash(s, 'p2');
+    const arCash = corp(s, 'AR').cash;
+    s = apply(s, { type: 'buy_company', player: 'p1', corp: 'AR', company: co.sym, price: 2 });
+    expect(corp(s, 'AR').companies).toContain(co.sym);
+    expect(s.players.find((p) => p.id === 'p2')!.companies).not.toContain(co.sym);
+    expect(s.companies.find((x) => x.sym === co.sym)!.owner).toBeNull();
+    expect(cash(s, 'p2')).toBe(p2Cash + 2);
+    expect(corp(s, 'AR').cash).toBe(arCash - 2);
+    // The next OR pays the private's income into the corporation treasury.
+    const before = corp(s, 'AR').cash;
+    s = apply(s, { type: 'pass', player: 'p1' }); // AR finishes -> next round / OR
+    const arNow = corp(s, 'AR');
+    if (s.round === 'operating') expect(arNow.cash).toBe(before + co.revenue);
+  });
+
+  it('rejects a company price above twice face value or below 1', () => {
+    const { s, co } = withPrivateInPhase3();
+    expect(() => apply(s, { type: 'buy_company', player: 'p1', corp: 'AR', company: co.sym, price: 2 * co.value + 1 })).toThrow();
+    expect(() => apply(s, { type: 'buy_company', player: 'p1', corp: 'AR', company: co.sym, price: 0 })).toThrow();
+  });
+
+  it('rejects buying a private before phase 3', () => {
+    let s = toOperatingRound(); // phase 2
+    const co = s.companies[0];
+    co.owner = 'p2';
+    s.players.find((p) => p.id === 'p2')!.companies = [co.sym];
+    s = apply(s, { type: 'pass', player: 'p1' });
+    s = apply(s, { type: 'run', player: 'p1', corp: 'AR', revenue: 0, dividend: 'withhold' });
+    expect(() => apply(s, { type: 'buy_company', player: 'p1', corp: 'AR', company: co.sym, price: 1 })).toThrow();
+  });
 });
 
 describe('track laying', () => {

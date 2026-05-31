@@ -1,7 +1,7 @@
 <script lang="ts">
   import { game } from '$lib/game/sandbox.svelte';
   import { routing } from '$lib/game/routing.svelte';
-  import { operatingView, trackLays, tokenPlays } from '$lib/engine';
+  import { operatingView, trackLays, tokenPlays, corporationsCanBuyPrivates } from '$lib/engine';
   import { TRAINS, MARKET, CURRENCY, COMPANIES } from '$lib/data/g1889';
   import type { CorporationState } from '$lib/engine';
   import HexMap from './HexMap.svelte';
@@ -64,6 +64,27 @@
     const price = Math.max(1, Math.min(buyer.cash, Math.round(cbPrice[key] ?? 1)));
     game.act({ type: 'buy_train', player: buyer.president!, corp: buyer.sym, train, from, price });
     delete cbPrice[key];
+  }
+
+  // Buy private companies: any player-owned, unclosed private the operating corp
+  // may buy (from phase 3), priced 1 up to twice face value.
+  let coPrice = $state<Record<string, number>>({});
+  function companyBuyOptions() {
+    if (!corporationsCanBuyPrivates(game.state)) return [];
+    return game.state.companies
+      .filter((co) => !co.closed && co.owner)
+      .map((co) => ({
+        sym: co.sym,
+        name: co.name,
+        value: co.value,
+        revenue: co.revenue,
+        owner: game.state.players.find((p) => p.id === co.owner)?.name ?? co.owner!
+      }));
+  }
+  function buyCompany(buyer: CorporationState, sym: string, value: number) {
+    const price = Math.max(1, Math.min(2 * value, buyer.cash, Math.round(coPrice[sym] ?? 1)));
+    game.act({ type: 'buy_company', player: buyer.president!, corp: buyer.sym, company: sym, price });
+    delete coPrice[sym];
   }
   const pname = (id: string | null) => (id ? game.state.players.find((p) => p.id === id)?.name ?? id : '-');
 
@@ -250,6 +271,25 @@
                 {/each}
               </div>
             {/if}
+            {#if companyBuyOptions().length}
+              <div class="crossbuy">
+                <div class="cbhead">Buy a private company (price {CURRENCY}1 up to 2x face value)</div>
+                {#each companyBuyOptions() as opt (opt.sym)}
+                  <div class="cbrow">
+                    <span class="cbtrain"><b>{opt.sym}</b> · {opt.name} ({CURRENCY}{opt.value}, +{CURRENCY}{opt.revenue}/OR) · {opt.owner}</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max={Math.min(2 * opt.value, c.cash)}
+                      placeholder="¥"
+                      value={coPrice[opt.sym] ?? ''}
+                      oninput={(e) => (coPrice[opt.sym] = +(e.currentTarget as HTMLInputElement).value)}
+                    />
+                    <button class="small" disabled={c.cash < 1} onclick={() => buyCompany(c, opt.sym, opt.value)}>Buy</button>
+                  </div>
+                {/each}
+              </div>
+            {/if}
           {/if}
         </div>
 
@@ -260,7 +300,7 @@
               <span class="ms"><i></i>{x.sym}</span>
               <span>{priceOf(x) !== null ? `${CURRENCY}${priceOf(x)}` : '-'}</span>
               <span>{CURRENCY}{x.cash}</span>
-              <span>{x.trains.join(',') || '-'}</span>
+              <span>{x.trains.join(',') || '-'}{x.companies.length ? ` +${x.companies.join(',')}` : ''}</span>
             </div>
           {/each}
         </div>
