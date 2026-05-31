@@ -360,6 +360,48 @@ describe('operating round', () => {
     s = apply(s, { type: 'run', player: 'p1', corp: 'AR', revenue: 0, dividend: 'withhold' });
     expect(() => apply(s, { type: 'buy_train', player: 'p1', corp: 'AR', train: '3' })).toThrow();
   });
+
+  it('cross-buys a train from another corporation the same president controls', () => {
+    let s = toOperatingRound();
+    // Give a second corp (controlled by p1) a train to sell.
+    const seller = s.corporations.find((x) => x.sym !== 'AR')!;
+    seller.president = 'p1';
+    seller.floated = true;
+    seller.trains = ['2'];
+    const sellerCash = seller.cash;
+    s = apply(s, { type: 'pass', player: 'p1' }); // skip track
+    s = apply(s, { type: 'run', player: 'p1', corp: 'AR', revenue: 0, dividend: 'withhold' });
+    const arCash = corp(s, 'AR').cash;
+    s = apply(s, { type: 'buy_train', player: 'p1', corp: 'AR', train: '2', from: seller.sym, price: 1 });
+    expect(corp(s, 'AR').trains).toEqual(['2']);
+    expect(corp(s, seller.sym).trains).toEqual([]);
+    expect(corp(s, 'AR').cash).toBe(arCash - 1);
+    expect(corp(s, seller.sym).cash).toBe(sellerCash + 1);
+  });
+
+  it('rejects a cross-buy price above the buyer treasury or below 1', () => {
+    let s = toOperatingRound();
+    const seller = s.corporations.find((x) => x.sym !== 'AR')!;
+    seller.president = 'p1';
+    seller.floated = true;
+    seller.trains = ['2'];
+    s = apply(s, { type: 'pass', player: 'p1' });
+    s = apply(s, { type: 'run', player: 'p1', corp: 'AR', revenue: 0, dividend: 'withhold' });
+    const tooMuch = corp(s, 'AR').cash + 1;
+    expect(() => apply(s, { type: 'buy_train', player: 'p1', corp: 'AR', train: '2', from: seller.sym, price: tooMuch })).toThrow();
+    expect(() => apply(s, { type: 'buy_train', player: 'p1', corp: 'AR', train: '2', from: seller.sym, price: 0 })).toThrow();
+  });
+
+  it('rejects cross-buying from a corporation a different president controls', () => {
+    let s = toOperatingRound();
+    const seller = s.corporations.find((x) => x.sym !== 'AR')!;
+    seller.president = 'p2';
+    seller.floated = true;
+    seller.trains = ['2'];
+    s = apply(s, { type: 'pass', player: 'p1' });
+    s = apply(s, { type: 'run', player: 'p1', corp: 'AR', revenue: 0, dividend: 'withhold' });
+    expect(() => apply(s, { type: 'buy_train', player: 'p1', corp: 'AR', train: '2', from: seller.sym, price: 1 })).toThrow();
+  });
 });
 
 describe('track laying', () => {

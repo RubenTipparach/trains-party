@@ -211,6 +211,31 @@ function doBuyTrain(s: GameState, c: CorporationState, train: string): void {
   advancePhaseAndRust(s, train);
 }
 
+/**
+ * Buy a used train from another corporation. Allowed between two corporations
+ * the acting player controls (president of both); the price is negotiated, from
+ * 1 up to the buying corporation's treasury. Used-train transfers do not advance
+ * the phase or rust anything.
+ */
+function doBuyTrainFromCorp(s: GameState, buyer: CorporationState, fromSym: string, train: string, price: number): void {
+  const seller = s.corporations.find((x) => x.sym === fromSym);
+  if (!seller) throw new GameError(`no such corporation ${fromSym}`);
+  if (seller.sym === buyer.sym) throw new GameError('a corporation cannot buy a train from itself');
+  if (seller.president !== buyer.president) {
+    throw new GameError(`${buyer.sym} can only buy trains from corporations the same president controls`);
+  }
+  const idx = seller.trains.indexOf(train);
+  if (idx === -1) throw new GameError(`${fromSym} has no ${train}-train to sell`);
+  if (!Number.isInteger(price) || price < 1) throw new GameError('train price must be at least 1');
+  if (price > buyer.cash) throw new GameError(`${buyer.sym} cannot pay ${price} (treasury ${buyer.cash})`);
+
+  buyer.cash -= price;
+  seller.cash += price;
+  seller.trains.splice(idx, 1);
+  buyer.trains.push(train);
+  s.log.push(`${buyer.sym} buys a ${train}-train from ${fromSym} for ${price}`);
+}
+
 export function applyOperating(s: GameState, action: GameAction): void {
   if (!s.or) throw new GameError('no operating round in progress');
   const c = activeCorp(s);
@@ -251,7 +276,11 @@ export function applyOperating(s: GameState, action: GameAction): void {
     }
     case 'buy_train':
       if (s.or.step !== 'trains') throw new GameError(`${c.sym} must run before buying trains`);
-      doBuyTrain(s, c, action.train);
+      if (action.from !== undefined) {
+        doBuyTrainFromCorp(s, c, action.from, action.train, action.price ?? 1);
+      } else {
+        doBuyTrain(s, c, action.train);
+      }
       break;
     case 'pass':
       if (s.or.step === 'track') {

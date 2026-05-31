@@ -145,7 +145,11 @@ export type GameAction =
   | { type: 'lay_tile'; player: string; corp: string; hex: string; tile: string; rotation: number }
   | { type: 'place_token'; player: string; corp: string; hex: string }
   | { type: 'run'; player: string; corp: string; revenue: number; dividend: 'pay' | 'withhold' }
-  | { type: 'buy_train'; player: string; corp: string; train: string }
+  // Depot buy: `from`/`price` omitted (fixed depot price). Inter-corporation
+  // buy: `from` is the selling corporation and `price` the negotiated amount
+  // (>= 1, up to the buyer's treasury), allowed between corporations the acting
+  // player controls (presidents both that player).
+  | { type: 'buy_train'; player: string; corp: string; train: string; from?: string; price?: number }
   | { type: 'pass'; player: string };
 
 /** Raised when an action is illegal for the current state. */

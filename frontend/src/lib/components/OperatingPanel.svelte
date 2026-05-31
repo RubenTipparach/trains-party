@@ -47,6 +47,24 @@
     return MARKET[c.priceRow][c.priceCol].price;
   }
   const trainCost = (name: string) => TRAINS.find((t) => t.name === name)?.price ?? 0;
+
+  // Cross-buy: trains the operating corp may buy from the president's other
+  // corporations (one entry per selling corp + train type), with a chosen price.
+  let cbPrice = $state<Record<string, number>>({});
+  function crossBuyOptions(buyer: CorporationState) {
+    const out: { from: string; train: string; color: string }[] = [];
+    for (const x of game.state.corporations) {
+      if (x.sym === buyer.sym || x.president !== buyer.president || !x.floated) continue;
+      for (const t of [...new Set(x.trains)]) out.push({ from: x.sym, train: t, color: x.color });
+    }
+    return out;
+  }
+  function crossBuy(buyer: CorporationState, from: string, train: string) {
+    const key = `${from}:${train}`;
+    const price = Math.max(1, Math.min(buyer.cash, Math.round(cbPrice[key] ?? 1)));
+    game.act({ type: 'buy_train', player: buyer.president!, corp: buyer.sym, train, from, price });
+    delete cbPrice[key];
+  }
   const pname = (id: string | null) => (id ? game.state.players.find((p) => p.id === id)?.name ?? id : '-');
 
   // Shareholders of a corporation (president first), for the OR card table.
@@ -212,6 +230,26 @@
               {/if}
               <button class="ghost" onclick={() => game.act({ type: 'pass', player: c.president! })}>Finish turn</button>
             </div>
+            {#if crossBuyOptions(c).length}
+              <div class="crossbuy">
+                <div class="cbhead">Buy from your other companies (price {CURRENCY}1 to {CURRENCY}{c.cash})</div>
+                {#each crossBuyOptions(c) as opt (opt.from + ':' + opt.train)}
+                  {@const key = opt.from + ':' + opt.train}
+                  <div class="cbrow">
+                    <span class="cbtrain" style="--c:{opt.color}"><i></i>{opt.from} · {opt.train}-train</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max={c.cash}
+                      placeholder="¥"
+                      value={cbPrice[key] ?? ''}
+                      oninput={(e) => (cbPrice[key] = +(e.currentTarget as HTMLInputElement).value)}
+                    />
+                    <button class="small" disabled={c.cash < 1} onclick={() => crossBuy(c, opt.from, opt.train)}>Buy</button>
+                  </div>
+                {/each}
+              </div>
+            {/if}
           {/if}
         </div>
 
@@ -466,9 +504,47 @@
     font-size: 0.72rem;
     padding: 0.2rem 0.5rem;
   }
-  .act button:disabled {
+  .act button:disabled,
+  .cbrow button:disabled {
     opacity: 0.4;
     cursor: not-allowed;
+  }
+  .crossbuy {
+    padding: 0.3rem 0.8rem 0.4rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+  .cbhead {
+    font-size: 0.74rem;
+    color: var(--muted);
+  }
+  .cbrow {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .cbtrain {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.78rem;
+    flex: 1;
+  }
+  .cbtrain i {
+    width: 9px;
+    height: 9px;
+    border-radius: 2px;
+    background: var(--c);
+  }
+  .cbrow input {
+    width: 68px;
+    padding: 0.2rem 0.35rem;
+    border-radius: 6px;
+    border: 1px solid var(--line);
+    background: var(--bg);
+    color: var(--ink);
+    font-size: 0.78rem;
   }
   .track .tlabel {
     font-size: 0.85rem;
