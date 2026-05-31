@@ -10,6 +10,18 @@
 
   const v = $derived(operatingView(game.state));
   const lays = $derived(trackLays(game.state));
+  // Ground-truth list of which tile ids the engine actually offers, per hex, so
+  // the available options are never ambiguous (independent of the fan rendering).
+  const layTileSummary = $derived.by(() => {
+    const byHex = new Map<string, Set<string>>();
+    for (const l of lays) {
+      if (!byHex.has(l.hex)) byHex.set(l.hex, new Set());
+      byHex.get(l.hex)!.add(l.tile);
+    }
+    return [...byHex.entries()]
+      .map(([hex, tiles]) => ({ hex, tiles: [...tiles].sort() }))
+      .sort((a, b) => a.hex.localeCompare(b.hex));
+  });
   const tokens = $derived(tokenPlays(game.state));
 
   const SEAT = ['#f5c542', '#3fb6a8', '#e0655c', '#9b8cf0', '#7cc36b', '#e8923a'];
@@ -107,6 +119,13 @@
             <div class="act track">
               <span class="tlabel">Tap a <em>highlighted</em> hex to lay track ({lays.length} legal)</span>
             </div>
+            {#if layTileSummary.length}
+              <div class="laysummary">
+                {#each layTileSummary as g (g.hex)}
+                  <span class="lsrow"><b>{g.hex}</b>: {g.tiles.join(', ')}</span>
+                {/each}
+              </div>
+            {/if}
             <div class="act">
               <button class="ghost" onclick={() => game.act({ type: 'pass', player: c.president! })}>Skip track</button>
             </div>
@@ -367,6 +386,17 @@
     color: var(--muted);
     font-style: normal;
     font-size: 0.75rem;
+  }
+  .laysummary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem 0.8rem;
+    margin: 0 0.8rem 0.6rem;
+    font-size: 0.74rem;
+    color: var(--muted);
+  }
+  .laysummary b {
+    color: var(--ink);
   }
   .opill.done {
     opacity: 0.7;
