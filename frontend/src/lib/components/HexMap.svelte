@@ -56,6 +56,20 @@
   function rotatePreview() {
     if (preview) preview = { ...preview, idx: (preview.idx + 1) % preview.rotations.length };
   }
+  // Direction the tile fan splays in, in radians. It normally points up (-90deg),
+  // but near a map edge it tilts toward the interior so options never land off
+  // the canvas (which previously hid tiles on top-row hexes such as Matsuyama E2).
+  function fanBaseAngle(hex: string): number {
+    const c = hexCenter(hex);
+    const reach = HEX_SIZE * 3.2; // how far the fan extends from the hex centre
+    let ang = -Math.PI / 2; // default: up
+    if (c.y - reach < minY) ang = Math.PI / 2; // too close to the top -> fan down
+    else if (c.y + reach > minY + height) ang = -Math.PI / 2; // bottom -> fan up
+    // Nudge horizontally away from a side edge so the spread stays on-canvas.
+    if (c.x - reach < minX) ang += Math.PI / 5; // left edge -> lean right
+    else if (c.x + reach > minX + width) ang -= Math.PI / 5; // right edge -> lean left
+    return ang;
+  }
   function confirmLay() {
     if (!layHex || !preview) return;
     const v = game.state.or!;
@@ -653,7 +667,7 @@
           <!-- radial fan of candidate tiles, drawn as real hex tiles (no boxes) -->
           {#each tileChoices(layHex) as tile, i (tile)}
             {@const n = tileChoices(layHex).length}
-            {@const ang = (-90 + (i - (n - 1) / 2) * 46) * (Math.PI / 180)}
+            {@const ang = fanBaseAngle(layHex) + (i - (n - 1) / 2) * (46 * Math.PI / 180)}
             {@const fx = lc.x + Math.cos(ang) * HEX_SIZE * 2.2}
             {@const fy = lc.y + Math.sin(ang) * HEX_SIZE * 2.2}
             <g
