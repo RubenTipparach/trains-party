@@ -1095,13 +1095,11 @@
     stroke-width: 3.4;
     stroke-linecap: round;
   }
-  /* Coloured stripe down the centre of a routed segment, in the train's colour. */
+  /* Thin coloured stripe inside the rail (narrower than it), in the train's colour. */
   .routeline {
     fill: none;
-    stroke-width: 5.5;
+    stroke-width: 1.7;
     stroke-linecap: round;
-    opacity: 0.95;
-    filter: drop-shadow(0 0 3px currentColor);
   }
   .routestop {
     fill: none;

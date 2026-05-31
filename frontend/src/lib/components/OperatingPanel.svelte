@@ -160,7 +160,7 @@
             {#if v.hasTrains}
               <!-- per-train route chips: click to arm, then click stops on the map -->
               <div class="trains">
-                {#each routing.trains as t, i (t.train)}
+                {#each routing.trains as t, i (i)}
                   <button
                     class="trainchip"
                     class:armed={routing.armed === i}
