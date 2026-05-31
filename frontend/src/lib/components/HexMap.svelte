@@ -61,7 +61,7 @@
   // the canvas (which previously hid tiles on top-row hexes such as Matsuyama E2).
   function fanBaseAngle(hex: string): number {
     const c = hexCenter(hex);
-    const reach = HEX_SIZE * 3.2; // how far the fan extends from the hex centre
+    const reach = HEX_SIZE * 4; // how far the fan extends from the hex centre
     let ang = -Math.PI / 2; // default: up
     if (c.y - reach < minY) ang = Math.PI / 2; // too close to the top -> fan down
     else if (c.y + reach > minY + height) ang = -Math.PI / 2; // bottom -> fan up
@@ -331,7 +331,7 @@
   // the chosen hex, possibly past the map edge) stays reachable.
   function clampView() {
     let { x, y, w, h } = view;
-    const m = layHex ? HEX_SIZE * 2.6 : 0; // extra reach for the tile fan
+    const m = layHex ? HEX_SIZE * 3.6 : 0; // extra reach for the tile fan
     if (w >= width + 2 * m) x = minX - (w - width) / 2;
     else x = Math.min(Math.max(x, minX - m), minX + width - w + m);
     if (h >= height + 2 * m) y = minY - (h - height) / 2;
@@ -343,7 +343,7 @@
   function centerOn(hex: string) {
     const c = hexCenter(hex);
     // zoom to a comfortable level that fits the hex plus its fan ring
-    const targetW = Math.min(MAX_W, Math.max(MIN_W, HEX_SIZE * 9));
+    const targetW = Math.min(MAX_W, Math.max(MIN_W, HEX_SIZE * 10));
     const targetH = targetW * (height / width);
     view = { x: c.x - targetW / 2, y: c.y - targetH / 2, w: targetW, h: targetH };
     clampView();
@@ -661,21 +661,28 @@
             </g>
           {/key}
         {:else}
+          <!-- dim the board so the floating option tiles read clearly -->
+          <rect
+            x={view.x} y={view.y} width={view.w} height={view.h}
+            fill="#0b1622" opacity="0.45"
+          />
           <g transform="translate({lc.x} {lc.y})">
             <polygon points={poly} class="laysel" />
           </g>
-          <!-- radial fan of candidate tiles, drawn as real hex tiles (no boxes) -->
+          <!-- radial fan of candidate tiles, drawn as real hex tiles on a dark disc
+               so they float above (and never blend into) the board hexes behind. -->
           {#each tileChoices(layHex) as tile, i (tile)}
             {@const n = tileChoices(layHex).length}
-            {@const ang = fanBaseAngle(layHex) + (i - (n - 1) / 2) * (46 * Math.PI / 180)}
-            {@const fx = lc.x + Math.cos(ang) * HEX_SIZE * 2.2}
-            {@const fy = lc.y + Math.sin(ang) * HEX_SIZE * 2.2}
+            {@const ang = fanBaseAngle(layHex) + (i - (n - 1) / 2) * (54 * Math.PI / 180)}
+            {@const fx = lc.x + Math.cos(ang) * HEX_SIZE * 3.05}
+            {@const fy = lc.y + Math.sin(ang) * HEX_SIZE * 3.05}
             <g
               class="fanhex"
               data-fantile={tile}
-              transform="translate({fx} {fy}) scale(0.62)"
+              transform="translate({fx} {fy}) scale(0.7)"
             >
-              <polygon points={poly} fill={fanFill(tile)} stroke="#15252f" stroke-width="2.5" />
+              <circle r={HEX_SIZE + 9} fill="#0b1622" opacity="0.92" />
+              <polygon points={poly} fill={fanFill(tile)} stroke="#f5c542" stroke-width="3" />
               <g clip-path="url(#hexclip)">
                 {#each tilePaths(tile, 0) as p}
                   <path d={pathD(p)} class="ties" />
