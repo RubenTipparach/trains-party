@@ -4,6 +4,7 @@
   import { CORPORATIONS } from '$lib/data/g1889';
   import type { HexDef, PathPart, TileColor } from '$lib/data/types';
   import { HEX_SIZE, APOTHEM, hexCenter, hexPolygon, edgeMidpoint } from '$lib/hexgeo';
+  import { mapView } from '$lib/config/mapView';
   import { game } from '$lib/game/sandbox.svelte';
   import { anim } from '$lib/game/anim.svelte';
   import { routing } from '$lib/game/routing.svelte';
@@ -409,51 +410,101 @@
   let svgEl: SVGSVGElement;
   let view = $state({ x: minX, y: minY, w: width, h: height });
   let dragging = $state(false);
-  const MIN_W = width * 0.18; // max zoom in
-  const MAX_W = width; // max zoom out: the whole map fits, no further
+  let rotation = $state(0); // whole-map rotation in degrees (rotate button)
+  let isFullscreen = $state(false);
+  // On a quarter turn the landscape map would overflow the frame, so shrink it to fit.
+  const onQuarterTurn = $derived(((rotation % 180) + 180) % 180 === 90);
+  const fitScale = $derived(onQuarterTurn ? Math.min(width / height, height / width) : 1);
+  const MIN_W = width * mapView.minZoomFraction; // max zoom in
+  const MAX_W = width * mapView.maxZoomFraction; // max zoom out
   const pointers = new Map<number, { x: number; y: number }>();
   let moved = false;
+  let viewRaf = 0; // in-flight animated-view frame
 
-  // Keep the view within the map bounds so you cannot pan/zoom into empty space.
-  // While laying a tile, allow a margin so the fan of options (which sits outside
-  // the chosen hex, possibly past the map edge) stays reachable.
-  function clampView() {
-    let { x, y, w, h } = view;
-    const m = layHex ? HEX_SIZE * 3.6 : 0; // extra reach for the tile fan
+  // Keep the view within the map bounds, leaving a little wiggle room past the
+  // edge (mapView.edgeMargin). While laying a tile, allow a larger margin so the
+  // fan of options (which sits outside the chosen hex) stays reachable.
+  function clamped(v: { x: number; y: number; w: number; h: number }) {
+    let { x, y, w, h } = v;
+    const m = (layHex ? mapView.layFanMargin : mapView.edgeMargin) * HEX_SIZE;
     if (w >= width + 2 * m) x = minX - (w - width) / 2;
     else x = Math.min(Math.max(x, minX - m), minX + width - w + m);
     if (h >= height + 2 * m) y = minY - (h - height) / 2;
     else y = Math.min(Math.max(y, minY - m), minY + height - h + m);
-    view = { x, y, w, h };
+    return { x, y, w, h };
+  }
+  function clampView() {
+    view = clamped(view);
+  }
+
+  /** Smoothly ease the viewBox toward a (clamped) target. Cancels on interaction. */
+  function animateView(target: { x: number; y: number; w: number; h: number }, dur = mapView.zoomAnimMs) {
+    cancelAnimationFrame(viewRaf);
+    const start = { ...view };
+    const goal = clamped(target);
+    const t0 = performance.now();
+    const tick = (now: number) => {
+      const k = Math.min(1, (now - t0) / dur);
+      const e = 1 - Math.pow(1 - k, 3); // easeOutCubic
+      view = {
+        x: start.x + (goal.x - start.x) * e,
+        y: start.y + (goal.y - start.y) * e,
+        w: start.w + (goal.w - start.w) * e,
+        h: start.h + (goal.h - start.h) * e
+      };
+      if (k < 1) viewRaf = requestAnimationFrame(tick);
+    };
+    viewRaf = requestAnimationFrame(tick);
+  }
+  function stopViewAnim() {
+    cancelAnimationFrame(viewRaf);
   }
 
   /** Pan (and zoom in a little) so a hex is centred and its fan is fully visible. */
   function centerOn(hex: string) {
     const c = hexCenter(hex);
-    // zoom to a comfortable level that fits the hex plus its fan ring
     const targetW = Math.min(MAX_W, Math.max(MIN_W, HEX_SIZE * 10));
     const targetH = targetW * (height / width);
-    view = { x: c.x - targetW / 2, y: c.y - targetH / 2, w: targetW, h: targetH };
-    clampView();
+    animateView({ x: c.x - targetW / 2, y: c.y - targetH / 2, w: targetW, h: targetH });
+  }
+
+  /** Map a client point to SVG user coordinates, honouring the CSS rotation. */
+  function clientToSvg(clientX: number, clientY: number): { x: number; y: number } {
+    const ctm = svgEl.getScreenCTM();
+    if (ctm) {
+      const p = new DOMPoint(clientX, clientY).matrixTransform(ctm.inverse());
+      return { x: p.x, y: p.y };
+    }
+    // Fallback (no rotation): fraction of the bounding rect.
+    const r = svgEl.getBoundingClientRect();
+    return { x: view.x + ((clientX - r.left) / r.width) * view.w, y: view.y + ((clientY - r.top) / r.height) * view.h };
   }
 
   function zoomAt(clientX: number, clientY: number, factor: number) {
-    const r = svgEl.getBoundingClientRect();
-    const fx = (clientX - r.left) / r.width;
-    const fy = (clientY - r.top) / r.height;
+    const p = clientToSvg(clientX, clientY);
+    const fx = (p.x - view.x) / view.w;
+    const fy = (p.y - view.y) / view.h;
+    const nw = Math.max(MIN_W, Math.min(MAX_W, view.w * factor));
+    const nh = view.h * (nw / view.w);
+    view = clamped({ x: p.x - fx * nw, y: p.y - fy * nh, w: nw, h: nh });
+  }
+  /** Zoom toward the viewport centre, animated (used by the +/- buttons). */
+  function zoomCenter(factor: number) {
+    const fx = 0.5;
+    const fy = 0.5;
     const px = view.x + fx * view.w;
     const py = view.y + fy * view.h;
-    let nw = Math.max(MIN_W, Math.min(MAX_W, view.w * factor));
+    const nw = Math.max(MIN_W, Math.min(MAX_W, view.w * factor));
     const nh = view.h * (nw / view.w);
-    view = { x: px - fx * nw, y: py - fy * nh, w: nw, h: nh };
-    clampView();
+    animateView({ x: px - fx * nw, y: py - fy * nh, w: nw, h: nh });
   }
-  function zoomCenter(factor: number) {
-    const r = svgEl.getBoundingClientRect();
-    zoomAt(r.left + r.width / 2, r.top + r.height / 2, factor);
+  /** Rotate the whole map by the configured step (replaces the old reset button). */
+  function rotateMap() {
+    rotation = (rotation + mapView.rotationStepDeg) % 360;
   }
-  function reset() {
-    view = { x: minX, y: minY, w: width, h: height };
+  function toggleFullscreen() {
+    if (!document.fullscreenElement) wrap?.requestFullscreen?.().catch(() => {});
+    else document.exitFullscreen?.().catch(() => {});
   }
 
   // Coordinate guides: pinned to the viewport edges, sliding along their axis to
@@ -466,6 +517,7 @@
   );
 
   function onDown(e: PointerEvent) {
+    stopViewAnim();
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     moved = false;
@@ -490,14 +542,15 @@
     }
     const dx = e.clientX - prev.x;
     const dy = e.clientY - prev.y;
-    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (Math.abs(dx) + Math.abs(dy) > 3) {
       moved = true;
       hide();
     }
-    const r = svgEl.getBoundingClientRect();
-    view = { ...view, x: view.x - (dx / r.width) * view.w, y: view.y - (dy / r.height) * view.h };
-    clampView();
+    // Pan in SVG space (rotation-aware): keep the point under the cursor put.
+    const p0 = clientToSvg(prev.x, prev.y);
+    const p1 = clientToSvg(e.clientX, e.clientY);
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    view = clamped({ ...view, x: view.x - (p1.x - p0.x), y: view.y - (p1.y - p0.y) });
   }
   function onUp(e: PointerEvent) {
     const wasDrag = moved;
@@ -549,10 +602,16 @@
   onMount(() => {
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      zoomAt(e.clientX, e.clientY, e.deltaY > 0 ? 1.12 : 1 / 1.12);
+      stopViewAnim();
+      zoomAt(e.clientX, e.clientY, e.deltaY > 0 ? mapView.wheelZoomFactor : 1 / mapView.wheelZoomFactor);
     };
     svgEl.addEventListener('wheel', onWheel, { passive: false });
-    return () => svgEl.removeEventListener('wheel', onWheel);
+    const onFs = () => (isFullscreen = document.fullscreenElement === wrap);
+    document.addEventListener('fullscreenchange', onFs);
+    return () => {
+      svgEl.removeEventListener('wheel', onWheel);
+      document.removeEventListener('fullscreenchange', onFs);
+    };
   });
 
   // --- hover / tap tooltip ---------------------------------------------------
@@ -583,6 +642,7 @@
       class:grabbing={dragging}
       bind:this={svgEl}
       viewBox="{view.x} {view.y} {view.w} {view.h}"
+      style="transform: rotate({rotation}deg) scale({fitScale}); transform-origin: center; transition: transform {mapView.rotationAnimMs}ms ease;"
       role="application"
       aria-label="1889 Shikoku map (drag to pan, scroll to zoom)"
       onpointerdown={onDown}
@@ -619,7 +679,7 @@
           onpointerenter={(e) => e.pointerType === 'mouse' && pointers.size === 0 && show(e.currentTarget, h.coord, h.name)}
           onpointerleave={(e) => e.pointerType === 'mouse' && !dragging && hide()}
         >
-          <polygon points={poly} class="tile" fill={laid(h.coord) ? '#f3cf3e' : tip?.coord === h.coord ? HOVER[h.color] : FILL[h.color]} stroke="#4a4332" stroke-width="1" />
+          <polygon points={poly} class="tile" fill={laid(h.coord) ? FILL[laidDef(h.coord)?.color ?? 'yellow'] : tip?.coord === h.coord ? HOVER[h.color] : FILL[h.color]} stroke="#4a4332" stroke-width="1" />
 
           {#if layMode && layHexes.has(h.coord)}
             <polygon points={poly} class="layhi" />
@@ -835,22 +895,27 @@
     </svg>
   </div>
 
-  <!-- coordinate guides pinned to the four edges -->
-  <div class="guides" aria-hidden="true">
-    {#each colMarks as m (m.l)}
-      <span class="g top" style="left:{m.f * 100}%">{m.l}</span>
-      <span class="g bot" style="left:{m.f * 100}%">{m.l}</span>
-    {/each}
-    {#each rowMarks as m (m.n)}
-      <span class="g left" style="top:{m.f * 100}%">{m.n}</span>
-      <span class="g right" style="top:{m.f * 100}%">{m.n}</span>
-    {/each}
-  </div>
+  <!-- coordinate guides pinned to the four edges (hidden while the map is turned) -->
+  {#if rotation === 0}
+    <div class="guides" aria-hidden="true">
+      {#each colMarks as m (m.l)}
+        <span class="g top" style="left:{m.f * 100}%">{m.l}</span>
+        <span class="g bot" style="left:{m.f * 100}%">{m.l}</span>
+      {/each}
+      {#each rowMarks as m (m.n)}
+        <span class="g left" style="top:{m.f * 100}%">{m.n}</span>
+        <span class="g right" style="top:{m.f * 100}%">{m.n}</span>
+      {/each}
+    </div>
+  {/if}
 
   <div class="controls">
-    <button type="button" aria-label="Zoom in" onclick={() => zoomCenter(1 / 1.25)}>+</button>
-    <button type="button" aria-label="Zoom out" onclick={() => zoomCenter(1.25)}>−</button>
-    <button type="button" aria-label="Reset view" onclick={reset}>⟳</button>
+    <button type="button" aria-label="Zoom in" onclick={() => zoomCenter(1 / mapView.zoomButtonFactor)}>+</button>
+    <button type="button" aria-label="Zoom out" onclick={() => zoomCenter(mapView.zoomButtonFactor)}>−</button>
+    <button type="button" aria-label="Rotate map" title="Rotate map" onclick={rotateMap}>⟳</button>
+    <button type="button" aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'} title="Fullscreen" onclick={toggleFullscreen}>
+      {isFullscreen ? '⤢' : '⛶'}
+    </button>
   </div>
 
   {#if tip}
@@ -879,6 +944,21 @@
   .wrap {
     position: relative;
     width: 100%;
+  }
+  /* In fullscreen the wrap fills the screen; ignore the inline aspect-ratio. */
+  .wrap:fullscreen {
+    width: 100vw;
+    height: 100vh;
+    aspect-ratio: auto !important;
+    background: #0c1620;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .wrap:fullscreen .sea {
+    width: 100%;
+    height: 100%;
+    border-radius: 0;
   }
   .sea {
     border-radius: 12px;
