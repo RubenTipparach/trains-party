@@ -34,6 +34,21 @@ class Anim {
     return this.enabled && !this.reduced;
   }
 
+  /** Snapshot of the skip counter; compare later to detect a skip mid-animation. */
+  get token(): number {
+    return this.skipToken;
+  }
+
+  /** Mark a custom animation (e.g. the train run) as in progress so Skip shows. */
+  begin(): void {
+    this.pacing = true;
+  }
+
+  /** Clear the in-progress flag if this animation wasn't already skipped. */
+  end(token: number): void {
+    if (this.skipToken === token) this.pacing = false;
+  }
+
   /** Fast-forward: cancels the current pause and any pending animation waits. */
   skip() {
     this.skipToken += 1;

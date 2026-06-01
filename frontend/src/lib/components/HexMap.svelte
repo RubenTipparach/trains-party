@@ -167,12 +167,125 @@
   }
 
   // --- train run animation -------------------------------------------------
-  // When a corporation pays a dividend, drive a train along its best route,
-  // popping a coin at each revenue centre it visits.
-  let train = $state<{ pts: { x: number; y: number }[]; at: number; running: boolean; color: string } | null>(null);
+  // When a corporation pays a dividend, drive a top-down train (a locomotive
+  // pulling a couple of cars) smoothly along its best route: it emerges from a
+  // tunnel portal at the origin, makes each city glow as it passes, pops a coin
+  // for that city's revenue, then slides into a tunnel at the destination.
+  type Body = { x: number; y: number; angle: number; opacity: number };
+  let train = $state<{ cars: Body[]; color: string } | null>(null);
+  // Tunnel portals at the origin and destination of the current route.
+  let portals = $state<{ x: number; y: number; angle: number }[]>([]);
+  // City glow pulses fired as the train reaches each revenue centre.
+  let glows = $state<{ id: number; x: number; y: number; color: string }[]>([]);
   let coins = $state<{ id: number; x: number; y: number; val: number; color: string }[]>([]);
   let coinId = 0;
+  let glowId = 0;
+  let raf = 0;
   let lastLogLen = 0;
+
+  const BODIES = 3; // locomotive + two cars
+  const CAR_GAP = 14; // path distance between consecutive bodies
+  const SPEED = 165; // px per second along the route
+
+  /** Cumulative arc-length at each polyline point. */
+  function arcTable(pts: { x: number; y: number }[]): number[] {
+    const cum = [0];
+    for (let i = 1; i < pts.length; i++) {
+      const dx = pts[i].x - pts[i - 1].x;
+      const dy = pts[i].y - pts[i - 1].y;
+      cum[i] = cum[i - 1] + Math.hypot(dx, dy);
+    }
+    return cum;
+  }
+
+  /** Position + heading at arc-length `s` along the polyline. */
+  function sampleAt(pts: { x: number; y: number }[], cum: number[], s: number) {
+    const total = cum[cum.length - 1];
+    s = Math.max(0, Math.min(total, s));
+    let k = 0;
+    while (k < cum.length - 2 && cum[k + 1] < s) k++;
+    const segLen = cum[k + 1] - cum[k] || 1;
+    const t = (s - cum[k]) / segLen;
+    const a = pts[k];
+    const b = pts[k + 1];
+    return {
+      x: a.x + (b.x - a.x) * t,
+      y: a.y + (b.y - a.y) * t,
+      angle: (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI
+    };
+  }
+
+  /** Animate one route; resolves true when finished, false if skipped. */
+  function animateRoute(
+    pts: { x: number; y: number }[],
+    stopRev: number[],
+    color: string
+  ): Promise<boolean> {
+    return new Promise((resolve) => {
+      const cum = arcTable(pts);
+      const total = cum[cum.length - 1];
+      const emerge = Math.min(16, total * 0.34); // tunnel fade-in/out distance
+      const trail = (BODIES - 1) * CAR_GAP;
+      const sMax = total + trail; // run on until the last car enters the tunnel
+      const dur = Math.max(800, (sMax / SPEED) * 1000);
+      const tok = anim.token;
+      anim.begin();
+
+      // Tunnel portals: mouths open along the direction of travel.
+      portals = [sampleAt(pts, cum, 0), sampleAt(pts, cum, total)];
+      const fired = new Array(pts.length).fill(false);
+      const start = performance.now();
+
+      const cleanup = () => {
+        cancelAnimationFrame(raf);
+        raf = 0;
+        train = null;
+        portals = [];
+      };
+
+      const fade = (s: number) =>
+        Math.max(0, Math.min(1, s / emerge)) * Math.max(0, Math.min(1, (total - s) / emerge));
+
+      const frame = (now: number) => {
+        if (anim.token !== tok) {
+          cleanup();
+          resolve(false);
+          return; // skipped
+        }
+        const t = Math.min(1, (now - start) / dur);
+        const head = t * sMax;
+        const cars: Body[] = [];
+        for (let i = 0; i < BODIES; i++) {
+          const s = head - i * CAR_GAP;
+          const p = sampleAt(pts, cum, s);
+          cars.push({ ...p, opacity: fade(s) });
+        }
+        train = { cars, color };
+        // Glow + coin as the locomotive reaches each revenue centre.
+        for (let i = 0; i < pts.length; i++) {
+          if (!fired[i] && head >= cum[i]) {
+            fired[i] = true;
+            const gid = ++glowId;
+            glows = [...glows, { id: gid, x: pts[i].x, y: pts[i].y, color }];
+            setTimeout(() => (glows = glows.filter((g) => g.id !== gid)), 1200);
+            const val = stopRev[i] || 0;
+            if (val > 0) {
+              const id = ++coinId;
+              coins = [...coins, { id, x: pts[i].x, y: pts[i].y, val, color }];
+              setTimeout(() => (coins = coins.filter((x) => x.id !== id)), 1100);
+            }
+          }
+        }
+        if (t >= 1) {
+          cleanup();
+          resolve(true);
+          return;
+        }
+        raf = requestAnimationFrame(frame);
+      };
+      raf = requestAnimationFrame(frame);
+    });
+  }
 
   async function runTrain(corpSym: string) {
     const snap = $state.snapshot(game.state) as typeof game.state;
@@ -197,29 +310,16 @@
     }
     animSegColors = segs;
 
-    // Animate each train's route in turn, the train gliding stop to stop, leaving a
-    // coloured trail and popping a coin worth that stop's revenue.
+    // Run each of the corporation's trains along its route in turn.
     for (const route of routes) {
       if (route.hexes.length < 2) continue;
       const pts = route.hexes.map((h) => hexCenter(h));
-      train = { pts, at: 0, running: true, color: route.color };
       const stopRev = route.hexes.map((h) => stopRevenue(snap, h));
-      for (let i = 0; i < pts.length; i++) {
-        train = { ...train, at: i };
-        const val = stopRev[i] || 0;
-        if (val > 0) {
-          const id = ++coinId;
-          coins = [...coins, { id, x: pts[i].x, y: pts[i].y, val, color: route.color }];
-          setTimeout(() => (coins = coins.filter((x) => x.id !== id)), 1100);
-        }
-        if (!(await anim.wait(360))) {
-          train = null;
-          animSegColors = {};
-          return; // skipped
-        }
+      if (!(await animateRoute(pts, stopRev, route.color))) {
+        animSegColors = {};
+        return; // skipped
       }
     }
-    train = null;
     animSegColors = {};
   }
 
@@ -609,6 +709,7 @@
     const onFs = () => (isFullscreen = document.fullscreenElement === wrap);
     document.addEventListener('fullscreenchange', onFs);
     return () => {
+      if (raf) cancelAnimationFrame(raf);
       svgEl.removeEventListener('wheel', onWheel);
       document.removeEventListener('fullscreenchange', onFs);
     };
@@ -859,13 +960,43 @@
         {/if}
       {/if}
 
-      {#if train && train.pts[train.at]}
-        <g class="train" transform="translate({train.pts[train.at].x} {train.pts[train.at].y})">
-          <rect x="-11" y="-7" width="22" height="14" rx="3" fill="#1b1b1b" stroke={train.color} stroke-width="2" />
-          <circle cx="-6" cy="8" r="2.4" fill={train.color} />
-          <circle cx="6" cy="8" r="2.4" fill={train.color} />
-          <rect x="-7" y="-4" width="5" height="5" fill="#e9f3ff" />
-          <rect x="2" y="-4" width="5" height="5" fill="#e9f3ff" />
+      <!-- city glow pulses as the train passes -->
+      {#each glows as g (g.id)}
+        <circle class="cityglow" cx={g.x} cy={g.y} r="17" style="stroke:{g.color}" />
+      {/each}
+      <!-- tunnel portals at the route's origin and destination -->
+      {#each portals as p (p.x + ',' + p.y)}
+        <g class="portal" transform="translate({p.x} {p.y}) rotate({p.angle})">
+          <path d="M 0 -12 A 12 12 0 0 0 0 12 L -7 12 L -7 -12 Z" fill="#322c26" stroke="#100e0c" stroke-width="1.5" />
+          <ellipse rx="7.5" ry="9" fill="#040404" />
+        </g>
+      {/each}
+      {#if train}
+        <g class="train">
+          <!-- coupling line through the car centres -->
+          <polyline
+            points={train.cars.map((c) => `${c.x},${c.y}`).join(' ')}
+            fill="none"
+            stroke="#111"
+            stroke-width="2.5"
+            stroke-linecap="round"
+          />
+          {#each train.cars as car, i (i)}
+            <g transform="translate({car.x} {car.y}) rotate({car.angle})" style="opacity:{car.opacity}">
+              {#if i === 0}
+                <!-- locomotive: cab windows, chimney, front coupler -->
+                <rect x="-9" y="-6" width="18" height="12" rx="3" fill="#1b1b1b" stroke={train.color} stroke-width="2" />
+                <rect x="1" y="-4.2" width="5" height="3.4" fill="#e9f3ff" />
+                <rect x="1" y="0.8" width="5" height="3.4" fill="#e9f3ff" />
+                <circle cx="-5" cy="0" r="2.2" fill={train.color} />
+                <rect x="9" y="-1.4" width="3" height="2.8" fill="#3a3a3a" />
+              {:else}
+                <!-- boxcar -->
+                <rect x="-7" y="-5.2" width="14" height="10.4" rx="2.4" fill="#242424" stroke={train.color} stroke-width="1.6" />
+                <line x1="0" y1="-5.2" x2="0" y2="5.2" stroke={train.color} stroke-width="1" opacity="0.5" />
+              {/if}
+            </g>
+          {/each}
         </g>
       {/if}
       {#each coins as coin (coin.id)}
@@ -1129,8 +1260,36 @@
   }
   .train {
     pointer-events: none;
-    transition: transform 0.36s cubic-bezier(0.45, 0, 0.55, 1);
     filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.5));
+  }
+  .portal {
+    pointer-events: none;
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6));
+  }
+  .cityglow {
+    pointer-events: none;
+    fill: none;
+    stroke-width: 3;
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: cityglow 1.2s ease-out forwards;
+  }
+  @keyframes cityglow {
+    0% {
+      opacity: 0;
+      stroke-width: 5;
+      transform: scale(0.7);
+    }
+    30% {
+      opacity: 0.9;
+      stroke-width: 4;
+      transform: scale(1.05);
+    }
+    100% {
+      opacity: 0;
+      stroke-width: 1;
+      transform: scale(1.5);
+    }
   }
   .coin {
     pointer-events: none;
