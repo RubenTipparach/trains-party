@@ -125,7 +125,9 @@ function network(s: GameState, corp: CorporationState): Set<string> {
       const n = neighbor(h, e);
       if (n && !visited.has(n) && edgesTouched(hexTrack(s, n)).has(opposite(e))) {
         visited.add(n);
-        queue.push(n);
+        // A blocked city is reachable (you may upgrade it) but cannot be traced
+        // through, so do not expand the network past it.
+        if (!cityBlocks(s, corp, n)) queue.push(n);
       }
     }
   }
@@ -135,6 +137,20 @@ function network(s: GameState, corp: CorporationState): Set<string> {
 /** Number of station tokens currently in a hex (across all corporations). */
 function tokensInHex(s: GameState, hex: string): number {
   return s.corporations.filter((c) => c.tokenHexes.includes(hex)).length;
+}
+
+/**
+ * Token blocking for connectivity: a city whose slots are all filled by OTHER
+ * corporations blocks `corp` from tracing PAST it. The corporation may still
+ * reach (and upgrade) the blocked city itself, but not anything beyond it. Its
+ * own token grants passage; cities with a free slot and slotless hexes (towns,
+ * offboards, plain track) never block.
+ */
+function cityBlocks(s: GameState, corp: CorporationState, hex: string): boolean {
+  const info = tileInfo(s, hex);
+  if (info.cities === 0 || info.slots <= 0) return false;
+  if (corp.tokenHexes.includes(hex)) return false;
+  return tokensInHex(s, hex) >= info.slots;
 }
 
 export interface TileLay {
@@ -179,6 +195,9 @@ export function legalLays(s: GameState, corp: CorporationState): TileLay[] {
   // and empty hexes adjacent to an open track end (fresh lays).
   const candidates = new Set<string>(net);
   for (const h of net) {
+    // The blocked city may be upgraded (it is already in `net`), but you cannot
+    // lay a fresh tile on the far side of it.
+    if (cityBlocks(s, corp, h)) continue;
     for (const e of edgesTouched(hexTrack(s, h))) {
       const n = neighbor(h, e);
       if (n) candidates.add(n);

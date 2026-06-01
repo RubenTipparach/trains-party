@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { initialState } from './setup';
 import { routeThroughStops, corpRoutes } from './routes';
+import { legalTokens } from './track';
 import type { GameState } from './types';
 
 describe('routeThroughStops (manual route assignment)', () => {
@@ -86,6 +87,21 @@ describe('routeThroughStops (manual route assignment)', () => {
       corp.tokenHexes = ['E2', 'F3']; // IR also has a token at F3
       // With its own token at F3, IR may trace straight through to G4.
       expect(routeThroughStops(s, ['E2', 'F3', 'G4'], 3, new Set(), new Set(), corp)).not.toBeNull();
+    });
+
+    it('a blocker cuts off tile/token connectivity beyond it', () => {
+      const { s, corp } = floatIRWithTrack();
+      corp.cash = 1000;
+      // Baseline: both F3 and the city past it (G4) are reachable to token.
+      const base = legalTokens(s, corp).map((t) => t.hex);
+      expect(base).toContain('F3');
+      expect(base).toContain('G4');
+      // Fill F3's only slot with a rival: G4 is now unreachable (cut off), and
+      // F3 itself is no longer tokenable (full), though it stays in the network.
+      s.corporations.find((c) => c.sym !== 'IR')!.tokenHexes = ['F3'];
+      const after = legalTokens(s, corp).map((t) => t.hex);
+      expect(after).not.toContain('G4');
+      expect(after).not.toContain('F3');
     });
   });
 });
