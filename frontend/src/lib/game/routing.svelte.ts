@@ -116,11 +116,12 @@ class Routing {
   private recompute(s: GameState) {
     const usedSegs = new Set<string>();
     const usedLinks = new Set<string>();
+    const corp = s.corporations.find((x) => x.sym === this.corp);
     for (const t of this.trains) {
       t.route = null;
       t.revenue = 0;
       if (t.stops.length < 2) continue;
-      const res = routeThroughStops(s, t.stops, trainDistance(t.train), usedSegs, usedLinks);
+      const res = routeThroughStops(s, t.stops, trainDistance(t.train), usedSegs, usedLinks, corp);
       if (res) {
         t.route = res.route;
         t.revenue = res.route.revenue;

@@ -83,6 +83,33 @@ function isCity(s: GameState, hex: string): boolean {
   return !!base && (base.cities.length > 0 || !!base.offboard);
 }
 
+/** Number of station-token slots in the city at `hex` (0 if not a slotted city). */
+function citySlots(s: GameState, hex: string): number {
+  const laid = s.tiles?.[hex];
+  if (laid) return TILES[laid.id]?.slots ?? 0;
+  return HEX_BY_COORD[hex]?.cities?.[0]?.slots ?? 0;
+}
+
+/** How many corporations currently have a station token in `hex`. */
+function tokenCount(s: GameState, hex: string): number {
+  return s.corporations.filter((c) => c.tokenHexes.includes(hex)).length;
+}
+
+/**
+ * Token blocking: a city whose token slots are all filled by OTHER corporations
+ * blocks `corp` from tracing a train THROUGH it. The corporation's own token
+ * always grants passage; a city with a free slot never blocks; towns and
+ * offboards have no slots and never block. A blocked city may still be used as a
+ * route endpoint (the train terminates there) - this only prevents passing
+ * through, which callers enforce by not extending a route past it.
+ */
+function blocksThrough(s: GameState, corp: CorporationState, hex: string): boolean {
+  const slots = citySlots(s, hex);
+  if (slots <= 0) return false;
+  if (corp.tokenHexes.includes(hex)) return false;
+  return tokenCount(s, hex) >= slots;
+}
+
 const segId = (hex: string, seg: Seg) => {
   const a = String(seg.a);
   const b = String(seg.b);
@@ -110,7 +137,8 @@ function bestRouteFrom(
   start: string,
   maxStops: number,
   usedSegs: Set<string>,
-  usedLinks: Set<string>
+  usedLinks: Set<string>,
+  corp: CorporationState
 ): { route: Route; segs: Set<string>; links: Set<string> } | null {
   let best: { route: Route; segs: Set<string>; links: Set<string> } | null = null;
 
@@ -129,6 +157,9 @@ function bestRouteFrom(
       best = { route: { hexes: [...stops], revenue, segs: [...segs] }, segs: new Set(segs), links: new Set(links) };
     }
     if (stops.length >= maxStops) return;
+    // Token blocking: a city full of other corporations' tokens may be a route
+    // endpoint (recorded above) but cannot be passed through, so stop extending.
+    if (hex !== start && blocksThrough(s, corp, hex)) return;
 
     // From the centre, take any segment touching 'c' to reach an edge.
     for (const seg of hexSegments(s, hex)) {
@@ -211,7 +242,7 @@ export function corpRoutes(s: GameState, corp: CorporationState): { routes: Rout
     const maxStops = trainDistance(train);
     let pick: { route: Route; segs: Set<string>; links: Set<string> } | null = null;
     for (const anchor of tokenCities) {
-      const r = bestRouteFrom(s, anchor, maxStops, usedSegs, usedLinks);
+      const r = bestRouteFrom(s, anchor, maxStops, usedSegs, usedLinks, corp);
       if (r && (!pick || r.route.revenue > pick.route.revenue)) pick = r;
     }
     if (pick && pick.route.revenue > 0) {
@@ -237,7 +268,7 @@ export function routeRevenue(s: GameState, corp: CorporationState): number {
 export function canRunRoute(s: GameState, corp: CorporationState): boolean {
   const tokenCities = corp.tokenHexes.filter((h) => isCity(s, h));
   for (const anchor of tokenCities) {
-    const r = bestRouteFrom(s, anchor, 2, new Set(), new Set());
+    const r = bestRouteFrom(s, anchor, 2, new Set(), new Set(), corp);
     if (r && r.route.revenue > 0) return true;
   }
   return false;
@@ -257,9 +288,17 @@ export function routeThroughStops(
   stops: string[],
   maxStops: number,
   usedSegs: Set<string> = new Set(),
-  usedLinks: Set<string> = new Set()
+  usedLinks: Set<string> = new Set(),
+  corp?: CorporationState
 ): { route: Route; segs: Set<string>; links: Set<string> } | null {
   if (stops.length < 2 || stops.length > maxStops) return null;
+  // Token blocking: an interior stop full of other corporations' tokens cannot
+  // be passed through (only route endpoints may be such a blocked city).
+  if (corp) {
+    for (let i = 1; i < stops.length - 1; i++) {
+      if (blocksThrough(s, corp, stops[i])) return null;
+    }
+  }
 
   // Find a track-only path between two adjacent stops, not reusing track. Returns
   // the segment/link ids consumed (centre-to-centre), or null if unreachable.

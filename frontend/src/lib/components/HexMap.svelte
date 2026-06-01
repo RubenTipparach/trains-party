@@ -305,7 +305,7 @@
     // Pre-colour every animated route's track so the trail is visible throughout.
     const segs: Record<string, string> = {};
     for (const route of routes) {
-      const res = routeThroughStops(snap, route.hexes, 99);
+      const res = routeThroughStops(snap, route.hexes, 99, new Set(), new Set(), c);
       if (res?.route.segs) for (const sid of res.route.segs) segs[sid] = route.color;
     }
     animSegColors = segs;

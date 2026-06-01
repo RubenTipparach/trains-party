@@ -48,4 +48,44 @@ describe('routeThroughStops (manual route assignment)', () => {
       expect(manual!.route.revenue).toBe(best.revenue);
     }
   });
+
+  describe('token blocking', () => {
+    // Fill F3's only slot with a rival corporation's token.
+    function blockF3(s: GameState) {
+      const rival = s.corporations.find((c) => c.sym !== 'IR')!;
+      rival.tokenHexes = ['F3'];
+      return rival;
+    }
+
+    it('cannot trace through a city full of another corporation tokens', () => {
+      const { s, corp } = floatIRWithTrack();
+      blockF3(s);
+      // E2 -> F3 -> G4 passes through the blocked F3: illegal.
+      expect(routeThroughStops(s, ['E2', 'F3', 'G4'], 3, new Set(), new Set(), corp)).toBeNull();
+    });
+
+    it('may still terminate at a blocked city', () => {
+      const { s, corp } = floatIRWithTrack();
+      blockF3(s);
+      // F3 as the endpoint (the train terminates there) is allowed.
+      const res = routeThroughStops(s, ['E2', 'F3'], 3, new Set(), new Set(), corp);
+      expect(res).not.toBeNull();
+    });
+
+    it('the auto route-finder will not pass through a blocked city', () => {
+      const { s, corp } = floatIRWithTrack();
+      blockF3(s);
+      const best = corpRoutes(s, corp).routes[0];
+      // G4 is only reachable through F3, so the best route stops at F3.
+      expect(best?.hexes).not.toContain('G4');
+    });
+
+    it('the corporation own token grants passage through a full city', () => {
+      const { s, corp } = floatIRWithTrack();
+      blockF3(s);
+      corp.tokenHexes = ['E2', 'F3']; // IR also has a token at F3
+      // With its own token at F3, IR may trace straight through to G4.
+      expect(routeThroughStops(s, ['E2', 'F3', 'G4'], 3, new Set(), new Set(), corp)).not.toBeNull();
+    });
+  });
 });
