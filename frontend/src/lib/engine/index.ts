@@ -1,44 +1,104 @@
 /**
  * Trains Party rules engine (TypeScript port of the 18xx engine model).
  *
- * This engine is pure, deterministic, and isomorphic: it runs in the browser
- * (sandbox / optimistic UI) and on the server (authoritative validation). It must
- * stay free of DOM, network, and framework imports.
+ * Pure, deterministic, isomorphic: runs in the browser (sandbox / optimistic UI)
+ * and on the server (authoritative validation). State is a function of static
+ * config plus an ordered action list:
  *
- * Core idea (see design.md / CLAUDE.md): state is a function of static config plus
- * an ordered action list.
+ *     state = actions.reduce(apply, initialState(seats))
  *
- *     state = actions.reduce(apply, initialState(config))
- *
- * Stage 0: type sketch only. The 1889 state model, action union, and the
- * round -> step -> action state machine arrive in later stages.
+ * Stage 2: setup + the private-company waterfall auction. The stock and operating
+ * rounds follow.
  */
 
-/** Monotonic action index; a snapshot is identified by its highest sequence. */
-export type Sequence = number;
+import { GameError, type GameAction, type GameState } from './types';
+import { applyAuction, auctionActivePlayer, minBid } from './auction';
+import { applyStock } from './stock';
+import { applyOperating, operatingActivePlayer, operatingView } from './operating';
 
-/** A serializable player decision. The action log IS the game. */
-export interface GameAction {
-  /** Discriminant, e.g. "lay_tile" | "buy_shares" | "run_routes" | "pass". */
-  type: string;
-  /** Entity id that performed the action (player or corporation). */
-  entity: string;
-  /** Action-specific payload. Typed per action in later stages. */
-  readonly [key: string]: unknown;
-}
+export { initialState } from './setup';
+export type { Seat } from './setup';
+export * from './types';
+export { minBid, auctionActivePlayer, auctionView, maxBidFor } from './auction';
+export type { AuctionView, AuctionCompanyView, AuctionPlayerView } from './auction';
+export { stockLegalActions } from './stock';
+export {
+  operatingView,
+  operatingActivePlayer,
+  trackLays,
+  tokenPlays,
+  corporationsCanBuyPrivates,
+  mustBuyTrain,
+  emergencyFor
+} from './operating';
+export type { OperatingView } from './operating';
+export { legalLays, neighbor, tileSupply, exhaustedTilesOnHex } from './track';
+export type { TileLay } from './track';
+export { TILES, rotatePaths } from './tiles';
+export type { TileDef } from './tiles';
+export { playerValue, playerLiquidity } from './metrics';
+export { corpRoutes, routeRevenue, routeThroughStops, TRAIN_ROUTE_COLORS } from './routes';
+export type { Route } from './routes';
 
-/** Opaque engine state. Defined concretely once the 1889 model lands. */
-export interface GameState {
-  rulesVersion: string;
-  sequence: Sequence;
-}
-
-/** Apply one action to produce the next state. Pure; no I/O. */
-export function apply(_state: GameState, _action: GameAction): GameState {
-  throw new Error('engine.apply not implemented yet (Stage 2)');
+/** Apply one action, returning the next state. Pure: the input is not mutated. */
+export function apply(state: GameState, action: GameAction): GameState {
+  const s: GameState = structuredClone(state);
+  if (s.finished) throw new GameError('game is finished');
+  switch (s.round) {
+    case 'auction':
+      applyAuction(s, action);
+      break;
+    case 'stock':
+      applyStock(s, action);
+      break;
+    case 'operating':
+      applyOperating(s, action);
+      break;
+    default:
+      throw new GameError(`round '${s.round}' is not implemented yet`);
+  }
+  s.seq += 1;
+  return s;
 }
 
 /** Replay an ordered action list from an initial state. */
 export function replay(initial: GameState, actions: readonly GameAction[]): GameState {
   return actions.reduce(apply, initial);
+}
+
+/** The id of the player who must act next, or null if none. */
+export function activePlayer(state: GameState): string | null {
+  if (state.finished) return null;
+  if (state.round === 'auction') return auctionActivePlayer(state);
+  if (state.round === 'stock' && state.stock) return state.players[state.current].id;
+  if (state.round === 'operating') return operatingActivePlayer(state);
+  return null;
+}
+
+export interface LegalAction {
+  type: 'bid' | 'pass';
+  player: string;
+  company?: string;
+  /** Minimum legal price for a bid. */
+  min?: number;
+  /** True when this bid buys the company outright (cheapest at face). */
+  buy?: boolean;
+}
+
+/** Legal actions available to the active player. */
+export function legalActions(state: GameState): LegalAction[] {
+  if (state.round !== 'auction' || !state.auction) return [];
+  const a = state.auction;
+  const player = auctionActivePlayer(state);
+  if (a.auctioning) {
+    return [
+      { type: 'bid', player, company: a.auctioning, min: minBid(state, a.auctioning) },
+      { type: 'pass', player }
+    ];
+  }
+  const acts: LegalAction[] = [{ type: 'pass', player }];
+  const [cheapest, ...rest] = a.available;
+  acts.push({ type: 'bid', player, company: cheapest, min: minBid(state, cheapest), buy: true });
+  for (const sym of rest) acts.push({ type: 'bid', player, company: sym, min: minBid(state, sym) });
+  return acts;
 }
