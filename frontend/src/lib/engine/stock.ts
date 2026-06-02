@@ -46,13 +46,23 @@ function corpZone(c: CorporationState): string {
   if (c.priceRow === null || c.priceCol === null) return 'white';
   return MARKET[c.priceRow][c.priceCol].zone;
 }
-function moveDown(c: CorporationState): void {
-  if (c.priceRow === null || c.priceCol === null) return;
-  if (cellExists(c.priceRow + 1, c.priceCol)) c.priceRow += 1;
+/** Stamp the corporation as the most-recent arrival in its current market cell. */
+export function stampPrice(s: GameState, c: CorporationState): void {
+  c.stackSeq = ++s.priceStack;
 }
-function moveUp(c: CorporationState): void {
+function moveDown(s: GameState, c: CorporationState): void {
   if (c.priceRow === null || c.priceCol === null) return;
-  if (c.priceRow > 0) c.priceRow -= 1;
+  if (cellExists(c.priceRow + 1, c.priceCol)) {
+    c.priceRow += 1;
+    stampPrice(s, c);
+  }
+}
+function moveUp(s: GameState, c: CorporationState): void {
+  if (c.priceRow === null || c.priceCol === null) return;
+  if (c.priceRow > 0) {
+    c.priceRow -= 1;
+    stampPrice(s, c);
+  }
 }
 
 function holds(p: PlayerState, sym: string): number {
@@ -132,7 +142,7 @@ function endTurn(s: GameState, acted: boolean): void {
 function endStockRound(s: GameState): void {
   // Sold-out corporations (no shares in the pool) move up one at round end.
   for (const c of s.corporations) {
-    if (c.floated && c.poolShares === 0 && c.priceRow !== null) moveUp(c);
+    if (c.floated && c.poolShares === 0 && c.priceRow !== null) moveUp(s, c);
   }
   s.stock = null;
   s.players.forEach((p) => (p.passed = false));
@@ -146,7 +156,8 @@ function maybeFloat(s: GameState, c: CorporationState): void {
   if (soldFromIpo >= 50) {
     c.floated = true;
     c.cash = 10 * (c.parPrice ?? 0); // full capitalization
-    if (c.tokenHexes.length === 0) c.tokenHexes.push(c.coordinates); // place the home token
+    // The home token is placed when the corporation first operates
+    // (HOME_TOKEN_TIMING :operating_round), not at float - see operating.ts.
     s.log.push(`${c.sym} floats; treasury ${c.cash}`);
   }
 }
@@ -166,6 +177,7 @@ function doPar(s: GameState, id: string, sym: string, price: number): void {
   c.parPrice = price;
   c.priceRow = row;
   c.priceCol = PAR_COL;
+  stampPrice(s, c);
   c.ipoShares -= 20;
   c.president = id;
   p.shares[sym] = holds(p, sym) + 20;
@@ -260,7 +272,7 @@ export function sellSharesToPool(s: GameState, id: string, sym: string, count: n
   p.cash += proceeds;
   s.bank -= proceeds;
   c.president = newPresident;
-  for (let i = 0; i < count; i++) moveDown(c);
+  for (let i = 0; i < count; i++) moveDown(s, c);
   s.log.push(`${pname(s, id)} sells ${count} share(s) of ${sym} for ${proceeds}`);
   return proceeds;
 }
@@ -305,6 +317,46 @@ export function applyStock(s: GameState, action: GameAction): void {
     default:
       throw new GameError('unsupported stock-round action');
   }
+}
+
+/**
+ * Exchange a private company for a share of a corporation (Dougo Railway -> 10%
+ * of IR from the IPO). Closes the private; the player takes the share for free,
+ * subject to the certificate limit. `apply` gates this to the active player, so
+ * it works on the owner's stock turn or while they operate.
+ */
+export function applyExchange(s: GameState, action: Extract<GameAction, { type: 'exchange' }>): void {
+  const co = s.companies.find((c) => c.sym === action.company);
+  if (!co || co.closed) throw new GameError(`${action.company} cannot be exchanged`);
+  if (co.owner !== action.player) throw new GameError(`${action.player} does not own ${action.company}`);
+  const ab = co.abilities.find((a) => a.type === 'exchange');
+  if (!ab || ab.type !== 'exchange') throw new GameError(`${action.company} has no exchange ability`);
+  const c = corp(s, ab.corp);
+  if (c.ipoShares < 10) throw new GameError(`no ${ab.corp} share available in the IPO`);
+  const p = player(s, action.player);
+  if (certCount(s, action.player) + 1 > certLimit(s)) throw new GameError('certificate limit reached');
+
+  c.ipoShares -= 10;
+  p.shares[ab.corp] = holds(p, ab.corp) + 10;
+  co.closed = true;
+  co.owner = null;
+  p.companies = p.companies.filter((x) => x !== action.company);
+  s.log.push(`${pname(s, action.player)} exchanges ${co.name} for a 10% share of ${ab.corp}`);
+}
+
+/** Privates the player may exchange right now (UI helper). */
+export function exchangeOptions(s: GameState, id: string): { company: string; corp: string }[] {
+  const out: { company: string; corp: string }[] = [];
+  for (const co of s.companies) {
+    if (co.closed || co.owner !== id) continue;
+    for (const ab of co.abilities) {
+      if (ab.type === 'exchange') {
+        const c = s.corporations.find((x) => x.sym === ab.corp);
+        if (c && c.ipoShares >= 10) out.push({ company: co.sym, corp: ab.corp });
+      }
+    }
+  }
+  return out;
 }
 
 export interface StockLegalActions {

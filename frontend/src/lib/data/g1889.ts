@@ -124,34 +124,56 @@ export const CORPORATIONS: CorporationDef[] = [
 // --- Private companies ------------------------------------------------------
 
 export const COMPANIES: CompanyDef[] = [
-  { sym: 'TR', name: 'Takamatsu E-Railroad', value: 20, revenue: 5, desc: 'Blocks Takamatsu (K4) while owned by a player.' },
+  {
+    sym: 'TR',
+    name: 'Takamatsu E-Railroad',
+    value: 20,
+    revenue: 5,
+    desc: 'Blocks Takamatsu (K4) while owned by a player.',
+    abilities: [{ type: 'blocks_hexes', hexes: ['K4'] }]
+  },
   {
     sym: 'MF',
     name: 'Mitsubishi Ferry',
     value: 30,
     revenue: 5,
-    desc: 'Player owner may place the port tile on a coastal town (B11, G10, I12, or J9) without a tile on it already. Does not close the company.'
+    desc: 'Player owner may place the port tile on a coastal town (B11, G10, I12, or J9) without a tile on it already. Does not close the company.',
+    abilities: [
+      { type: 'tile_lay', hexes: ['B11', 'G10', 'I12', 'J9'], tiles: ['437'], ownerType: 'player', when: 'track' }
+    ]
   },
   {
     sym: 'ER',
     name: 'Ehime Railway',
     value: 40,
     revenue: 10,
-    desc: 'When sold to a corporation, the selling player may immediately place a green tile on Ohzu (C4). Blocks C4 while owned by a player.'
+    desc: 'When sold to a corporation, the selling player may immediately place a green tile on Ohzu (C4). Blocks C4 while owned by a player.',
+    abilities: [
+      { type: 'blocks_hexes', hexes: ['C4'] },
+      {
+        type: 'tile_lay',
+        hexes: ['C4'],
+        tiles: ['12', '13', '14', '15', '205', '206'],
+        ownerType: 'corporation',
+        when: 'sold'
+      }
+    ]
   },
   {
     sym: 'SMR',
     name: 'Sumitomo Mines Railway',
     value: 50,
     revenue: 15,
-    desc: 'Owning corporation may ignore the building cost for mountain hexes which do not also contain rivers.'
+    desc: 'Owning corporation may ignore the building cost for mountain hexes which do not also contain rivers.',
+    abilities: [{ type: 'tile_discount', terrain: 'mountain', discount: 80 }]
   },
   {
     sym: 'DR',
     name: 'Dougo Railway',
     value: 60,
     revenue: 15,
-    desc: 'Owning player may exchange this private for a 10% share of Iyo Railway (IR) from the initial offering.'
+    desc: 'Owning player may exchange this private for a 10% share of Iyo Railway (IR) from the initial offering.',
+    abilities: [{ type: 'exchange', corp: 'IR', from: 'ipo' }]
   },
   { sym: 'SIR', name: 'South Iyo Railway', value: 80, revenue: 20, desc: 'No special abilities.' },
   {
@@ -160,7 +182,11 @@ export const COMPANIES: CompanyDef[] = [
     value: 150,
     revenue: 30,
     minPlayers: 4,
-    desc: 'Does not close while owned by a player. If still owned when the first 5-train is bought, it can no longer be sold to a corporation and its revenue rises to 50.'
+    desc: 'Does not close while owned by a player. If still owned when the first 5-train is bought, it can no longer be sold to a corporation and its revenue rises to 50.',
+    abilities: [
+      { type: 'never_closes' },
+      { type: 'revenue_change', onPhase: '5', revenue: 50, noCorpSale: true }
+    ]
   }
 ];
 

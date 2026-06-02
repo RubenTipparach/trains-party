@@ -1,6 +1,6 @@
 <script lang="ts">
   import { game } from '$lib/game/sandbox.svelte';
-  import { stockLegalActions, playerValue, playerLiquidity } from '$lib/engine';
+  import { stockLegalActions, playerValue, playerLiquidity, exchangeOptions } from '$lib/engine';
   import { COMPANIES, MARKET, PAR_PRICES, CERT_LIMIT, CURRENCY } from '$lib/data/g1889';
   import type { CorporationState, PlayerState } from '$lib/engine';
   import PrivateChip from './PrivateChip.svelte';
@@ -11,6 +11,8 @@
   const pname = (id: string) => game.state.players.find((p) => p.id === id)?.name ?? id;
 
   const sl = $derived(stockLegalActions(game.state));
+  // Private-company exchange abilities the active player may use now (Dougo -> IR).
+  const exchanges = $derived(game.canAct ? exchangeOptions(game.state, sl.player) : []);
   // Has the active player already bought/sold this turn? If so a "pass" ends the
   // turn rather than counting as a consecutive pass, so the button reads "Done".
   const acted = $derived(game.state.stock?.acted ?? false);
@@ -102,6 +104,16 @@
       <span class="turnnote">{playerName(sl.player)} is {game.isBot(sl.player) ? 'thinking' : 'acting'}…</span>
     {/if}
   </div>
+
+  {#if exchanges.length}
+    <div class="exchanges">
+      {#each exchanges as ex (ex.company)}
+        <button onclick={() => game.act({ type: 'exchange', player: sl.player, company: ex.company })}>
+          Exchange {ex.company} for a 10% share of {ex.corp}
+        </button>
+      {/each}
+    </div>
+  {/if}
 
   <!-- corporation cards -->
   <div class="corps">
@@ -265,6 +277,21 @@
     align-items: center;
     gap: 0.8rem;
     margin-bottom: 0.9rem;
+  }
+  .exchanges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-bottom: 0.9rem;
+  }
+  .exchanges button {
+    padding: 0.35rem 0.7rem;
+    border-radius: 8px;
+    border: 1px solid var(--rail-deep);
+    background: var(--rail);
+    color: #1b1b1b;
+    font: 700 0.78rem ui-sans-serif, sans-serif;
+    cursor: pointer;
   }
   .turnnote {
     font-size: 0.85rem;

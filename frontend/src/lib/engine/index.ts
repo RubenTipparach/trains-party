@@ -13,7 +13,7 @@
 
 import { GameError, type GameAction, type GameState } from './types';
 import { applyAuction, auctionActivePlayer, minBid } from './auction';
-import { applyStock } from './stock';
+import { applyStock, applyExchange } from './stock';
 import { applyOperating, operatingActivePlayer, operatingView } from './operating';
 
 export { initialState } from './setup';
@@ -21,7 +21,7 @@ export type { Seat } from './setup';
 export * from './types';
 export { minBid, auctionActivePlayer, auctionView, maxBidFor } from './auction';
 export type { AuctionView, AuctionCompanyView, AuctionPlayerView } from './auction';
-export { stockLegalActions } from './stock';
+export { stockLegalActions, exchangeOptions } from './stock';
 export {
   operatingView,
   operatingActivePlayer,
@@ -32,7 +32,7 @@ export {
   emergencyFor
 } from './operating';
 export type { OperatingView } from './operating';
-export { legalLays, neighbor, tileSupply, exhaustedTilesOnHex } from './track';
+export { legalLays, neighbor, tileSupply, exhaustedTilesOnHex, blockedHexes, specialLayOptions } from './track';
 export type { TileLay } from './track';
 export { TILES, rotatePaths } from './tiles';
 export type { TileDef } from './tiles';
@@ -44,6 +44,16 @@ export type { Route } from './routes';
 export function apply(state: GameState, action: GameAction): GameState {
   const s: GameState = structuredClone(state);
   if (s.finished) throw new GameError('game is finished');
+  // Exchange abilities (e.g. Dougo Railway -> IR) may be used on the owner's turn
+  // in any round, so they are handled here rather than inside one round's reducer.
+  if (action.type === 'exchange') {
+    const active = activePlayer(s);
+    if (active !== action.player) throw new GameError(`it is ${active ?? 'nobody'}'s turn, not ${action.player}`);
+    if (s.round !== 'stock' && s.round !== 'operating') throw new GameError('cannot exchange a private now');
+    applyExchange(s, action);
+    s.seq += 1;
+    return s;
+  }
   switch (s.round) {
     case 'auction':
       applyAuction(s, action);

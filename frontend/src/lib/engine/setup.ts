@@ -21,7 +21,18 @@ export function initialState(seats: Seat[], rulesVersion: string = RULES_VERSION
   // 2-player game South Iyo Railway (SIR) is removed.
   const companies: CompanyState[] = COMPANIES.filter((c) => !c.minPlayers || n >= c.minPlayers)
     .filter((c) => !(n === 2 && c.sym === 'SIR'))
-    .map((c) => ({ sym: c.sym, name: c.name, value: c.value, revenue: c.revenue, discount: 0, owner: null, closed: false }));
+    .map((c) => ({
+      sym: c.sym,
+      name: c.name,
+      value: c.value,
+      revenue: c.revenue,
+      discount: 0,
+      owner: null,
+      closed: false,
+      abilities: c.abilities ? structuredClone(c.abilities) : [],
+      usedAbility: false,
+      pendingLay: false
+    }));
 
   const available = [...companies].sort((a, b) => a.value - b.value).map((c) => c.sym);
 
@@ -41,7 +52,8 @@ export function initialState(seats: Seat[], rulesVersion: string = RULES_VERSION
     trains: [],
     companies: [],
     tokenHexes: [],
-    tokens: [...c.tokens]
+    tokens: [...c.tokens],
+    stackSeq: 0
   }));
 
   const depot = TRAINS.map((t) => ({ name: t.name, remaining: t.num }));
@@ -55,6 +67,7 @@ export function initialState(seats: Seat[], rulesVersion: string = RULES_VERSION
     orSet: 0,
     priority: 0,
     current: 0,
+    priceStack: 0,
     bank: BANK_CASH - n * cash,
     players,
     companies,

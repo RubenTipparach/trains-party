@@ -37,6 +37,32 @@ export interface CorporationDef {
   floatPercent: number;
 }
 
+/**
+ * Private-company special abilities, transcribed from the reference
+ * (lib/engine/game/g_1889/entities.rb). The engine reads these directly so the
+ * data stays the single source of truth.
+ */
+export type CompanyAbility =
+  /** Blocks tile lays / token placement on `hexes` while owned by a player. */
+  | { type: 'blocks_hexes'; hexes: string[] }
+  /**
+   * Lets the owner lay one of `tiles` on one of `hexes`, bypassing connectivity.
+   * `when: 'track'` = the owning player, during a corporation they preside over
+   * laying track. `when: 'sold'` = the corporation that bought the private, once.
+   */
+  | { type: 'tile_lay'; hexes: string[]; tiles: string[]; ownerType: 'player' | 'corporation'; when: 'track' | 'sold' }
+  /** The owning corporation ignores `discount` of build cost on `terrain` hexes. */
+  | { type: 'tile_discount'; terrain: string; discount: number }
+  /** The owning player may exchange the private for a 10% share of `corp`. */
+  | { type: 'exchange'; corp: string; from: 'ipo' }
+  /** The private is not closed by the 5-train (or any phase). */
+  | { type: 'never_closes' }
+  /**
+   * The private's revenue changes to `revenue` when `onPhase` begins. If
+   * `noCorpSale`, it may no longer be sold to a corporation from that phase on.
+   */
+  | { type: 'revenue_change'; onPhase: string; revenue: number; noCorpSale?: boolean };
+
 export interface CompanyDef {
   sym: string;
   name: string;
@@ -45,6 +71,8 @@ export interface CompanyDef {
   desc: string;
   /** Minimum player count for this private to be in the game. */
   minPlayers?: number;
+  /** Special abilities (see CompanyAbility). */
+  abilities?: CompanyAbility[];
 }
 
 /** A parsed stock-market cell. */

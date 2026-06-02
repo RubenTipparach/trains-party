@@ -1,7 +1,15 @@
 <script lang="ts">
   import { game } from '$lib/game/sandbox.svelte';
   import { routing } from '$lib/game/routing.svelte';
-  import { operatingView, trackLays, tokenPlays, corporationsCanBuyPrivates } from '$lib/engine';
+  import {
+    apply,
+    operatingView,
+    trackLays,
+    tokenPlays,
+    corporationsCanBuyPrivates,
+    specialLayOptions,
+    exchangeOptions
+  } from '$lib/engine';
   import { TRAINS, MARKET, CURRENCY, COMPANIES } from '$lib/data/g1889';
   import type { CorporationState } from '$lib/engine';
   import HexMap from './HexMap.svelte';
@@ -66,13 +74,15 @@
     delete cbPrice[key];
   }
 
-  // Buy private companies: any player-owned, unclosed private the operating corp
-  // may buy (from phase 3), priced 1 up to twice face value.
+  // Buy private companies: the operating president's OWN unclosed privates (from
+  // phase 3), priced 1 up to twice face value. Buying another player's private
+  // needs their consent, which bots decline, so only self-owned ones are offered.
   let coPrice = $state<Record<string, number>>({});
   function companyBuyOptions() {
-    if (!corporationsCanBuyPrivates(game.state)) return [];
+    if (!corporationsCanBuyPrivates(game.state) || !v?.president) return [];
     return game.state.companies
-      .filter((co) => !co.closed && co.owner)
+      .filter((co) => !co.closed && co.owner === v.president)
+      .filter((co) => !co.abilities.some((a) => a.type === 'revenue_change' && a.noCorpSale && phaseAtLeast(a.onPhase)))
       .map((co) => ({
         sym: co.sym,
         name: co.name,
@@ -85,6 +95,39 @@
     const price = Math.max(1, Math.min(2 * value, buyer.cash, Math.round(coPrice[sym] ?? 1)));
     game.act({ type: 'buy_company', player: buyer.president!, corp: buyer.sym, company: sym, price });
     delete coPrice[sym];
+  }
+  const PHASE_ORDER = ['2', '3', '4', '5', '6', 'D'];
+  const phaseAtLeast = (p: string) => PHASE_ORDER.indexOf(game.state.phase) >= PHASE_ORDER.indexOf(p);
+
+  // Private special abilities usable by the operating president right now.
+  const specials = $derived(v?.president ? specialLayOptions(game.state, v.president) : []);
+  const exchanges = $derived(v?.president ? exchangeOptions(game.state, v.president) : []);
+  function doExchange(company: string) {
+    game.act({ type: 'exchange', player: v!.president!, company });
+  }
+  // Special tile lay: find a legal rotation by dry-running the pure engine, then commit.
+  function specialLay(company: string, hex: string, tile: string) {
+    const player = v!.president!;
+    for (let r = 0; r < 6; r++) {
+      try {
+        apply(game.state, { type: 'special_lay', player, company, hex, tile, rotation: r });
+        game.act({ type: 'special_lay', player, company, hex, tile, rotation: r });
+        return;
+      } catch {
+        /* rotation r does not fit; try the next */
+      }
+    }
+    game.error = `No legal rotation to lay tile ${tile} on ${hex}.`;
+  }
+  function buyDiesel(tradeIn?: string) {
+    game.act({ type: 'buy_train', player: v!.president!, corp: v!.corp, train: 'D', tradeIn });
+  }
+  // Run: send explicit routes only when the player hand-picked them; otherwise let
+  // the engine run its own best routes (auto-calculate defers to the engine).
+  function runAct(dividend: 'pay' | 'withhold') {
+    routing.capture();
+    const routes = routing.manual ? routing.chosenRoutes() : undefined;
+    game.act({ type: 'run', player: v!.president!, corp: v!.corp, revenue: runRevenue, dividend, routes });
   }
   const pname = (id: string | null) => (id ? game.state.players.find((p) => p.id === id)?.name ?? id : '-');
 
@@ -168,6 +211,22 @@
             </div>
           {/if}
 
+          {#if game.canAct && (exchanges.length || specials.length)}
+            <div class="useabil">
+              <span class="ablabel">Use ability</span>
+              {#each exchanges as ex (ex.company)}
+                <button class="small" onclick={() => doExchange(ex.company)}>Exchange {ex.company} for 10% {ex.corp}</button>
+              {/each}
+              {#each specials as sp (sp.company)}
+                {#each sp.hexes as hex (hex)}
+                  {#each sp.tiles as tile (tile)}
+                    <button class="small ghost" onclick={() => specialLay(sp.company, hex, tile)}>{sp.company}: tile {tile} on {hex}</button>
+                  {/each}
+                {/each}
+              {/each}
+            </div>
+          {/if}
+
           {#if !game.canAct}
             <p class="waiting" style="--p:{seatColor(c.president ?? '')}">
               {game.isBot(c.president) ? `${pname(c.president)} (bot) is operating ${c.sym}…` : `Waiting for ${pname(c.president)} to operate ${c.sym}…`}
@@ -224,10 +283,10 @@
                 {/if}
               </div>
               <div class="act">
-                <button disabled={runRevenue === 0} onclick={() => { routing.capture(); game.act({ type: 'run', player: c.president!, corp: c.sym, revenue: runRevenue, dividend: 'pay' }); }}>
+                <button disabled={runRevenue === 0} onclick={() => runAct('pay')}>
                   Pay dividend
                 </button>
-                <button class="ghost" onclick={() => { routing.capture(); game.act({ type: 'run', player: c.president!, corp: c.sym, revenue: runRevenue, dividend: 'withhold' }); }}>
+                <button class="ghost" onclick={() => runAct('withhold')}>
                   {runRevenue > 0 ? 'Withhold' : 'Run (no income)'}
                 </button>
               </div>
@@ -286,6 +345,18 @@
                   <button class="ghost" onclick={() => game.act({ type: 'pass', player: c.president! })}>Finish turn</button>
                 {/if}
               </div>
+              {#if v.dieselAvailable && (v.canBuyTrain !== 'D' || v.dieselTradeIns.length)}
+                <div class="act">
+                  {#if v.canBuyTrain !== 'D' && c.cash >= v.dieselPrice}
+                    <button onclick={() => buyDiesel()}>Buy D-train ({CURRENCY}{v.dieselPrice})</button>
+                  {/if}
+                  {#each v.dieselTradeIns as ti (ti.train)}
+                    <button class="ghost" disabled={c.cash < ti.price} onclick={() => buyDiesel(ti.train)}>
+                      Buy D, trade {ti.train}-train ({CURRENCY}{ti.price})
+                    </button>
+                  {/each}
+                </div>
+              {/if}
             {/if}
             {#if !v.emergency && crossBuyOptions(c).length}
               <div class="crossbuy">
@@ -478,6 +549,27 @@
     color: var(--muted);
     text-transform: uppercase;
     letter-spacing: 0.04em;
+  }
+  .useabil {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.2rem 0.8rem 0.4rem;
+  }
+  .useabil button {
+    padding: 0.25rem 0.55rem;
+    border-radius: 7px;
+    border: 1px solid var(--rail-deep);
+    background: var(--rail);
+    color: #1b1b1b;
+    font: 700 0.72rem ui-sans-serif, sans-serif;
+    cursor: pointer;
+  }
+  .useabil button.ghost {
+    background: transparent;
+    color: var(--ink);
+    border-color: var(--line);
   }
   .stat span {
     display: block;
