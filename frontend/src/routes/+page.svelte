@@ -1,131 +1,53 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
   import { base } from '$app/paths';
-  import { goto } from '$app/navigation';
   import { fly, fade } from 'svelte/transition';
   import { BUILD_SHA } from '$lib/version';
-  import { game, type SeatConfig } from '$lib/game/sandbox.svelte';
-  import type { BotLevel } from '$lib/game/bots';
-
-  const NAME_KEY = 'tp.playerName';
-
-  let mode = $state<'single' | 'multi'>('single');
-  let count = $state(4);
-  const names = $state(['You', 'Bot 2', 'Bot 3', 'Bot 4', 'Bot 5', 'Bot 6']);
-  const bots = $state([false, true, true, true, true, true]);
-  const levels = $state<BotLevel[]>(['normal', 'normal', 'normal', 'normal', 'normal', 'normal']);
-
-  // Player profile name (prompted once, then remembered).
-  let you = $state('');
-  let needName = $state(false);
-
-  onMount(() => {
-    const saved = localStorage.getItem(NAME_KEY)?.trim();
-    if (saved) {
-      you = saved;
-      names[0] = saved;
-    } else {
-      needName = true;
-    }
-  });
-
-  function saveName() {
-    const n = you.trim();
-    if (!n) return;
-    localStorage.setItem(NAME_KEY, n);
-    names[0] = n;
-    needName = false;
-  }
-
-  function start() {
-    if (names[0]?.trim()) localStorage.setItem(NAME_KEY, names[0].trim());
-    const seats: SeatConfig[] = Array.from({ length: count }, (_, i) => ({
-      id: `p${i + 1}`,
-      name: names[i]?.trim() || `Player ${i + 1}`,
-      bot: mode === 'single' ? bots[i] : false,
-      level: levels[i]
-    }));
-    game.newGame(seats);
-    goto(`${base}/board`);
-  }
+  import { GAMES } from '$lib/data/games';
 </script>
-
-{#if needName}
-  <div class="namemodal" transition:fade={{ duration: 150 }}>
-    <div class="namebox" transition:fly={{ y: 12, duration: 200 }}>
-      <h2>Welcome to Trains Party</h2>
-      <p>What should we call you?</p>
-      <input
-        bind:value={you}
-        placeholder="Your name"
-        maxlength="20"
-        onkeydown={(e) => e.key === 'Enter' && saveName()}
-      />
-      <button onclick={saveName} disabled={!you.trim()}>Continue</button>
-    </div>
-  </div>
-{/if}
-
 
 <main in:fade={{ duration: 400 }}>
   <header class="hero">
-    <div class="badge" in:fly={{ y: -12, duration: 500 }}>1889 · Shikoku Railways</div>
+    <div class="badge" in:fly={{ y: -12, duration: 500 }}>18xx · web</div>
     <h1 in:fly={{ y: 16, duration: 500, delay: 80 }}>Trains Party</h1>
     <p class="tagline" in:fly={{ y: 16, duration: 500, delay: 160 }}>
-      A modern, animated web port of the most approachable 18xx game.
+      Modern, animated web ports of the 18xx railway games. Pick a title to play.
     </p>
   </header>
 
-  <section class="setup" in:fly={{ y: 20, duration: 420, delay: 240 }}>
-    <h2>New game</h2>
-
-    <div class="modes">
-      <button class="mode" class:on={mode === 'single'} onclick={() => (mode = 'single')}>
-        <span class="mlabel">Single player</span>
-        <span class="mdesc">Play against bots</span>
-      </button>
-      <button class="mode" class:on={mode === 'multi'} onclick={() => (mode = 'multi')}>
-        <span class="mlabel">Multiplayer</span>
-        <span class="mdesc">Online rooms · coming soon</span>
-      </button>
-    </div>
-
-    <div class="players-row">
-      <label for="count">Players</label>
-      <select id="count" bind:value={count}>
-        {#each [2, 3, 4, 5, 6] as n}<option value={n}>{n}</option>{/each}
-      </select>
-    </div>
-
-    <div class="seats">
-      {#each Array(count) as _, i}
-        <div class="seat">
-          <input class="name" bind:value={names[i]} placeholder={`Player ${i + 1}`} />
-          {#if mode === 'single'}
-            <div class="toggle">
-              <button class:on={!bots[i]} onclick={() => (bots[i] = false)}>Human</button>
-              <button class:on={bots[i]} onclick={() => (bots[i] = true)}>Bot</button>
-            </div>
-            <select class="lvl" bind:value={levels[i]} disabled={!bots[i]}>
-              <option value="easy">Easy</option>
-              <option value="normal">Normal</option>
-            </select>
-          {:else}
-            <span class="seat-note">seat {i + 1}</span>
+  <section class="games">
+    {#each GAMES as g, i (g.id)}
+      <article class="card" class:soon={g.status === 'coming-soon'} style="--accent:{g.accent}" in:fly={{ y: 20, duration: 420, delay: 220 + i * 90 }}>
+        <div class="ctop">
+          <h2>{g.title}</h2>
+          {#if g.status === 'coming-soon'}<span class="tag">Coming soon</span>{/if}
+        </div>
+        <p class="sub">{g.subtitle}</p>
+        <p class="meta">
+          {#if g.players}<span>{g.players} players</span><span class="dot">•</span>{/if}
+          <span>{g.publisher}</span>
+          {#if g.designer}<span class="dot">•</span><span>{g.designer}</span>{/if}
+        </p>
+        <p class="blurb">{g.blurb}</p>
+        <div class="actions">
+          {#if g.status === 'playable' && g.path}
+            <a class="play" href={`${base}${g.path}`}>Play →</a>
+          {/if}
+          {#if g.rulebookUrl}
+            <a class="rules" href={g.rulebookUrl} target="_blank" rel="noopener noreferrer">Rulebook ↗</a>
           {/if}
         </div>
-      {/each}
-    </div>
-
-    {#if mode === 'multi'}
-      <p class="note">Online multiplayer rooms arrive with the server stage. For now, start a single-player game against bots.</p>
-    {/if}
-
-    <button class="start" onclick={start}>Start game →</button>
+      </article>
+    {/each}
   </section>
 
+  <p class="more" in:fade={{ duration: 600, delay: 600 }}>
+    More 18xx titles are on the way. See the
+    <a href="https://www.asterisk-games.com/rulebook" target="_blank" rel="noopener noreferrer">Asterisk Games rulebooks</a>
+    for what's coming.
+  </p>
+
   <footer class="foot" in:fade={{ duration: 600, delay: 700 }}>
-    <span>1889 · Shikoku Railways</span>
+    <span>Trains Party</span>
     <span class="dot">•</span>
     <span>build {BUILD_SHA}</span>
   </footer>
@@ -133,7 +55,7 @@
 
 <style>
   main {
-    max-width: 720px;
+    max-width: 880px;
     margin: 0 auto;
     padding: clamp(2rem, 6vw, 4rem) 1.25rem 3rem;
     text-align: center;
@@ -159,130 +81,105 @@
   }
   .tagline {
     color: var(--muted);
-    margin: 0 auto 1.5rem;
-    max-width: 40ch;
+    margin: 0 auto 2rem;
+    max-width: 46ch;
   }
-  .setup {
+  .games {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1rem;
     text-align: left;
+  }
+  .card {
     border: 1px solid var(--line);
+    border-top: 3px solid var(--accent);
     background: var(--bg-soft);
     border-radius: 16px;
-    padding: 1.2rem 1.3rem 1.4rem;
-  }
-  .setup h2 {
-    margin: 0 0 0.9rem;
-    font-size: 1.2rem;
-  }
-  .modes {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0.6rem;
-    margin-bottom: 1rem;
-  }
-  .mode {
-    text-align: left;
-    padding: 0.7rem 0.9rem;
-    border-radius: 12px;
-    border: 1px solid var(--line);
-    background: transparent;
-    color: var(--ink);
-    cursor: pointer;
+    padding: 1.1rem 1.2rem 1.2rem;
     display: flex;
     flex-direction: column;
-    gap: 0.15rem;
+    gap: 0.4rem;
   }
-  .mode.on {
-    border-color: var(--rail);
-    box-shadow: 0 0 0 1px var(--rail) inset;
+  .card.soon {
+    opacity: 0.92;
   }
-  .mlabel {
-    font-weight: 700;
+  .ctop {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
   }
-  .mdesc {
+  .card h2 {
+    margin: 0;
+    font-size: 1.3rem;
+    color: var(--accent);
+  }
+  .tag {
+    font-size: 0.62rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 0.1rem 0.5rem;
+    white-space: nowrap;
+  }
+  .sub {
+    margin: 0;
+    font-weight: 600;
+  }
+  .meta {
+    margin: 0;
     font-size: 0.78rem;
     color: var(--muted);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    align-items: center;
   }
-  .players-row {
+  .blurb {
+    margin: 0.3rem 0 0.6rem;
+    font-size: 0.86rem;
+    color: var(--ink);
+    flex: 1;
+  }
+  .actions {
     display: flex;
     align-items: center;
     gap: 0.6rem;
-    margin-bottom: 0.8rem;
   }
-  .players-row label {
-    font-weight: 600;
-  }
-  select,
-  .name {
-    background: var(--bg);
-    color: var(--ink);
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    padding: 0.4rem 0.5rem;
-    font-size: 0.9rem;
-  }
-  .seats {
-    display: grid;
-    gap: 0.5rem;
-  }
-  .seat {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-  .name {
-    flex: 1;
-    min-width: 0;
-  }
-  .toggle {
-    display: flex;
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    overflow: hidden;
-  }
-  .toggle button {
-    padding: 0.4rem 0.7rem;
-    border: none;
-    background: transparent;
-    color: var(--muted);
-    cursor: pointer;
-    font-size: 0.82rem;
-  }
-  .toggle button.on {
-    background: var(--rail);
-    color: #1b1b1b;
-    font-weight: 700;
-  }
-  .lvl:disabled {
-    opacity: 0.4;
-  }
-  .seat-note {
-    color: var(--muted);
-    font-size: 0.8rem;
-  }
-  .note {
-    color: var(--muted);
-    font-size: 0.82rem;
-    margin: 0.9rem 0 0;
-  }
-  .start {
-    margin-top: 1.2rem;
-    width: 100%;
-    padding: 0.8rem 1.3rem;
+  .play {
+    padding: 0.55rem 1.1rem;
     border-radius: 999px;
     background: var(--rail);
     color: #1b1b1b;
     font-weight: 800;
-    font-size: 1rem;
-    border: none;
-    cursor: pointer;
+    text-decoration: none;
     transition: transform 160ms ease, box-shadow 160ms ease;
   }
-  .start:hover {
+  .play:hover {
     transform: translateY(-2px);
     box-shadow: 0 6px 20px rgba(245, 197, 66, 0.25);
   }
+  .rules {
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 0.85rem;
+  }
+  .rules:hover {
+    color: var(--ink);
+  }
+  .more {
+    margin: 2rem auto 0;
+    color: var(--muted);
+    font-size: 0.85rem;
+    max-width: 50ch;
+  }
+  .more a {
+    color: var(--rail);
+  }
   .foot {
-    margin-top: 2rem;
+    margin-top: 1.4rem;
     color: var(--muted);
     font-size: 0.85rem;
     display: flex;
@@ -292,58 +189,5 @@
   }
   .dot {
     opacity: 0.4;
-  }
-
-  .namemodal {
-    position: fixed;
-    inset: 0;
-    z-index: 50;
-    display: grid;
-    place-items: center;
-    background: rgba(8, 12, 16, 0.72);
-    backdrop-filter: blur(4px);
-    padding: 1rem;
-  }
-  .namebox {
-    width: min(420px, 100%);
-    background: var(--bg-soft);
-    border: 1px solid var(--rail-deep);
-    border-radius: 16px;
-    padding: 1.4rem 1.5rem 1.5rem;
-    text-align: center;
-  }
-  .namebox h2 {
-    margin: 0 0 0.3rem;
-    color: var(--rail);
-  }
-  .namebox p {
-    margin: 0 0 1rem;
-    color: var(--muted);
-  }
-  .namebox input {
-    width: 100%;
-    background: var(--bg);
-    color: var(--ink);
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    padding: 0.7rem 0.8rem;
-    font-size: 1.05rem;
-    text-align: center;
-    margin-bottom: 0.9rem;
-  }
-  .namebox button {
-    width: 100%;
-    padding: 0.75rem 1rem;
-    border-radius: 999px;
-    border: none;
-    background: var(--rail);
-    color: #1b1b1b;
-    font-weight: 800;
-    font-size: 1rem;
-    cursor: pointer;
-  }
-  .namebox button:disabled {
-    opacity: 0.45;
-    cursor: not-allowed;
   }
 </style>
