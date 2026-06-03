@@ -45,6 +45,12 @@ export interface CorporationState {
   name: string;
   color: string;
   coordinates: string;
+  /** RoLA: minor vs major (undefined for 1889 corporations). */
+  kind?: 'minor' | 'major';
+  /** RoLA share denomination / dividend percent per share (minor 20, major 10). */
+  shareUnit?: number;
+  /** RoLA: set when the price reached 0 and the company dissolved. */
+  dissolved?: boolean;
   floated: boolean;
   cash: number;
   /** Percent of shares still in the IPO and the bank pool. */
