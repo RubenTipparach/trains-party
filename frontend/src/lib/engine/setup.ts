@@ -48,6 +48,23 @@ function rolaCorporations(cfg: GameConfig): CorporationState[] {
   ];
 }
 
+/** Deterministic Fisher-Yates shuffle from a seed (for the minor matrix). */
+function seededShuffle<T>(arr: T[], seed: number): T[] {
+  let s = seed >>> 0;
+  const rnd = () => {
+    s = (s + 0x6d2b79f5) | 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const out = [...arr];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
 export function initialState(
   seats: Seat[],
   title: string = DEFAULT_TITLE,
@@ -135,6 +152,18 @@ export function initialState(
     }
   }
 
+  // RoLA minor matrix: shuffle the minors into 2 columns (rulebook). Only the
+  // bottom (first unlaunched) of each column is launchable; launching reveals the
+  // next up the column. Dealt round-robin so each column is ~half the minors.
+  let minorMatrix: string[][] | undefined;
+  if (rola && opts.seed) {
+    const syms = corporations.filter((c) => c.kind === 'minor').map((c) => c.sym);
+    const order = seededShuffle(syms, opts.seed ^ 0x5bd1e995);
+    const cols = 2;
+    minorMatrix = Array.from({ length: cols }, () => [] as string[]);
+    order.forEach((sym, i) => minorMatrix![i % cols].push(sym));
+  }
+
   return {
     title,
     rulesVersion,
@@ -160,6 +189,7 @@ export function initialState(
     map,
     mapMode,
     mapBuild,
+    minorMatrix,
     log: [
       rola
         ? 'Stock round 1 begins; minors may launch'

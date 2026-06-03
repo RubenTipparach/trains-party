@@ -164,6 +164,9 @@ export interface GameState {
   mapMode?: 'auto' | 'manual';
   /** Active map-build round (RoLA Manual): remaining tile pool + turn order. */
   mapBuild?: { pool: TriHex[]; turn: number; order: string[] };
+  /** RoLA minor matrix: columns of minor syms; only the bottom (first unlaunched)
+   *  of each column is launchable, revealing the next up the column. */
+  minorMatrix?: string[][];
   log: string[];
   /** Set when the bank breaks; the current OR set finishes, then the game ends. */
   endTriggered: boolean;

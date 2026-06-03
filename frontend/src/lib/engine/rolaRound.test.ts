@@ -92,3 +92,33 @@ describe('RoLA stock round (Stage 4c)', () => {
     expect(ag(s).president).toBe('p2');
   });
 });
+
+describe('RoLA minor matrix (2 columns, bottom-row launchable)', () => {
+  const seeded = () => initialState(seats, 'rola', undefined, { seed: 31337 });
+
+  it('lays the minors into 2 columns and only offers the bottom of each', () => {
+    const s = seeded();
+    expect(s.minorMatrix).toHaveLength(2);
+    expect(s.minorMatrix!.flat().length).toBe(s.corporations.filter((c) => c.kind === 'minor').length);
+    const offered = rolaStockLegalActions(s).launch.map((l) => l.corp).sort();
+    const bottoms = s.minorMatrix!.map((col) => col[0]).sort();
+    expect(offered).toEqual(bottoms); // exactly the two column bottoms
+  });
+
+  it('reveals the next company up a column once its bottom launches', () => {
+    let s = seeded();
+    const col0 = s.minorMatrix![0];
+    const bottom = col0[0];
+    const next = col0[1];
+    expect(rolaStockLegalActions(s).launch.some((l) => l.corp === next)).toBe(false); // hidden behind bottom
+    s = apply(s, { type: 'launch', player: 'p1', corp: bottom, bid: 120 });
+    s = apply(s, { type: 'pass', player: 'p1' });
+    expect(rolaStockLegalActions(s).launch.some((l) => l.corp === next)).toBe(true); // now revealed
+  });
+
+  it('rejects launching a company that is not at the bottom of its column', () => {
+    const s = seeded();
+    const buried = s.minorMatrix![0][2]; // third up the first column
+    expect(() => apply(s, { type: 'launch', player: 'p1', corp: buried, bid: 120 })).toThrow();
+  });
+});

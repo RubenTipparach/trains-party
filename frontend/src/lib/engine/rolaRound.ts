@@ -61,6 +61,7 @@ function doLaunch(s: GameState, id: string, sym: string, bid: number): void {
   const st = s.stock!;
   if (st.bought) throw new GameError('only one launch/buy per turn');
   const c = corp(s, sym);
+  if (!availableMinors(s).includes(sym)) throw new GameError(`${sym} is not at the bottom of its matrix column`);
   launchMinor(s, c, id, bid); // validates kind/bid/affordability, derives par, sets treasury + 40% cert
   st.bought = true;
   st.acted = true;
@@ -203,12 +204,30 @@ export interface RolaStockLegal {
   sell: string[];
 }
 
+/**
+ * Minors currently launchable: the bottom (first unlaunched) of each matrix
+ * column. Without a matrix (e.g. an old save), every unlaunched minor qualifies.
+ */
+export function availableMinors(s: GameState): string[] {
+  if (!s.minorMatrix) {
+    return s.corporations.filter((c) => c.kind === 'minor' && c.parPrice === null).map((c) => c.sym);
+  }
+  const launched = new Set(s.corporations.filter((c) => c.parPrice !== null).map((c) => c.sym));
+  const out: string[] = [];
+  for (const col of s.minorMatrix) {
+    const next = col.find((sym) => !launched.has(sym));
+    if (next) out.push(next);
+  }
+  return out;
+}
+
 export function rolaStockLegalActions(s: GameState): RolaStockLegal {
   const id = s.players[s.current].id;
   const st = s.stock;
   const empty: RolaStockLegal = { player: id, canPass: false, launch: [], buyIpo: [], buyPool: [], sell: [] };
   if (!st) return empty;
   const p = player(s, id);
+  const available = availableMinors(s);
   const launch: { corp: string; minBid: number; par: number }[] = [];
   const buyIpo: string[] = [];
   const buyPool: string[] = [];
@@ -219,7 +238,7 @@ export function rolaStockLegalActions(s: GameState): RolaStockLegal {
     const soldThisRound = st.soldThisRound[id]?.includes(c.sym) ?? false;
     if (!st.bought && !soldThisRound) {
       if (c.kind === 'minor' && c.parPrice === null) {
-        if (p.cash >= MIN_LAUNCH_BID) {
+        if (available.includes(c.sym) && p.cash >= MIN_LAUNCH_BID) {
           launch.push({ corp: c.sym, minBid: MIN_LAUNCH_BID, par: parForBid(s, MIN_LAUNCH_BID) });
         }
       } else if (c.parPrice !== null) {
