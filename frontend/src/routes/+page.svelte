@@ -42,7 +42,7 @@
 
   <p class="more" in:fade={{ duration: 600, delay: 600 }}>
     More 18xx titles are on the way. See the
-    <a href="https://www.asterisk-games.com/rulebook" target="_blank" rel="noopener noreferrer">Asterisk Games rulebooks</a>
+    <a href="https://www.asterisk-games.com/rulebooks" target="_blank" rel="noopener noreferrer">Asterisk Games rulebooks</a>
     for what's coming.
   </p>
 

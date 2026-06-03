@@ -286,7 +286,9 @@ implementing. Not every published game has a port there (see RoLA below).
 - Status: **implemented**.
 
 **Railways of the Lost Atlas** — Asterisk Games.
-- Rulebooks index: https://www.asterisk-games.com/rulebook
+- Rulebook (PDF): https://www.asterisk-games.com/s/Railways-Rulebook-0912.pdf
+- Solo mode (PDF, expansion — out of scope for now): https://www.asterisk-games.com/s/RailwaysRulebook-SoloMode-0901.pdf
+- All rulebooks: https://www.asterisk-games.com/rulebooks
 - Title page: https://www.asterisk-games.com/railwaysofthelostatlas
 - BoardGameGeek: https://boardgamegeek.com/boardgame/365357/railways-of-the-lost-atlas
 - Status: **listed in the menu, rules not yet ported.** Notes for the eventual

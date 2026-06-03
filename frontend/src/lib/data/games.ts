@@ -53,7 +53,7 @@ export const GAMES: GameSummary[] = [
     blurb:
       'An 18xx where the map itself is built by players during setup, so no two games share a geography. Minor companies launch, expand, and merge into majors. Rules port in progress.',
     status: 'coming-soon',
-    rulebookUrl: 'https://www.asterisk-games.com/rulebook',
+    rulebookUrl: 'https://www.asterisk-games.com/s/Railways-Rulebook-0912.pdf',
     accent: '#5fb0e6'
   }
 ];
