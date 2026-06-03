@@ -27,8 +27,8 @@
       bot: bots[i],
       level: levels[i]
     }));
-    game.newGame(seats, 'rola', { mapMode });
-    goto(`${base}/board`);
+    const code = game.newGame(seats, 'rola', { mapMode });
+    goto(`${base}/rola/room/${code}`);
   }
 </script>
 

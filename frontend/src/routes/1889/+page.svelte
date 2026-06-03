@@ -45,8 +45,8 @@
       bot: mode === 'single' ? bots[i] : false,
       level: levels[i]
     }));
-    game.newGame(seats);
-    goto(`${base}/board`);
+    const code = game.newGame(seats, '1889');
+    goto(`${base}/1889/room/${code}`);
   }
 </script>
 

@@ -1,8 +1,33 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { base } from '$app/paths';
   import { fly, fade } from 'svelte/transition';
   import { BUILD_SHA } from '$lib/version';
   import { GAMES } from '$lib/data/games';
+  import { listSessions, deleteSession, migrateLegacySaves, type SessionMeta } from '$lib/game/sessions';
+
+  // The lobby reads client-side localStorage, so it populates on mount (the
+  // prerendered shell shows nothing until then).
+  let sessions = $state<SessionMeta[]>([]);
+  const refresh = () => (sessions = listSessions());
+  onMount(() => {
+    migrateLegacySaves();
+    refresh();
+  });
+  const titleOf = (id: string) => GAMES.find((g) => g.id === id)?.title ?? id;
+  function remove(code: string) {
+    deleteSession(code);
+    refresh();
+  }
+  function ago(t: number): string {
+    const s = Math.round((Date.now() - t) / 1000);
+    if (s < 60) return 'just now';
+    const m = Math.round(s / 60);
+    if (m < 60) return `${m}m ago`;
+    const h = Math.round(m / 60);
+    if (h < 24) return `${h}h ago`;
+    return `${Math.round(h / 24)}d ago`;
+  }
 </script>
 
 <main in:fade={{ duration: 400 }}>
@@ -35,6 +60,31 @@
         {/if}
       </article>
     {/each}
+  </section>
+
+  <section class="lobby" in:fade={{ duration: 400, delay: 320 }}>
+    <h2 class="lobtitle">Your games</h2>
+    {#if sessions.length === 0}
+      <p class="empty">No games yet. Pick a title above to start one - each game gets its own room.</p>
+    {:else}
+      <ul class="rooms">
+        {#each sessions as s (s.code)}
+          <li class="room" style="--accent:{GAMES.find((g) => g.id === s.title)?.accent ?? '#f5c542'}">
+            <a class="rmain" href={`${base}/${s.title}/room/${s.code}`}>
+              <span class="rtitle">{titleOf(s.title)}</span>
+              <span class="rcode">Room {s.code.toUpperCase()}</span>
+              <span class="rmeta">
+                {s.seats.length} players
+                <span class="dot">•</span>{s.status}
+                <span class="dot">•</span>{s.moves} moves
+                <span class="dot">•</span>{ago(s.updatedAt)}
+              </span>
+            </a>
+            <button class="rdel" title="Delete this game" onclick={() => remove(s.code)}>Delete</button>
+          </li>
+        {/each}
+      </ul>
+    {/if}
   </section>
 
   <footer class="foot" in:fade={{ duration: 600, delay: 700 }}>
@@ -151,6 +201,85 @@
   .play:hover {
     transform: translateY(-2px);
     box-shadow: 0 6px 20px rgba(245, 197, 66, 0.25);
+  }
+  .lobby {
+    margin-top: 2.4rem;
+    text-align: left;
+  }
+  .lobtitle {
+    font-size: 1.05rem;
+    margin: 0 0 0.8rem;
+    color: var(--ink);
+  }
+  .empty {
+    color: var(--muted);
+    font-size: 0.9rem;
+  }
+  .rooms {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .room {
+    display: flex;
+    align-items: stretch;
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--accent);
+    border-radius: 12px;
+    background: var(--bg-soft);
+    overflow: hidden;
+  }
+  .rmain {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-areas: 'title code' 'meta meta';
+    gap: 0.15rem 0.6rem;
+    padding: 0.7rem 0.9rem;
+    text-decoration: none;
+    color: inherit;
+    transition: background 140ms ease;
+  }
+  .rmain:hover {
+    background: rgba(255, 255, 255, 0.03);
+  }
+  .rtitle {
+    grid-area: title;
+    font-weight: 700;
+    color: var(--accent);
+  }
+  .rcode {
+    grid-area: code;
+    font: 700 0.75rem ui-monospace, monospace;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    align-self: center;
+  }
+  .rmeta {
+    grid-area: meta;
+    font-size: 0.78rem;
+    color: var(--muted);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    align-items: center;
+  }
+  .rdel {
+    border: none;
+    border-left: 1px solid var(--line);
+    background: none;
+    color: var(--muted);
+    font-size: 0.78rem;
+    padding: 0 0.9rem;
+    cursor: pointer;
+    transition: color 140ms ease, background 140ms ease;
+  }
+  .rdel:hover {
+    color: #e0655c;
+    background: rgba(224, 101, 92, 0.08);
   }
   .foot {
     margin-top: 1.4rem;

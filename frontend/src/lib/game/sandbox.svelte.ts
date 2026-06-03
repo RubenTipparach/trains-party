@@ -18,8 +18,24 @@ import {
   type GameState
 } from '$lib/engine';
 import { botAction, type BotLevel } from './bots';
+import { newCode, normCode, readSession, writeSession } from './sessions';
 
-const saveKey = (title: string) => `tp.${title}.sandbox`;
+/** A compact round label cached on each saved session for the lobby. */
+function statusOf(s: GameState): string {
+  if (s.finished) return 'Finished';
+  switch (s.round) {
+    case 'mapbuild':
+      return 'Building map';
+    case 'auction':
+      return 'Auction';
+    case 'stock':
+      return `SR ${Math.max(1, s.srCount)}`;
+    case 'operating':
+      return `OR ${s.orSet}.${s.or?.orNumber ?? 1}`;
+    default:
+      return s.round;
+  }
+}
 
 export interface SeatConfig {
   id: string;
@@ -44,6 +60,10 @@ class Sandbox {
   /** Procedural-map seed (RoLA) and how the map is built. */
   seed = $state(1);
   mapMode = $state<'auto' | 'manual'>('auto');
+  /** Active room code: the game is saved under it; the URL is /<title>/room/<code>. */
+  code = $state('');
+  /** When this room was created (for the lobby). */
+  createdAt = $state(0);
   /** The committed action log; replaying it yields the live game. */
   actions = $state<GameAction[]>([]);
   /** Undone actions available to redo. */
@@ -102,19 +122,28 @@ class Sandbox {
     return this.seats.find((s) => s.id === id)?.level ?? 'normal';
   }
 
-  newGame(seats: SeatConfig[], title = '1889', opts: { seed?: number; mapMode?: 'auto' | 'manual' } = {}) {
+  /** Start a fresh game in a new (or given) room. Returns the room code. */
+  newGame(
+    seats: SeatConfig[],
+    title = '1889',
+    opts: { seed?: number; mapMode?: 'auto' | 'manual'; code?: string } = {}
+  ): string {
     this.seats = seats;
     this.title = title;
     this.seed = opts.seed ?? Math.floor(Math.random() * 1_000_000_000);
     this.mapMode = opts.mapMode ?? 'auto';
+    this.code = opts.code ? normCode(opts.code) : newCode();
+    this.createdAt = Date.now();
     this.actions = [];
     this.redoStack = [];
     this.cursor = 0;
     this.error = null;
     this.persist();
+    return this.code;
   }
+  /** Restart the current room from scratch (same code). */
   reset() {
-    this.newGame(this.seats);
+    this.newGame(this.seats, this.title, { code: this.code, mapMode: this.mapMode });
   }
 
   act(action: GameAction) {
@@ -184,68 +213,60 @@ class Sandbox {
   }
 
   private persist() {
-    if (typeof localStorage === 'undefined') return;
-    try {
-      localStorage.setItem(
-        saveKey(this.title),
-        JSON.stringify({
-          v: RULES_VERSION,
-          title: this.title,
-          seed: this.seed,
-          mapMode: this.mapMode,
-          seats: $state.snapshot(this.seats),
-          actions: $state.snapshot(this.actions)
-        })
-      );
-    } catch {
-      /* ignore */
-    }
+    if (!this.code) return;
+    writeSession({
+      v: RULES_VERSION,
+      code: this.code,
+      title: this.title,
+      seed: this.seed,
+      mapMode: this.mapMode,
+      seats: $state.snapshot(this.seats) as SeatConfig[],
+      actions: $state.snapshot(this.actions) as GameAction[],
+      status: statusOf(this.live),
+      createdAt: this.createdAt || Date.now(),
+      updatedAt: Date.now()
+    });
   }
 
-  load() {
-    if (typeof localStorage === 'undefined') return;
-    try {
-      const raw = localStorage.getItem(saveKey(this.title));
-      if (!raw) return;
-      const data = JSON.parse(raw);
-      if (!Array.isArray(data?.actions) || !Array.isArray(data?.seats)) return;
-      const title: string = data.title ?? this.title;
-      const seed: number = data.seed ?? this.seed;
-      const mapMode: 'auto' | 'manual' = data.mapMode ?? this.mapMode;
-
-      // The save is the action LOG. Replay DEFENSIVELY: apply actions one by one
-      // and keep the longest prefix that still applies cleanly under the current
-      // engine. This way a rules change that invalidates a late action only
-      // rewinds the game slightly instead of discarding it entirely (which is
-      // what made games "reset after each update").
-      const base = initialState(seatIds(data.seats), title, RULES_VERSION, { seed, mapMode });
-      const valid: GameAction[] = [];
-      let s = base;
-      for (const action of data.actions as GameAction[]) {
-        try {
-          s = apply(s, action);
-          valid.push(action);
-        } catch {
-          break; // first action the new engine rejects; stop here
-        }
-      }
-      if (valid.length === 0 && data.actions.length > 0) return; // nothing salvageable
-
-      this.seats = data.seats;
-      this.title = title;
-      this.seed = seed;
-      this.mapMode = mapMode;
-      this.actions = valid;
-      this.redoStack = [];
-      this.cursor = valid.length;
-      this.error = null;
-      if (valid.length < data.actions.length) {
-        // Persist the trimmed log so we don't keep re-trimming, and note it.
-        this.persist();
-      }
-    } catch {
-      /* corrupt save: leave the fresh game in place */
+  /**
+   * Load a room by code. If the code is unknown locally, claim it with a fresh
+   * default game (so a shared/typed room link is never a dead end).
+   *
+   * The save is the action LOG, replayed DEFENSIVELY: apply actions one by one
+   * and keep the longest prefix that still applies under the current engine, so a
+   * rules change that invalidates a late action only rewinds the game slightly.
+   */
+  loadRoom(code: string, title?: string) {
+    const sess = readSession(code);
+    if (!sess || !Array.isArray(sess.actions) || !Array.isArray(sess.seats)) {
+      this.newGame(DEFAULT_SEATS, title ?? this.title, { code });
+      return;
     }
+    const base = initialState(seatIds(sess.seats), sess.title, RULES_VERSION, {
+      seed: sess.seed,
+      mapMode: sess.mapMode
+    });
+    const valid: GameAction[] = [];
+    let s = base;
+    for (const action of sess.actions) {
+      try {
+        s = apply(s, action);
+        valid.push(action);
+      } catch {
+        break;
+      }
+    }
+    this.seats = sess.seats;
+    this.title = sess.title;
+    this.seed = sess.seed;
+    this.mapMode = sess.mapMode;
+    this.code = normCode(code);
+    this.createdAt = sess.createdAt ?? Date.now();
+    this.actions = valid;
+    this.redoStack = [];
+    this.cursor = valid.length;
+    this.error = null;
+    if (valid.length < sess.actions.length) this.persist();
   }
 }
 
