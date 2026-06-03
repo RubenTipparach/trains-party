@@ -15,6 +15,7 @@ import { applyLayTile, legalLays, applyToken, legalTokens, applySpecialLay } fro
 import { routeRevenue, canRunRoute, revenueForChosenRoutes } from './routes';
 import { playerValue } from './metrics';
 import { sellSharesToPool, currentPrice, canSell, maxSellCount, stampPrice } from './stock';
+import { applyDividend } from './rolaStock';
 
 function corp(s: GameState, sym: string): CorporationState {
   const c = s.corporations.find((x) => x.sym === sym);
@@ -173,8 +174,12 @@ function nextCorp(s: GameState): void {
 }
 
 /** The phase train limit (max trains a corporation may own). */
-function trainLimit(s: GameState): number {
-  return configFor(s.title).phases.find((p) => p.name === s.phase)?.trainLimit ?? 99;
+function trainLimit(s: GameState, c?: CorporationState): number {
+  const ph = configFor(s.title).phases.find((p) => p.name === s.phase);
+  if (!ph) return 99;
+  // RoLA minors have a lower limit than majors; 1889 uses the single limit.
+  if (c?.kind === 'minor') return ph.minorTrainLimit ?? ph.trainLimit;
+  return ph.trainLimit;
 }
 
 /** Has the game reached `phaseName` (current phase index >= its index)? */
@@ -185,29 +190,32 @@ function phaseReached(s: GameState, phaseName: string): boolean {
 
 function doRun(s: GameState, c: CorporationState, revenue: number, mode: 'pay' | 'withhold'): void {
   if (revenue < 0) throw new GameError('revenue cannot be negative');
+  const linear = configFor(s.title).marketKind === 'linear';
   if (mode === 'pay' && revenue > 0) {
-    const perShare = revenue / 10; // 10 shares of 10%
+    // Each holder is paid in proportion to the percent they hold (so this works
+    // for any share denomination); pooled shares pay the corporation treasury,
+    // IPO shares pay nobody.
     let paidOut = 0;
     for (const p of s.players) {
       const pct = p.shares[c.sym] ?? 0;
       if (pct > 0) {
-        const amt = perShare * (pct / 10);
+        const amt = (revenue * pct) / 100;
         p.cash += amt;
         paidOut += amt;
       }
     }
-    // Market (pool) shares pay their dividend to the corporation treasury.
-    // IPO shares pay NOBODY (that portion is simply not paid out) in 1889.
-    const toTreasury = perShare * (c.poolShares / 10);
+    const toTreasury = (revenue * c.poolShares) / 100;
     c.cash += toTreasury;
     paidOut += toTreasury;
     s.bank -= paidOut;
-    moveRight(s, c);
+    if (linear) applyDividend(s, c, 'pay', revenue);
+    else moveRight(s, c);
     s.log.push(`${c.sym} runs for ${revenue} and pays a dividend`);
   } else {
     c.cash += revenue;
     s.bank -= revenue;
-    moveLeft(s, c);
+    if (linear) applyDividend(s, c, 'withhold', 0);
+    else moveLeft(s, c);
     s.log.push(`${c.sym} runs for ${revenue} and withholds`);
   }
   // End-game trigger: when the bank breaks (runs out of money), the current OR
@@ -286,8 +294,8 @@ function doBuyTrain(s: GameState, c: CorporationState, train: string, tradeIn?: 
   }
 
   // Train limit: may not exceed the phase limit. A trade-in keeps the count flat.
-  if (c.trains.length + 1 - (tradeIn ? 1 : 0) > trainLimit(s)) {
-    throw new GameError(`${c.sym} is at the ${trainLimit(s)}-train limit`);
+  if (c.trains.length + 1 - (tradeIn ? 1 : 0) > trainLimit(s, c)) {
+    throw new GameError(`${c.sym} is at the ${trainLimit(s, c)}-train limit`);
   }
 
   if (c.cash < price) {
@@ -393,7 +401,7 @@ function doBuyTrainFromCorp(s: GameState, buyer: CorporationState, fromSym: stri
   }
   const idx = seller.trains.indexOf(train);
   if (idx === -1) throw new GameError(`${fromSym} has no ${train}-train to sell`);
-  if (buyer.trains.length + 1 > trainLimit(s)) throw new GameError(`${buyer.sym} is at the ${trainLimit(s)}-train limit`);
+  if (buyer.trains.length + 1 > trainLimit(s, buyer)) throw new GameError(`${buyer.sym} is at the ${trainLimit(s, buyer)}-train limit`);
   if (!Number.isInteger(price) || price < 1) throw new GameError('train price must be at least 1');
   if (price > buyer.cash) throw new GameError(`${buyer.sym} cannot pay ${price} (treasury ${buyer.cash})`);
 
