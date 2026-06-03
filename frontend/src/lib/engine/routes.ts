@@ -12,20 +12,26 @@
  * longest train takes the best route, then shorter trains take the best remaining
  * route without reusing track. This is a faithful-enough first pass; it finds the
  * best simple routes rather than a globally optimal non-overlapping set.
+ *
+ * Map and train data come from the title config (by `state.title`).
  */
 
-import { HEX_BY_COORD } from '$lib/data/map1889';
-import { TRAINS, PHASES } from '$lib/data/g1889';
+import { configFor } from './registry';
 import { neighbor } from './track';
 import { TILES, rotatePaths, type TileEnd } from './tiles';
 import { GameError, type CorporationState, type GameState } from './types';
+import type { HexDef, TrainDef } from '$lib/data/types';
 
 const opposite = (e: number) => (e + 3) % 6;
 
 /** Max revenue centres a train may visit (the diesel is effectively unlimited). */
-function trainMaxStops(name: string): number {
-  const d = TRAINS.find((x) => x.name === name)?.distance ?? 2;
+function trainMaxStops(trains: TrainDef[], name: string): number {
+  const d = trains.find((x) => x.name === name)?.distance ?? 2;
   return d > 90 ? 99 : d;
+}
+/** Whether a train scores the diesel offboard tier. */
+function isDiesel(trains: TrainDef[], name: string): boolean {
+  return (trains.find((t) => t.name === name)?.distance ?? 0) > 90;
 }
 
 type End = TileEnd; // edge 0-5 or 'c'
@@ -40,7 +46,7 @@ function hexSegments(s: GameState, hex: string): Seg[] {
   if (laid) {
     return rotatePaths(TILES[laid.id], laid.rotation);
   }
-  const base = HEX_BY_COORD[hex];
+  const base = configFor(s.title).hexByCoord[hex];
   if (!base) return [];
   return base.paths.map((p) => ({ a: p.a === 'center' ? 'c' : p.a, b: p.b === 'center' ? 'c' : p.b }));
 }
@@ -54,7 +60,7 @@ function hexSegments(s: GameState, hex: string): Seg[] {
  */
 function offboardRevenue(s: GameState, revenue: Record<string, number>, diesel: boolean): number {
   if (diesel && revenue.diesel !== undefined) return revenue.diesel;
-  const tiles = PHASES.find((p) => p.name === s.phase)?.tiles ?? ['yellow'];
+  const tiles = configFor(s.title).phases.find((p) => p.name === s.phase)?.tiles ?? ['yellow'];
   for (let i = tiles.length - 1; i >= 0; i--) {
     const v = revenue[tiles[i]];
     if (v !== undefined) return v;
@@ -72,7 +78,7 @@ function centreRevenue(s: GameState, hex: string, diesel = false): number {
     const def = TILES[laid.id];
     if (def.cities || def.towns) return def.revenue;
   }
-  const base = HEX_BY_COORD[hex];
+  const base = configFor(s.title).hexByCoord[hex];
   if (!base) return 0;
   if (base.offboard) return offboardRevenue(s, base.offboard.revenue, diesel);
   if (laid) return 0; // laid plain track, no centre
@@ -88,14 +94,14 @@ function hasCentre(s: GameState, hex: string): boolean {
     const def = TILES[laid.id];
     return def.cities > 0 || def.towns > 0;
   }
-  const base = HEX_BY_COORD[hex];
+  const base = configFor(s.title).hexByCoord[hex];
   return !!base && (base.cities.length > 0 || base.towns.length > 0 || !!base.offboard);
 }
 
 function isCity(s: GameState, hex: string): boolean {
   const laid = s.tiles?.[hex];
   if (laid) return TILES[laid.id].cities > 0;
-  const base = HEX_BY_COORD[hex];
+  const base = configFor(s.title).hexByCoord[hex];
   return !!base && (base.cities.length > 0 || !!base.offboard);
 }
 
@@ -103,7 +109,7 @@ function isCity(s: GameState, hex: string): boolean {
 function citySlots(s: GameState, hex: string): number {
   const laid = s.tiles?.[hex];
   if (laid) return TILES[laid.id]?.slots ?? 0;
-  return HEX_BY_COORD[hex]?.cities?.[0]?.slots ?? 0;
+  return configFor(s.title).hexByCoord[hex]?.cities?.[0]?.slots ?? 0;
 }
 
 /** How many corporations currently have a station token in `hex`. */
@@ -131,8 +137,8 @@ const segId = (hex: string, seg: Seg) => {
   const b = String(seg.b);
   return `${hex}|${[a, b].sort().join('-')}`;
 };
-const linkId = (hex: string, e: number) => {
-  const nb = neighbor(hex, e)!;
+const linkId = (hexes: Record<string, HexDef>, hex: string, e: number) => {
+  const nb = neighbor(hexes, hex, e)!;
   return [`${hex}.${e}`, `${nb}.${opposite(e)}`].sort().join('~');
 };
 
@@ -157,6 +163,7 @@ function bestRouteFrom(
   corp: CorporationState,
   diesel = false
 ): { route: Route; segs: Set<string>; links: Set<string> } | null {
+  const hexes = configFor(s.title).hexByCoord;
   let best: { route: Route; segs: Set<string>; links: Set<string> } | null = null;
 
   // Walk state: we are AT a centre in `hex`; choose an outgoing tile segment
@@ -185,9 +192,9 @@ function bestRouteFrom(
       const edge = (seg.a === 'c' ? seg.b : seg.a) as number;
       const sid = segId(hex, seg);
       if (segs.has(sid) || usedSegs.has(sid)) continue;
-      const nb = neighbor(hex, edge);
+      const nb = neighbor(hexes, hex, edge);
       if (!nb) continue;
-      const lid = linkId(hex, edge);
+      const lid = linkId(hexes, hex, edge);
       if (links.has(lid) || usedLinks.has(lid)) continue;
       // arrive at neighbour on the opposite edge; traverse to its centre(s)
       traverse(nb, opposite(edge), stops, revenue, withAdd(segs, sid), withAdd(links, lid));
@@ -219,9 +226,9 @@ function bestRouteFrom(
       } else {
         // pass through to the next hex
         const edge = other as number;
-        const nb = neighbor(hex, edge);
+        const nb = neighbor(hexes, hex, edge);
         if (!nb) continue;
-        const lid = linkId(hex, edge);
+        const lid = linkId(hexes, hex, edge);
         if (links.has(lid) || usedLinks.has(lid)) continue;
         traverse(nb, opposite(edge), stops, revenue, segs2, withAdd(links, lid));
       }
@@ -243,7 +250,8 @@ export function corpRoutes(s: GameState, corp: CorporationState): { routes: Rout
   const tokenCities = corp.tokenHexes.filter((h) => isCity(s, h));
   if (tokenCities.length === 0 || corp.trains.length === 0) return { routes: [], revenue: 0 };
 
-  const trains = [...corp.trains].sort((a, b) => trainMaxStops(b) - trainMaxStops(a));
+  const trainDefs = configFor(s.title).trains;
+  const trains = [...corp.trains].sort((a, b) => trainMaxStops(trainDefs, b) - trainMaxStops(trainDefs, a));
 
   const usedSegs = new Set<string>();
   const usedLinks = new Set<string>();
@@ -251,8 +259,8 @@ export function corpRoutes(s: GameState, corp: CorporationState): { routes: Rout
   let revenue = 0;
 
   for (const train of trains) {
-    const maxStops = trainMaxStops(train);
-    const diesel = (TRAINS.find((t) => t.name === train)?.distance ?? 0) > 90;
+    const maxStops = trainMaxStops(trainDefs, train);
+    const diesel = isDiesel(trainDefs, train);
     let pick: { route: Route; segs: Set<string>; links: Set<string> } | null = null;
     for (const anchor of tokenCities) {
       const r = bestRouteFrom(s, anchor, maxStops, usedSegs, usedLinks, corp, diesel);
@@ -306,6 +314,7 @@ export function routeThroughStops(
   diesel = false
 ): { route: Route; segs: Set<string>; links: Set<string> } | null {
   if (stops.length < 2 || stops.length > maxStops) return null;
+  const hexes = configFor(s.title).hexByCoord;
   // Token blocking: an interior stop full of other corporations' tokens cannot
   // be passed through (only route endpoints may be such a blocked city).
   if (corp) {
@@ -329,9 +338,9 @@ export function routeThroughStops(
         const edge = (seg.a === 'c' ? seg.b : seg.a) as number;
         const sid = segId(hex, seg);
         if (segs2.has(sid) || usedSegs.has(sid)) continue;
-        const nb = neighbor(hex, edge);
+        const nb = neighbor(hexes, hex, edge);
         if (!nb) continue;
-        const lid = linkId(hex, edge);
+        const lid = linkId(hexes, hex, edge);
         if (links2.has(lid) || usedLinks.has(lid)) continue;
         cross(nb, opposite(edge), withAdd(segs2, sid), withAdd(links2, lid));
       }
@@ -354,9 +363,9 @@ export function routeThroughStops(
           continue;
         }
         const edge = other as number;
-        const nb = neighbor(hex, edge);
+        const nb = neighbor(hexes, hex, edge);
         if (!nb) continue;
-        const lid = linkId(hex, edge);
+        const lid = linkId(hexes, hex, edge);
         if (links2.has(lid) || usedLinks.has(lid)) continue;
         cross(nb, opposite(edge), segs3, withAdd(links2, lid));
       }
@@ -387,7 +396,8 @@ export function routeThroughStops(
 export function revenueForChosenRoutes(s: GameState, corp: CorporationState, routes: string[][]): number {
   const chosen = routes.filter((r) => r.length >= 2);
   if (chosen.length === 0) return 0;
-  const trainsByReach = [...corp.trains].sort((a, b) => trainMaxStops(b) - trainMaxStops(a));
+  const trainDefs = configFor(s.title).trains;
+  const trainsByReach = [...corp.trains].sort((a, b) => trainMaxStops(trainDefs, b) - trainMaxStops(trainDefs, a));
   if (chosen.length > trainsByReach.length) throw new GameError('more routes than trains');
   const sorted = [...chosen].sort((a, b) => b.length - a.length);
   const tokenCities = new Set(corp.tokenHexes.filter((h) => isCity(s, h)));
@@ -397,11 +407,10 @@ export function revenueForChosenRoutes(s: GameState, corp: CorporationState, rou
   for (let i = 0; i < sorted.length; i++) {
     const stops = sorted[i];
     const train = trainsByReach[i];
-    const maxStops = trainMaxStops(train);
+    const maxStops = trainMaxStops(trainDefs, train);
     if (stops.length > maxStops) throw new GameError(`a ${train}-train cannot reach ${stops.length} stops`);
     if (!stops.some((h) => tokenCities.has(h))) throw new GameError('each route must include a tokened city');
-    const diesel = (TRAINS.find((t) => t.name === train)?.distance ?? 0) > 90;
-    const res = routeThroughStops(s, stops, maxStops, usedSegs, usedLinks, corp, diesel);
+    const res = routeThroughStops(s, stops, maxStops, usedSegs, usedLinks, corp, isDiesel(trainDefs, train));
     if (!res) throw new GameError(`route ${stops.join('-')} is not connectable without reusing track`);
     res.segs.forEach((x) => usedSegs.add(x));
     res.links.forEach((x) => usedLinks.add(x));

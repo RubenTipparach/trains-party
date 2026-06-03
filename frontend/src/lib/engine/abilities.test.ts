@@ -7,6 +7,7 @@
 import { describe, it, expect } from 'vitest';
 import { initialState } from './setup';
 import { apply, routeRevenue, legalLays, blockedHexes, neighbor, type GameState, type GameAction } from './index';
+import { HEX_BY_COORD } from '$lib/data/map1889';
 
 const seats3 = [
   { id: 'p1', name: 'Ann' },
@@ -40,7 +41,7 @@ function operatingState(seats = seats3): GameState {
 /** Smallest rotation of a tile (given its centre-edge list) with no edge in the sea. */
 function landRotation(hex: string, edges: number[]): number {
   for (let r = 0; r < 6; r++) {
-    if (edges.every((e) => neighbor(hex, (e + r) % 6) !== null)) return r;
+    if (edges.every((e) => neighbor(HEX_BY_COORD, hex, (e + r) % 6) !== null)) return r;
   }
   return -1;
 }

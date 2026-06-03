@@ -7,11 +7,10 @@
  * par) or the bank pool (at the current price) - or pass. A pure pass by every
  * player in a row ends the round.
  *
- * Simplifications noted inline (presidency cert-swap, some zone edge rules) will
- * be refined alongside the operating round.
+ * Market, par prices, and the certificate limit come from the title config.
  */
 
-import { MARKET, PAR_PRICES, CERT_LIMIT } from '$lib/data/g1889';
+import { configFor } from './registry';
 import {
   GameError,
   type CorporationState,
@@ -20,8 +19,6 @@ import {
   type PlayerState
 } from './types';
 import { startOperatingRound } from './operating';
-
-const PAR_COL = 3; // par cells live in market column 3 (rows 0..5)
 
 function corp(s: GameState, sym: string): CorporationState {
   const c = s.corporations.find((x) => x.sym === sym);
@@ -35,16 +32,17 @@ function pname(s: GameState, id: string): string {
   return s.players.find((p) => p.id === id)?.name ?? id;
 }
 
-function cellExists(row: number, col: number): boolean {
-  return !!MARKET[row] && col < MARKET[row].length;
+function cellExists(s: GameState, row: number, col: number): boolean {
+  const m = configFor(s.title).market;
+  return !!m[row] && col < m[row].length;
 }
-export function currentPrice(c: CorporationState): number {
+export function currentPrice(s: GameState, c: CorporationState): number {
   if (c.priceRow === null || c.priceCol === null) return c.parPrice ?? 0;
-  return MARKET[c.priceRow][c.priceCol].price;
+  return configFor(s.title).market[c.priceRow][c.priceCol].price;
 }
-function corpZone(c: CorporationState): string {
+function corpZone(s: GameState, c: CorporationState): string {
   if (c.priceRow === null || c.priceCol === null) return 'white';
-  return MARKET[c.priceRow][c.priceCol].zone;
+  return configFor(s.title).market[c.priceRow][c.priceCol].zone;
 }
 /** Stamp the corporation as the most-recent arrival in its current market cell. */
 export function stampPrice(s: GameState, c: CorporationState): void {
@@ -52,7 +50,7 @@ export function stampPrice(s: GameState, c: CorporationState): void {
 }
 function moveDown(s: GameState, c: CorporationState): void {
   if (c.priceRow === null || c.priceCol === null) return;
-  if (cellExists(c.priceRow + 1, c.priceCol)) {
+  if (cellExists(s, c.priceRow + 1, c.priceCol)) {
     c.priceRow += 1;
     stampPrice(s, c);
   }
@@ -76,17 +74,17 @@ function certCount(s: GameState, id: string): number {
   for (const c of s.corporations) {
     const pct = holds(p, c.sym);
     if (pct <= 0) continue;
-    if (corpZone(c) === 'yellow') continue; // shares do not count toward the limit
+    if (corpZone(s, c) === 'yellow') continue; // shares do not count toward the limit
     const isPres = c.president === id;
     n += (pct - (isPres ? 20 : 0)) / 10 + (isPres ? 1 : 0);
   }
   return n;
 }
 function certLimit(s: GameState): number {
-  return CERT_LIMIT[s.players.length];
+  return configFor(s.title).certLimit[s.players.length];
 }
-function holdLimitOk(c: CorporationState, p: PlayerState, addPct: number): boolean {
-  if (corpZone(c) === 'orange') return true; // may hold above 60%
+function holdLimitOk(s: GameState, c: CorporationState, p: PlayerState, addPct: number): boolean {
+  if (corpZone(s, c) === 'orange') return true; // may hold above 60%
   return holds(p, c.sym) + addPct <= 60;
 }
 
@@ -167,7 +165,8 @@ function doPar(s: GameState, id: string, sym: string, price: number): void {
   if (st.bought) throw new GameError('only one purchase per turn');
   const c = corp(s, sym);
   if (c.parPrice !== null) throw new GameError(`${sym} has already started`);
-  const row = PAR_PRICES.indexOf(price);
+  const cfg = configFor(s.title);
+  const row = cfg.parPrices.indexOf(price);
   if (row < 0) throw new GameError(`invalid par price ${price}`);
   const p = player(s, id);
   const cost = 2 * price;
@@ -176,7 +175,7 @@ function doPar(s: GameState, id: string, sym: string, price: number): void {
 
   c.parPrice = price;
   c.priceRow = row;
-  c.priceCol = PAR_COL;
+  c.priceCol = cfg.parCol;
   stampPrice(s, c);
   c.ipoShares -= 20;
   c.president = id;
@@ -205,10 +204,10 @@ function doBuy(s: GameState, id: string, sym: string, from: 'ipo' | 'pool'): voi
     cost = c.parPrice;
   } else {
     if (c.poolShares < 10) throw new GameError(`no pool shares of ${sym}`);
-    cost = currentPrice(c);
+    cost = currentPrice(s, c);
   }
-  if (!holdLimitOk(c, p, 10)) throw new GameError(`hold limit reached for ${sym}`);
-  if (corpZone(c) !== 'yellow' && certCount(s, id) + 1 > certLimit(s)) {
+  if (!holdLimitOk(s, c, p, 10)) throw new GameError(`hold limit reached for ${sym}`);
+  if (corpZone(s, c) !== 'yellow' && certCount(s, id) + 1 > certLimit(s)) {
     throw new GameError('certificate limit reached');
   }
   if (p.cash < cost) throw new GameError(`${id} cannot afford a share of ${sym} (${cost})`);
@@ -265,7 +264,7 @@ export function sellSharesToPool(s: GameState, id: string, sym: string, count: n
     }
   }
 
-  const price = currentPrice(c);
+  const price = currentPrice(s, c);
   const proceeds = count * price;
   p.shares[sym] = holds(p, sym) - pct;
   c.poolShares += pct;
@@ -374,20 +373,22 @@ export function stockLegalActions(s: GameState): StockLegalActions {
   // No stock round in progress (e.g. a pass just ended the round and the UI is
   // mid-flush before swapping panels): expose no legal actions rather than crash.
   if (!st) return { player: id, canPass: false, par: [], buyIpo: [], buyPool: [], sell: [] };
+  const cfg = configFor(s.title);
   const p = player(s, id);
   const par: string[] = [];
   const buyIpo: string[] = [];
   const buyPool: string[] = [];
   const sell: string[] = [];
+  const minPar = 2 * cfg.parPrices[cfg.parPrices.length - 1];
   for (const c of s.corporations) {
     // At most one buy per turn; a corporation sold this round cannot be bought.
     const soldThisRound = st.soldThisRound[id]?.includes(c.sym) ?? false;
     if (!st.bought && !soldThisRound) {
       if (c.parPrice === null) {
-        if (p.cash >= 2 * PAR_PRICES[PAR_PRICES.length - 1]) par.push(c.sym);
+        if (p.cash >= minPar) par.push(c.sym);
       } else {
-        if (c.ipoShares >= 10 && holdLimitOk(c, p, 10) && p.cash >= c.parPrice) buyIpo.push(c.sym);
-        if (c.poolShares >= 10 && holdLimitOk(c, p, 10) && p.cash >= currentPrice(c)) buyPool.push(c.sym);
+        if (c.ipoShares >= 10 && holdLimitOk(s, c, p, 10) && p.cash >= c.parPrice) buyIpo.push(c.sym);
+        if (c.poolShares >= 10 && holdLimitOk(s, c, p, 10) && p.cash >= currentPrice(s, c)) buyPool.push(c.sym);
       }
     }
     if (canSell(s, id, c.sym)) sell.push(c.sym);

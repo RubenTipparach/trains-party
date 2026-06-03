@@ -1,8 +1,8 @@
 /**
- * Deterministic initial state for an 1889 game from static config + seats.
+ * Deterministic initial state for a game from its title config + seats.
  */
 
-import { STARTING_CASH, BANK_CASH, COMPANIES, CORPORATIONS, TRAINS } from '$lib/data/g1889';
+import { configFor, DEFAULT_TITLE } from './registry';
 import { GameError, RULES_VERSION, type CompanyState, type CorporationState, type GameState } from './types';
 
 export interface Seat {
@@ -10,16 +10,22 @@ export interface Seat {
   name: string;
 }
 
-export function initialState(seats: Seat[], rulesVersion: string = RULES_VERSION): GameState {
+export function initialState(
+  seats: Seat[],
+  title: string = DEFAULT_TITLE,
+  rulesVersion: string = RULES_VERSION
+): GameState {
+  const cfg = configFor(title);
   const n = seats.length;
-  const cash = STARTING_CASH[n];
+  const cash = cfg.startingCash[n];
   if (!cash) throw new GameError(`unsupported player count: ${n}`);
 
   const players = seats.map((s) => ({ id: s.id, name: s.name, cash, companies: [], shares: {}, passed: false }));
 
   // Private companies in play: filter by minPlayers (UTF needs 4+), and in a
   // 2-player game South Iyo Railway (SIR) is removed.
-  const companies: CompanyState[] = COMPANIES.filter((c) => !c.minPlayers || n >= c.minPlayers)
+  const companies: CompanyState[] = cfg.companies
+    .filter((c) => !c.minPlayers || n >= c.minPlayers)
     .filter((c) => !(n === 2 && c.sym === 'SIR'))
     .map((c) => ({
       sym: c.sym,
@@ -36,7 +42,7 @@ export function initialState(seats: Seat[], rulesVersion: string = RULES_VERSION
 
   const available = [...companies].sort((a, b) => a.value - b.value).map((c) => c.sym);
 
-  const corporations: CorporationState[] = CORPORATIONS.map((c) => ({
+  const corporations: CorporationState[] = cfg.corporations.map((c) => ({
     sym: c.sym,
     name: c.name,
     color: c.color,
@@ -56,9 +62,10 @@ export function initialState(seats: Seat[], rulesVersion: string = RULES_VERSION
     stackSeq: 0
   }));
 
-  const depot = TRAINS.map((t) => ({ name: t.name, remaining: t.num }));
+  const depot = cfg.trains.map((t) => ({ name: t.name, remaining: t.num }));
 
   return {
+    title,
     rulesVersion,
     seq: 0,
     round: 'auction',
@@ -68,7 +75,7 @@ export function initialState(seats: Seat[], rulesVersion: string = RULES_VERSION
     priority: 0,
     current: 0,
     priceStack: 0,
-    bank: BANK_CASH - n * cash,
+    bank: cfg.bankCash - n * cash,
     players,
     companies,
     corporations,

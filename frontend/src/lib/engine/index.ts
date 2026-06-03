@@ -18,6 +18,7 @@ import { applyOperating, operatingActivePlayer, operatingView } from './operatin
 
 export { initialState } from './setup';
 export type { Seat } from './setup';
+export { configFor, gameTitles, DEFAULT_TITLE } from './registry';
 export * from './types';
 export { minBid, auctionActivePlayer, auctionView, maxBidFor } from './auction';
 export type { AuctionView, AuctionCompanyView, AuctionPlayerView } from './auction';

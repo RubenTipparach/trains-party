@@ -123,3 +123,37 @@ export interface HexDef {
   /** Icon ids printed on the hex (e.g. "port"). */
   icons: string[];
 }
+
+/** Available tile manifest entry (id -> count). */
+export interface TileManifestEntry {
+  id: string;
+  count: number;
+  /** Colour only where the source states it (the beginner tiles). */
+  color?: TileColor;
+}
+
+// --- Per-title config ------------------------------------------------------
+
+/**
+ * Everything the engine needs to run one 18xx title. The engine reads this via
+ * the title registry (by `GameState.title`) instead of importing a specific
+ * game's data module, so the reducers stay title-agnostic.
+ */
+export interface GameConfig {
+  /** Registry key / id, e.g. "1889". */
+  title: string;
+  bankCash: number;
+  startingCash: Record<number, number>;
+  certLimit: Record<number, number>;
+  market: MarketCell[][];
+  parPrices: number[];
+  /** Market column the par cells live in. */
+  parCol: number;
+  phases: PhaseDef[];
+  trains: TrainDef[];
+  corporations: CorporationDef[];
+  companies: CompanyDef[];
+  hexes: HexDef[];
+  hexByCoord: Record<string, HexDef>;
+  tileManifest: TileManifestEntry[];
+}

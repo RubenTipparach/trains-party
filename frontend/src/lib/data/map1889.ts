@@ -6,7 +6,7 @@
  * read-only HexMap component. LAYOUT is :flat (flat-top hexes).
  */
 
-import type { HexDef, PathPart, TileColor } from './types';
+import type { HexDef, PathPart, TileColor, TileManifestEntry } from './types';
 
 export const LOCATION_NAMES: Record<string, string> = {
   F3: 'Saijou',
@@ -143,13 +143,6 @@ export const HEXES: HexDef[] = (Object.keys(HEXES_RAW) as TileColor[]).flatMap((
 export const HEX_BY_COORD: Record<string, HexDef> = Object.fromEntries(HEXES.map((h) => [h.coord, h]));
 
 /** Available tile manifest (id -> count), from the reference TILES hash. */
-export interface TileManifestEntry {
-  id: string;
-  count: number;
-  /** Colour only where the source states it (the beginner tiles). */
-  color?: TileColor;
-}
-
 export const TILE_MANIFEST: TileManifestEntry[] = [
   { id: '3', count: 2 },
   { id: '5', count: 2 },

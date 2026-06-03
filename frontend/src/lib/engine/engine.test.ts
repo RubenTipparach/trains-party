@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { HEX_BY_COORD } from '$lib/data/map1889';
 import { initialState } from './setup';
 import {
   apply,
@@ -592,11 +593,11 @@ describe('track laying - no track into the sea', () => {
     expect(lays.length).toBeGreaterThan(0);
     for (const l of lays) {
       // No tile edge may point where there is no neighbouring hex (the sea).
-      expect(neighbor(l.hex, 0) === null && neighbor(l.hex, 5) === null).toBeDefined();
+      expect(neighbor(HEX_BY_COORD, l.hex, 0) === null && neighbor(HEX_BY_COORD, l.hex, 5) === null).toBeDefined();
     }
     // K8 specifically borders no hex on edges 0 and 5; ensure no lay there uses them.
     for (const l of lays.filter((x) => x.hex === 'K8')) {
-      expect(neighbor('K8', 0)).toBeNull();
+      expect(neighbor(HEX_BY_COORD, 'K8', 0)).toBeNull();
     }
   });
 });

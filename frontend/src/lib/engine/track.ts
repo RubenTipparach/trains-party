@@ -12,13 +12,15 @@
  *   - the city/town count is preserved and slots do not drop below tokens placed;
  *   - no track edge points into the sea;
  *   - tile supply (the manifest count) is respected.
+ *
+ * Map and tile data come from the title config (by `state.title`), so this module
+ * is title-agnostic.
  */
 
-import { HEX_BY_COORD, TILE_MANIFEST } from '$lib/data/map1889';
-import { PHASES } from '$lib/data/g1889';
+import { configFor } from './registry';
 import { GameError, type CorporationState, type GameState } from './types';
 import { TILES, rotatePaths, type TileEnd } from './tiles';
-import type { TileColor } from '$lib/data/types';
+import type { TileColor, HexDef } from '$lib/data/types';
 
 const COLORS: TileColor[] = ['white', 'yellow', 'green', 'brown', 'gray', 'red'];
 const colorIdx = (c: TileColor) => COLORS.indexOf(c);
@@ -39,7 +41,9 @@ function parse(coord: string): { col: number; row: number } | null {
   if (!m) return null;
   return { col: m[1].toUpperCase().charCodeAt(0) - 65, row: parseInt(m[2], 10) };
 }
-export function neighbor(coord: string, edge: number): string | null {
+
+/** The hex on the far side of `edge` from `coord` that actually exists on the map. */
+export function neighbor(hexes: Record<string, HexDef>, coord: string, edge: number): string | null {
   const p = parse(coord);
   if (!p) return null;
   const [dc, dr] = EDGE_DELTA[edge];
@@ -47,7 +51,7 @@ export function neighbor(coord: string, edge: number): string | null {
   const row = p.row + dr;
   if (col < 0 || row < 1) return null;
   const c = String.fromCharCode(65 + col) + row;
-  return HEX_BY_COORD[c] ? c : null;
+  return hexes[c] ? c : null;
 }
 
 type Pair = { a: TileEnd; b: TileEnd };
@@ -63,7 +67,7 @@ interface TileInfo {
 }
 function tileInfo(s: GameState, coord: string): TileInfo {
   const laid = s.tiles[coord];
-  const base = HEX_BY_COORD[coord];
+  const base = configFor(s.title).hexByCoord[coord];
   if (laid) {
     const def = TILES[laid.id];
     return {
@@ -106,23 +110,24 @@ function tilesUsed(s: GameState): Record<string, number> {
   return used;
 }
 function supplyLeft(s: GameState, id: string): number {
-  const total = TILE_MANIFEST.find((t) => t.id === id)?.count ?? 0;
+  const total = configFor(s.title).tileManifest.find((t) => t.id === id)?.count ?? 0;
   return total - (tilesUsed(s)[id] ?? 0);
 }
 
 /** Colours allowed to be laid in the current phase. */
 function phaseColors(s: GameState): TileColor[] {
-  return (PHASES.find((p) => p.name === s.phase)?.tiles ?? ['yellow']) as TileColor[];
+  return (configFor(s.title).phases.find((p) => p.name === s.phase)?.tiles ?? ['yellow']) as TileColor[];
 }
 
 /** The set of hexes the corporation's track reaches from its token(s). */
 function network(s: GameState, corp: CorporationState): Set<string> {
+  const hexes = configFor(s.title).hexByCoord;
   const visited = new Set<string>(corp.tokenHexes);
   const queue = [...corp.tokenHexes];
   while (queue.length) {
     const h = queue.pop()!;
     for (const e of edgesTouched(hexTrack(s, h))) {
-      const n = neighbor(h, e);
+      const n = neighbor(hexes, h, e);
       if (n && !visited.has(n) && edgesTouched(hexTrack(s, n)).has(opposite(e))) {
         visited.add(n);
         // A blocked city is reachable (you may upgrade it) but cannot be traced
@@ -173,7 +178,7 @@ export function blockedHexes(s: GameState): Set<string> {
 
 /** Build-cost discount on `hex` from a terrain-discount private the corp owns (SMR). */
 function buildCostDiscount(s: GameState, corp: CorporationState, hex: string): number {
-  const terrain = HEX_BY_COORD[hex]?.terrain;
+  const terrain = configFor(s.title).hexByCoord[hex]?.terrain;
   if (!terrain || terrain.length === 0) return 0;
   let disc = 0;
   for (const sym of corp.companies) {
@@ -188,7 +193,7 @@ function buildCostDiscount(s: GameState, corp: CorporationState, hex: string): n
 
 /** Net build cost of laying on `hex` for `corp` (terrain cost minus owned discounts). */
 function buildCost(s: GameState, corp: CorporationState, hex: string): number {
-  const base = HEX_BY_COORD[hex]?.upgradeCost ?? 0;
+  const base = configFor(s.title).hexByCoord[hex]?.upgradeCost ?? 0;
   return Math.max(0, base - buildCostDiscount(s, corp, hex));
 }
 
@@ -199,8 +204,9 @@ function buildCost(s: GameState, corp: CorporationState, hex: string): number {
  * the normal lay search and the private special lays (which skip connectivity).
  */
 function tileFitsHex(s: GameState, hex: string, tile: string, rotation: number): boolean {
+  const hexes = configFor(s.title).hexByCoord;
   const def = TILES[tile];
-  const base = HEX_BY_COORD[hex];
+  const base = hexes[hex];
   if (!def || !base) return false;
   const cur = tileInfo(s, hex);
   if ((def.label ?? '') !== (cur.label ?? '')) return false;
@@ -209,7 +215,7 @@ function tileFitsHex(s: GameState, hex: string, tile: string, rotation: number):
   if (supplyLeft(s, tile) <= 0) return false;
   const rp = rotatePaths(def, rotation);
   const tileEdges = [...edgesTouched(rp)];
-  if (tileEdges.some((e) => neighbor(hex, e) === null)) return false; // no track into the sea
+  if (tileEdges.some((e) => neighbor(hexes, hex, e) === null)) return false; // no track into the sea
   const newKeys = new Set(rp.map(pathKey));
   return cur.paths.map(pathKey).every((k) => newKeys.has(k)); // preserve connections
 }
@@ -249,6 +255,7 @@ export function tileSupply(s: GameState, id: string): number {
 /** All legal tile plays (fresh yellow lays + green/brown upgrades) for a corp. */
 export function legalLays(s: GameState, corp: CorporationState): TileLay[] {
   if (corp.tokenHexes.length === 0) return [];
+  const hexes = configFor(s.title).hexByCoord;
   const allowed = phaseColors(s);
   const net = network(s, corp);
   const blocked = blockedHexes(s);
@@ -261,7 +268,7 @@ export function legalLays(s: GameState, corp: CorporationState): TileLay[] {
     // lay a fresh tile on the far side of it.
     if (cityBlocks(s, corp, h)) continue;
     for (const e of edgesTouched(hexTrack(s, h))) {
-      const n = neighbor(h, e);
+      const n = neighbor(hexes, h, e);
       if (n) candidates.add(n);
     }
   }
@@ -269,15 +276,12 @@ export function legalLays(s: GameState, corp: CorporationState): TileLay[] {
   const out: TileLay[] = [];
   const seen = new Set<string>();
   for (const hex of candidates) {
-    const base = HEX_BY_COORD[hex];
+    const base = hexes[hex];
     if (!base) continue;
     if (blocked.has(hex)) continue; // a player-owned private blocks building here
     const cur = tileInfo(s, hex);
     const nextColor = COLORS[colorIdx(cur.color) + 1];
     if (!nextColor || !allowed.includes(nextColor)) continue; // phase gate / gray-red end
-    if (nextColor === 'yellow' && !net.has(hex)) {
-      // fresh lay into an empty adjacent hex (handled below via connection check)
-    }
     const curKeys = cur.paths.map(pathKey);
     const onToken = corp.tokenHexes.includes(hex);
     const inNet = net.has(hex);
@@ -288,7 +292,7 @@ export function legalLays(s: GameState, corp: CorporationState): TileLay[] {
         const rp = rotatePaths(def, r);
         const tileEdges = [...edgesTouched(rp)];
         // No track may point into the sea.
-        if (tileEdges.some((e) => neighbor(hex, e) === null)) continue;
+        if (tileEdges.some((e) => neighbor(hexes, hex, e) === null)) continue;
         // Preserve every existing connection (old paths subset of new).
         const newKeys = new Set(rp.map(pathKey));
         if (!curKeys.every((k) => newKeys.has(k))) continue;
@@ -297,7 +301,7 @@ export function legalLays(s: GameState, corp: CorporationState): TileLay[] {
         let ok = onToken || inNet;
         if (!ok) {
           for (const e of tileEdges) {
-            const n = neighbor(hex, e);
+            const n = neighbor(hexes, hex, e);
             if (n && net.has(n) && edgesTouched(hexTrack(s, n)).has(opposite(e))) {
               ok = true;
               break;
@@ -322,7 +326,7 @@ export function legalLays(s: GameState, corp: CorporationState): TileLay[] {
  * missing from the option fan. Only reports a colour the phase allows on this hex.
  */
 export function exhaustedTilesOnHex(s: GameState, hex: string): string[] {
-  if (!HEX_BY_COORD[hex]) return [];
+  if (!configFor(s.title).hexByCoord[hex]) return [];
   const cur = tileInfo(s, hex);
   const nextColor = COLORS[colorIdx(cur.color) + 1];
   if (!nextColor || !phaseColors(s).includes(nextColor)) return [];

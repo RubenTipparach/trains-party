@@ -359,9 +359,12 @@ covers rules but not every datum.)
 
 Each stage gates on verification (fixture-replay tests), mirroring `design.md` §7.
 
-1. **Engine multi-title refactor.** Introduce a `GameConfig` interface; thread it
-   through `setup/stock/operating/track/routes` instead of importing `g1889`. 1889
-   becomes the first config. *Behaviour-preserving; guarded by the 68 tests.*
+1. **Engine multi-title refactor. ✅ Done.** A `GameConfig` (`data/types.ts`) +
+   title registry (`engine/registry.ts`); every reducer reads config via
+   `configFor(state.title)` instead of importing `g1889`. The engine core now
+   imports a title's data only through the registry seam; adding a game is a new
+   config + a registry entry. 1889 is the first config. Behaviour-preserving (68
+   tests green, typecheck + build clean).
 2. **RoLA static data** (`data/grola.ts`): trains, phases/tile-colour ladder, linear
    stock ladder, Minors (+abilities), Majors, starting capital — from §§5–8, 12 and
    the §13 confirmations.

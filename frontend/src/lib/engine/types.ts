@@ -124,6 +124,8 @@ export interface StockState {
 
 export interface GameState {
   rulesVersion: string;
+  /** Which title's config this state runs under (registry key, e.g. "1889"). */
+  title: string;
   /** Number of actions applied. */
   seq: number;
   round: RoundType;

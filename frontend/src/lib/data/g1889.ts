@@ -11,10 +11,12 @@
 import type {
   CompanyDef,
   CorporationDef,
+  GameConfig,
   MarketCell,
   PhaseDef,
   TrainDef
 } from './types';
+import { HEXES, HEX_BY_COORD, TILE_MANIFEST } from './map1889';
 
 export const TITLE = '1889';
 export const CURRENCY = '¥';
@@ -194,3 +196,21 @@ export const COMPANIES: CompanyDef[] = [
 export function companiesForPlayers(players: number): CompanyDef[] {
   return COMPANIES.filter((c) => !c.minPlayers || players >= c.minPlayers);
 }
+
+/** The 1889 title config the engine consumes (via the registry). */
+export const config1889: GameConfig = {
+  title: TITLE,
+  bankCash: BANK_CASH,
+  startingCash: STARTING_CASH,
+  certLimit: CERT_LIMIT,
+  market: MARKET,
+  parPrices: PAR_PRICES,
+  parCol: 3, // par cells live in market column 3 (rows 0..5)
+  phases: PHASES,
+  trains: TRAINS,
+  corporations: CORPORATIONS,
+  companies: COMPANIES,
+  hexes: HEXES,
+  hexByCoord: HEX_BY_COORD,
+  tileManifest: TILE_MANIFEST
+};

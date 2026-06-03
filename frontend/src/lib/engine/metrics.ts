@@ -10,12 +10,12 @@
  *               take over, and never overfilling the bank pool (<=50%).
  */
 
-import { MARKET } from '$lib/data/g1889';
+import { configFor } from './registry';
 import type { CorporationState, GameState } from './types';
 
-function priceOf(c: CorporationState): number | null {
+function priceOf(s: GameState, c: CorporationState): number | null {
   if (c.priceRow === null || c.priceCol === null) return null;
-  return MARKET[c.priceRow][c.priceCol].price;
+  return configFor(s.title).market[c.priceRow][c.priceCol].price;
 }
 
 export function playerValue(s: GameState, id: string): number {
@@ -24,7 +24,7 @@ export function playerValue(s: GameState, id: string): number {
   let v = p.cash;
   for (const c of s.corporations) {
     const pct = p.shares[c.sym] ?? 0;
-    const price = priceOf(c);
+    const price = priceOf(s, c);
     if (pct > 0 && price !== null) v += (pct / 10) * price;
   }
   for (const sym of p.companies) {
@@ -39,7 +39,7 @@ export function playerLiquidity(s: GameState, id: string): number {
   let v = p.cash;
   for (const c of s.corporations) {
     const pct = p.shares[c.sym] ?? 0;
-    const price = priceOf(c);
+    const price = priceOf(s, c);
     if (pct <= 0 || price === null) continue;
     const poolRoom = Math.max(0, 50 - c.poolShares);
     let maxPct = pct;
