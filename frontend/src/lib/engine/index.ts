@@ -12,8 +12,10 @@
  */
 
 import { GameError, type GameAction, type GameState } from './types';
+import { configFor } from './registry';
 import { applyAuction, auctionActivePlayer, minBid } from './auction';
 import { applyStock, applyExchange } from './stock';
+import { applyRolaStock } from './rolaRound';
 import { applyOperating, operatingActivePlayer, operatingView } from './operating';
 
 export { initialState } from './setup';
@@ -23,6 +25,8 @@ export * from './types';
 export { minBid, auctionActivePlayer, auctionView, maxBidFor } from './auction';
 export type { AuctionView, AuctionCompanyView, AuctionPlayerView } from './auction';
 export { stockLegalActions, exchangeOptions } from './stock';
+export { rolaStockLegalActions, maxRolaSell } from './rolaRound';
+export type { RolaStockLegal } from './rolaRound';
 export {
   operatingView,
   operatingActivePlayer,
@@ -60,7 +64,8 @@ export function apply(state: GameState, action: GameAction): GameState {
       applyAuction(s, action);
       break;
     case 'stock':
-      applyStock(s, action);
+      if (configFor(s.title).minors) applyRolaStock(s, action);
+      else applyStock(s, action);
       break;
     case 'operating':
       applyOperating(s, action);

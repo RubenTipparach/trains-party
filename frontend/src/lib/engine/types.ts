@@ -170,6 +170,8 @@ export interface GameState {
 export type GameAction =
   | { type: 'bid'; player: string; company: string; price: number }
   | { type: 'par'; player: string; corp: string; price: number }
+  // RoLA: launch a minor at `price` (a par space) paying `bid` into its treasury.
+  | { type: 'launch'; player: string; corp: string; price: number; bid: number }
   | { type: 'buy'; player: string; corp: string; from: 'ipo' | 'pool' }
   | { type: 'sell'; player: string; corp: string; count: number }
   | { type: 'lay_tile'; player: string; corp: string; hex: string; tile: string; rotation: number }
