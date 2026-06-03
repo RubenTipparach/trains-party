@@ -4,16 +4,9 @@
 > optional modules so the base-game spec (`rules-rotla.md`) stays focused. Revisit
 > only if we later decide to extend RoLA.
 
-## Distant Destinations
-
-Out of scope (product decision). Off-board-style termini whose value is set by
-**Distant Destination revenue cards** (4 in the box, one customisable) and varies
-by phase. A train route may **start or end** at a Distant Destination but not pass
-through it, and may not include the same one twice.
-
-Because this is excluded, the base spec/config has **no** Distant Destination
-hexes, no DD route rules, and no DD revenue cards. The `LA*` tiles and the
-off-board areas associated with this module are likewise excluded.
+> Note: **Distant Destinations are base game**, not expansion — they're ordinary
+> phase-valued **off-board areas** (1889-style) drawn as a randomized set, and are
+> specced in `rules-rotla.md`. Only the `LA*` off-board tiles below are expansion.
 
 ## Landmarks of the Lost Atlas (expansion)
 
