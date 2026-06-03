@@ -23,7 +23,8 @@ import type {
 import { HEXES, HEX_BY_COORD, MINOR_HOMES } from './map_rola';
 
 export const TITLE = 'rola';
-export const CURRENCY = '$';
+// RoLA money is shown as plain numbers (the rulebook uses no currency symbol).
+export const CURRENCY = '';
 export const PUBLISHER = 'Asterisk Games';
 export const DESIGNER = 'Jacob Schacht & Kevin Delger';
 export const RULEBOOK_URL = 'https://www.asterisk-games.com/s/Railways-Rulebook-0912.pdf';
@@ -241,6 +242,7 @@ export const TILE_MANIFEST: TileManifestEntry[] = [
 /** The RoLA title config the engine consumes (via the registry). */
 export const configRola: GameConfig = {
   title: TITLE,
+  currency: CURRENCY,
   bankCash: BANK_CASH,
   startingCash: STARTING_CASH,
   certLimit: CERT_LIMIT,

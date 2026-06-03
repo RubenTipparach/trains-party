@@ -200,6 +200,7 @@ export function companiesForPlayers(players: number): CompanyDef[] {
 /** The 1889 title config the engine consumes (via the registry). */
 export const config1889: GameConfig = {
   title: TITLE,
+  currency: CURRENCY,
   bankCash: BANK_CASH,
   startingCash: STARTING_CASH,
   certLimit: CERT_LIMIT,

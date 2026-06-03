@@ -33,6 +33,11 @@
   import { TILE_MANIFEST } from '$lib/data/map1889';
   import type { TileColor } from '$lib/data/types';
   import { anim } from '$lib/game/anim.svelte';
+  import { GAMES } from '$lib/data/games';
+
+  // Active title's branding (header, footer, theme) - the board is title-agnostic.
+  const meta = $derived(GAMES.find((g) => g.id === game.title) ?? GAMES[0]);
+  const isRola = $derived(game.title === 'rola');
 
   // Restore a locally-saved game and init animation prefs on the client.
   onMount(() => {
@@ -93,10 +98,11 @@
   };
 </script>
 
+<div class="board-root" class:theme-rola={isRola}>
 <header>
   <a class="back" href="{base}/">← Trains Party</a>
   <div class="htop">
-    <h1>{TITLE} · Shikoku Railways</h1>
+    <h1>{meta.title}</h1>
     <div class="animctl">
       {#if anim.pacing}
         <button class="skip" onclick={() => anim.skip()}>Skip ⏭ <kbd>Space</kbd></button>
@@ -106,6 +112,7 @@
       </button>
     </div>
   </div>
+  <p class="subtitle">{meta.subtitle}</p>
 </header>
 
 <nav class="topnav" aria-label="Board sections">
@@ -277,8 +284,9 @@
     </div>
   {/key}
 
-  <footer>1889 · auction, stock and operating rounds with yellow track laying. Tokens, upgrades and route revenue are next.</footer>
+  <footer>{meta.title}{meta.subtitle ? ` · ${meta.subtitle}` : ''}</footer>
 </main>
+</div>
 
 <style>
   header {
@@ -298,6 +306,34 @@
     font-size: clamp(1.4rem, 4vw, 2rem);
     margin: 0.3rem 0 0;
     color: var(--rail);
+  }
+  .subtitle {
+    margin: 0.15rem 0 0;
+    color: var(--muted);
+    font-size: 0.92rem;
+  }
+  /* Railways of the Lost Atlas — its own identity (inspired by the rulebook):
+     deep navy + copper, parchment ink, a vintage engraved-serif wordmark. The
+     CSS-variable overrides cascade into every child panel that uses them. */
+  .board-root.theme-rola {
+    --bg: #0c2032;
+    --bg-soft: #14304a;
+    --ink: #ece2cf;
+    --muted: #a6b6c4;
+    --rail: #e29a5a;
+    --rail-deep: #b06a30;
+    --accent: #d6884a;
+    --line: #294258;
+    min-height: 100vh;
+    background: radial-gradient(1100px 720px at 72% -12%, #173552 0%, var(--bg) 58%);
+  }
+  .theme-rola h1 {
+    font-family: 'Cinzel', Georgia, 'Times New Roman', serif;
+    letter-spacing: 0.05em;
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.45);
+  }
+  .theme-rola .subtitle {
+    font-style: italic;
   }
   .htop {
     display: flex;

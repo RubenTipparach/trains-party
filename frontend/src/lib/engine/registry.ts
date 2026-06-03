@@ -20,6 +20,11 @@ export function configFor(title: string): GameConfig {
   return c;
 }
 
+/** Currency symbol for a title's money displays ('' if the game uses none). */
+export function currencyFor(title: string): string {
+  return CONFIGS[title]?.currency ?? '';
+}
+
 /** Default title for a new game until the menu selects otherwise. */
 export const DEFAULT_TITLE = config1889.title;
 

@@ -195,6 +195,8 @@ export interface TileManifestEntry {
 export interface GameConfig {
   /** Registry key / id, e.g. "1889". */
   title: string;
+  /** Currency symbol for money displays (e.g. "¥"; RoLA uses plain numbers). */
+  currency?: string;
   bankCash: number;
   startingCash: Record<number, number>;
   certLimit: Record<number, number>;

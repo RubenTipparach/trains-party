@@ -1,11 +1,12 @@
 <script lang="ts">
   import { game } from '$lib/game/sandbox.svelte';
-  import { stockLegalActions, playerValue, playerLiquidity, exchangeOptions } from '$lib/engine';
-  import { COMPANIES, MARKET, PAR_PRICES, CERT_LIMIT, CURRENCY } from '$lib/data/g1889';
+  import { stockLegalActions, playerValue, playerLiquidity, exchangeOptions, currencyFor } from '$lib/engine';
+  import { COMPANIES, MARKET, PAR_PRICES, CERT_LIMIT } from '$lib/data/g1889';
   import type { CorporationState, PlayerState } from '$lib/engine';
   import PrivateChip from './PrivateChip.svelte';
   import MoneyValue from './MoneyValue.svelte';
 
+  const CURRENCY = $derived(currencyFor(game.title));
   const SEAT = ['#f5c542', '#3fb6a8', '#e0655c', '#9b8cf0', '#7cc36b', '#e8923a'];
   const seatColor = (id: string) => SEAT[game.state.players.findIndex((p) => p.id === id) % SEAT.length];
   const pname = (id: string) => game.state.players.find((p) => p.id === id)?.name ?? id;

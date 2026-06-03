@@ -3,7 +3,9 @@
   import AuctionPanel from './AuctionPanel.svelte';
   import StockPanel from './StockPanel.svelte';
   import OperatingPanel from './OperatingPanel.svelte';
-  import { PHASES, CURRENCY } from '$lib/data/g1889';
+  import { PHASES } from '$lib/data/g1889';
+  import { currencyFor } from '$lib/engine';
+  const CURRENCY = $derived(currencyFor(game.title));
 
   const SEAT = ['#f5c542', '#3fb6a8', '#e0655c', '#9b8cf0', '#7cc36b', '#e8923a'];
   const seatColor = (id: string) => {
