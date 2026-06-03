@@ -197,6 +197,8 @@ export interface GameConfig {
   title: string;
   /** Currency symbol for money displays (e.g. "¥"; RoLA uses plain numbers). */
   currency?: string;
+  /** End-game triggers (reason + timing), for the info panel. */
+  endGame?: Array<{ reason: string; timing: string }>;
   bankCash: number;
   startingCash: Record<number, number>;
   certLimit: Record<number, number>;

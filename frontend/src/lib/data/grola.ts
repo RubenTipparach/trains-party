@@ -243,6 +243,7 @@ export const TILE_MANIFEST: TileManifestEntry[] = [
 export const configRola: GameConfig = {
   title: TITLE,
   currency: CURRENCY,
+  endGame: END_GAME,
   bankCash: BANK_CASH,
   startingCash: STARTING_CASH,
   certLimit: CERT_LIMIT,

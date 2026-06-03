@@ -394,7 +394,9 @@
     red: '#df6a5c',
     blue: '#86c5e0'
   };
-  const fanFill = (tile: string) => FILL[TILES[tile]?.color ?? 'yellow'];
+  // RoLA's third era renders as purple (the engine stores it in the brown slot).
+  const tfill = (c: TileColor) => (game.title === 'rola' && c === 'brown' ? '#9b6fb0' : FILL[c]);
+  const fanFill = (tile: string) => tfill(TILES[tile]?.color ?? 'yellow');
 
   // --- deterministic RNG for procedural city skylines ----------------------
   function rngFor(seed: string): () => number {
@@ -442,6 +444,7 @@
     red: '#ff7c6d',
     blue: '#a6d8f0'
   };
+  const thover = (c: TileColor) => (game.title === 'rola' && c === 'brown' ? '#b98fce' : HOVER[c]);
 
   function labelPos(h: HexDef): { x: number; y: number } {
     const used = new Set<number>();
@@ -782,7 +785,7 @@
           onpointerenter={(e) => e.pointerType === 'mouse' && pointers.size === 0 && show(e.currentTarget, h.coord, h.name)}
           onpointerleave={(e) => e.pointerType === 'mouse' && !dragging && hide()}
         >
-          <polygon points={poly} class="tile" fill={laid(h.coord) ? FILL[laidDef(h.coord)?.color ?? 'yellow'] : tip?.coord === h.coord ? HOVER[h.color] : FILL[h.color]} stroke="#4a4332" stroke-width="1" />
+          <polygon points={poly} class="tile" fill={laid(h.coord) ? tfill(laidDef(h.coord)?.color ?? 'yellow') : tip?.coord === h.coord ? thover(h.color) : tfill(h.color)} stroke="#4a4332" stroke-width="1" />
 
           {#if layMode && layHexes.has(h.coord)}
             <polygon points={poly} class="layhi" />

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { TILES } from '$lib/engine';
+  import { game } from '$lib/game/sandbox.svelte';
   import type { TileColor } from '$lib/data/types';
 
   let { id, count, bare = false }: { id: string; count?: number; bare?: boolean } = $props();
@@ -16,6 +17,8 @@
     red: '#df6a5c',
     blue: '#86c5e0'
   };
+  // RoLA's third era is "purple" (the engine stores it in the brown color slot).
+  const fillOf = (c: TileColor) => (game.title === 'rola' && c === 'brown' ? '#9b6fb0' : FILL[c]);
 
   const poly = Array.from({ length: 6 }, (_, k) => {
     const a = (Math.PI / 180) * (60 * k);
@@ -39,7 +42,7 @@
 
 <div class="tile">
   <svg viewBox="-34 -30 68 60" aria-label="tile {id}">
-    <polygon points={poly} fill={FILL[def.color]} stroke="#4a4332" stroke-width="1.2" />
+    <polygon points={poly} fill={fillOf(def.color)} stroke="#4a4332" stroke-width="1.2" />
     {#each def.paths as p}
       <path d={d(p)} class="ties" />
       <path d={d(p)} class="rail" />

@@ -11,26 +11,12 @@
   import TileGraphic from '$lib/components/TileGraphic.svelte';
   import PrivateChip from '$lib/components/PrivateChip.svelte';
   import { game } from '$lib/game/sandbox.svelte';
-  import { playerValue, playerLiquidity } from '$lib/engine';
+  import { playerValue, playerLiquidity, configFor, currencyFor } from '$lib/engine';
 
   const SEAT = ['#f5c542', '#3fb6a8', '#e0655c', '#9b8cf0', '#7cc36b', '#e8923a'];
-  import {
-    CORPORATIONS,
-    COMPANIES,
-    BANK_CASH,
-    STARTING_CASH,
-    CERT_LIMIT,
-    PHASES,
-    TRAINS,
-    PAR_PRICES,
-    CURRENCY,
-    TITLE,
-    PUBLISHER,
-    DESIGNER,
-    RULEBOOK_URL,
-    END_GAME
-  } from '$lib/data/g1889';
-  import { TILE_MANIFEST } from '$lib/data/map1889';
+  // The entities tab still lists 1889's privates/corporations directly (RoLA's
+  // minors/majors are a later pass); every other tab reads the active config.
+  import { CORPORATIONS, COMPANIES } from '$lib/data/g1889';
   import type { TileColor } from '$lib/data/types';
   import { anim } from '$lib/game/anim.svelte';
   import { GAMES } from '$lib/data/games';
@@ -38,6 +24,8 @@
   // Active title's branding (header, footer, theme) - the board is title-agnostic.
   const meta = $derived(GAMES.find((g) => g.id === game.title) ?? GAMES[0]);
   const isRola = $derived(game.title === 'rola');
+  const cfg = $derived(configFor(game.title));
+  const currency = $derived(currencyFor(game.title));
 
   // Restore a locally-saved game and init animation prefs on the client.
   onMount(() => {
@@ -85,8 +73,8 @@
     else if (e.key === 'ArrowLeft') active = tabs[(i - 1 + tabs.length) % tabs.length].id;
   }
 
-  const cash = [...new Set(Object.values(STARTING_CASH))].map((v) => `${CURRENCY}${v}`).join(' / ');
-  const rustsWhenBought = (name: string) => TRAINS.find((x) => x.rustsOn === name)?.name;
+  const cash = $derived([...new Set(Object.values(cfg.startingCash))].map((v) => `${currency}${v}`).join(' / '));
+  const rustsWhenBought = (name: string) => cfg.trains.find((x) => x.rustsOn === name)?.name;
   const TILE_FILL: Record<TileColor, string> = {
     white: '#cdcb92',
     yellow: '#f3cf3e',
@@ -161,21 +149,21 @@
                 <tr><th>Type</th><th>Price</th><th>Available</th><th>Rusts</th><th>Upgrade discount</th><th>Phase</th></tr>
               </thead>
               <tbody>
-                {#each TRAINS as t (t.name)}
+                {#each cfg.trains as t (t.name)}
                   {@const left = game.state.depot.find((d) => d.name === t.name)?.remaining ?? t.num}
                   <tr>
                     <td><strong>{t.name}</strong></td>
-                    <td>{CURRENCY}{t.price}</td>
+                    <td>{currency}{t.price}</td>
                     <td>{t.num === -1 ? (left === -1 ? '∞' : left) : `${left}/${t.num}`}</td>
                     <td>{rustsWhenBought(t.name) ?? '-'}</td>
-                    <td>{t.discount ? `${Object.keys(t.discount).join(', ')} → ${CURRENCY}${Object.values(t.discount)[0]}` : '-'}</td>
+                    <td>{t.discount ? `${Object.keys(t.discount).join(', ')} → ${currency}${Object.values(t.discount)[0]}` : '-'}</td>
                     <td>{t.availableOn ? `phase ${t.availableOn}` : '-'}</td>
                   </tr>
                 {/each}
               </tbody>
             </table>
           </div>
-          <p class="legend">The 5-train closes all private companies when the first one is bought.</p>
+          {#if !isRola}<p class="legend">The 5-train closes all private companies when the first one is bought.</p>{/if}
         </section>
 
         <section>
@@ -186,14 +174,14 @@
                 <tr><th>Phase</th><th>On train</th><th>ORs</th><th>Train limit</th><th>Tiles</th><th>Status</th></tr>
               </thead>
               <tbody>
-                {#each PHASES as p (p.name)}
+                {#each cfg.phases as p (p.name)}
                   {@const hi = p.tiles[p.tiles.length - 1]}
                   <tr>
                     <td><strong>{p.name}</strong></td>
                     <td>{p.on ?? 'start'}</td>
                     <td>{p.operatingRounds}</td>
-                    <td>{p.trainLimit}</td>
-                    <td><span class="tilebadge" style:background={TILE_FILL[hi]}>{hi}</span></td>
+                    <td>{p.minorTrainLimit ? `${p.minorTrainLimit}/${p.trainLimit}` : p.trainLimit}</td>
+                    <td><span class="tilebadge" style:background={isRola && hi === 'brown' ? '#9b6fb0' : TILE_FILL[hi]}>{isRola && hi === 'brown' ? 'purple' : isRola && hi === 'gray' ? 'grey' : hi}</span></td>
                     <td>{p.canBuyCompanies ? 'Can buy companies' : '-'}</td>
                   </tr>
                 {/each}
@@ -209,7 +197,7 @@
               <tr><th>Reason</th><th>Timing</th></tr>
             </thead>
             <tbody>
-              {#each END_GAME as e (e.reason)}
+              {#each cfg.endGame ?? [] as e (e.reason)}
                 <tr><td>{e.reason}</td><td>{e.timing}</td></tr>
               {/each}
             </tbody>
@@ -220,16 +208,16 @@
           <h2>Game info</h2>
           <table>
             <tbody>
-              <tr><th>Title</th><td>{TITLE} - History of Shikoku Railways</td></tr>
-              <tr><th>Players</th><td>2 - 6</td></tr>
-              <tr><th>Bank</th><td>{CURRENCY}{BANK_CASH.toLocaleString()}</td></tr>
+              <tr><th>Title</th><td>{meta.title}{meta.subtitle ? ` - ${meta.subtitle}` : ''}</td></tr>
+              <tr><th>Players</th><td>{meta.players ?? '-'}</td></tr>
+              <tr><th>Bank</th><td>{currency}{cfg.bankCash.toLocaleString()}</td></tr>
               <tr><th>Starting cash</th><td>{cash} (by player count)</td></tr>
-              <tr><th>Certificate limit</th><td>{Object.entries(CERT_LIMIT).map(([p, n]) => `${p}p: ${n}`).join(' · ')}</td></tr>
-              <tr><th>Par prices</th><td>{PAR_PRICES.map((p) => `${CURRENCY}${p}`).join(' · ')}</td></tr>
-              <tr><th>Capitalization</th><td>Full</td></tr>
-              <tr><th>Published by</th><td>{PUBLISHER}</td></tr>
-              <tr><th>Designed by</th><td>{DESIGNER}</td></tr>
-              <tr><th>Rules</th><td><a href={RULEBOOK_URL} target="_blank" rel="noreferrer">Rulebook (PDF)</a></td></tr>
+              <tr><th>Certificate limit</th><td>{Object.entries(cfg.certLimit).map(([p, n]) => `${p}p: ${n < 0 ? 'none' : n}`).join(' · ')}</td></tr>
+              <tr><th>Par prices</th><td>{cfg.parPrices.map((p) => `${currency}${p}`).join(' · ')}</td></tr>
+              <tr><th>Capitalization</th><td>{isRola ? 'Incremental' : 'Full'}</td></tr>
+              <tr><th>Published by</th><td>{meta.publisher}</td></tr>
+              <tr><th>Designed by</th><td>{meta.designer ?? '-'}</td></tr>
+              <tr><th>Rules</th><td><a href={meta.rulebookUrl} target="_blank" rel="noreferrer">Rulebook (PDF)</a></td></tr>
             </tbody>
           </table>
         </section>
@@ -241,11 +229,11 @@
               <div class="pent" style="--p:{SEAT[i % SEAT.length]}">
                 <div class="pehead">
                   <span class="pename">{pl.name}{#if game.isBot(pl.id)}<span class="pebot">BOT</span>{/if}</span>
-                  <span class="pecash">{CURRENCY}{pl.cash}</span>
+                  <span class="pecash">{currency}{pl.cash}</span>
                 </div>
                 <div class="pemetrics">
-                  <span>Value {CURRENCY}{playerValue(game.state, pl.id)}</span>
-                  <span>Liquidity {CURRENCY}{playerLiquidity(game.state, pl.id)}</span>
+                  <span>Value {currency}{playerValue(game.state, pl.id)}</span>
+                  <span>Liquidity {currency}{playerLiquidity(game.state, pl.id)}</span>
                 </div>
                 <div class="peholds">
                   {#each game.state.corporations.filter((c) => (pl.shares[c.sym] ?? 0) > 0) as c (c.sym)}
@@ -273,13 +261,13 @@
           </div>
         </section>
       {:else if active === 'tiles'}
-        <h2>Tile manifest <span class="count">{TILE_MANIFEST.reduce((n, t) => n + t.count, 0)} tiles</span></h2>
+        <h2>Tile manifest <span class="count">{cfg.tileManifest.reduce((n, t) => n + t.count, 0)} tiles</span></h2>
         <div class="tiles">
-          {#each TILE_MANIFEST as t (t.id)}
+          {#each cfg.tileManifest as t (t.id)}
             <TileGraphic id={t.id} count={t.count} />
           {/each}
         </div>
-        <p class="legend">Each upgrade tile and how many are available, coloured by phase (yellow / green / brown).</p>
+        <p class="legend">Each tile and how many are available, coloured by phase ({isRola ? 'yellow / green / purple / grey' : 'yellow / green / brown'}).</p>
       {/if}
     </div>
   {/key}

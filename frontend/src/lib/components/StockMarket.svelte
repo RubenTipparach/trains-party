@@ -1,8 +1,12 @@
 <script lang="ts">
-  import { MARKET } from '$lib/data/g1889';
+  import { game } from '$lib/game/sandbox.svelte';
+  import { configFor } from '$lib/engine';
   import type { MarketCell } from '$lib/data/types';
 
-  const cols = Math.max(...MARKET.map((r) => r.length));
+  // The active game's market: 1889 is a 2D grid; RoLA is a single linear row.
+  const market = $derived(configFor(game.title).market);
+  const cols = $derived(Math.max(...market.map((r) => r.length)));
+  const linear = $derived(configFor(game.title).marketKind === 'linear');
 
   const ZONE: Record<MarketCell['zone'], string> = {
     white: '#f3efe4',
@@ -12,15 +16,30 @@
     green: '#78c474',
     purple: '#a67ab6'
   };
+  // Corporations sitting on a given cell (so you can see where minors trade).
+  function tokensAt(row: number, col: number) {
+    return game.state.corporations.filter((c) => c.priceRow === row && c.priceCol === col);
+  }
 </script>
 
-<div class="grid" style="--cols:{cols}">
-  {#each MARKET as row}
+<div class="grid" class:linear style="--cols:{cols}">
+  {#each market as row, ri}
     {#each Array(cols) as _, c}
       {#if row[c]}
-        <div class="cell" class:par={row[c].par} style="background:{row[c].par ? '#f6a39c' : ZONE[row[c].zone]}">
-          <span>{row[c].price}</span>
-          {#if row[c].par}<small>par</small>{/if}
+        {@const cell = row[c]}
+        <div
+          class="cell"
+          class:par={cell.par}
+          class:closed={cell.price === 0}
+          style="background:{cell.price === 0 ? '#241a12' : ZONE[cell.zone]}"
+        >
+          <span>{cell.price === 0 ? '✕' : cell.price}</span>
+          {#if cell.price === 0}<small>closed</small>{:else if cell.par}<small>par</small>{/if}
+          {#if tokensAt(ri, c).length}
+            <div class="toks">
+              {#each tokensAt(ri, c) as t (t.sym)}<i style="background:{t.color}" title={t.sym}></i>{/each}
+            </div>
+          {/if}
         </div>
       {:else}
         <div class="cell empty"></div>
@@ -59,5 +78,23 @@
   .cell small {
     font: 600 8px ui-sans-serif, sans-serif;
     opacity: 0.7;
+  }
+  .cell.closed {
+    color: #e9d9b8;
+    border-color: rgba(255, 255, 255, 0.15);
+  }
+  .toks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    margin-top: 2px;
+    justify-content: center;
+  }
+  .toks i {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    border: 1px solid rgba(0, 0, 0, 0.4);
+    display: inline-block;
   }
 </style>

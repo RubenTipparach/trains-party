@@ -201,6 +201,7 @@ export function companiesForPlayers(players: number): CompanyDef[] {
 export const config1889: GameConfig = {
   title: TITLE,
   currency: CURRENCY,
+  endGame: END_GAME,
   bankCash: BANK_CASH,
   startingCash: STARTING_CASH,
   certLimit: CERT_LIMIT,
