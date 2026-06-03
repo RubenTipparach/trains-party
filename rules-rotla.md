@@ -8,8 +8,9 @@
 > **Source:** [Railways of the Lost Atlas rulebook (PDF, 09.12)](https://www.asterisk-games.com/s/Railways-Rulebook-0912.pdf)
 > — Asterisk Games, designers Jacob Schacht & Kevin Delger, © 2024. There is **no
 > `tobymao/18xx` port**, so the rulebook is the only source; cross-check there, not
-> against a reference engine. The solo mode and Landmarks content are in the
-> **expansion** and are **out of scope** for this spec.
+> against a reference engine. Distant Destinations, the Landmarks modules, the solo
+> mode, and other expansion/optional content are **out of scope** and tracked
+> separately in `rules-rotla-expansion.md`.
 
 ---
 
@@ -68,7 +69,7 @@ and leadoff train to the OR.
 
 **New systems (no 1889 analog):** procedural map building; the 3-column Minor matrix
 + auction-for-choice; the Merger Round; export-a-train; the cycle/round tracker;
-Distant Destination revenue cards; 12 Minor abilities + 6 Majors (2 identities each).
+12 Minor abilities + 6 Majors (2 identities each).
 
 ---
 
@@ -84,11 +85,10 @@ Distant Destination revenue cards; 12 Minor abilities + 6 Majors (2 identities e
 - **Priority player** chosen at random.
 - Place the **stock track**, **earnings board**, **round/cycle tracker** (start at
   Stock Round / Cycle 1). Majors enter later (via merger).
-- **Distant Destination revenue card** chosen and revealed — sets all DD values.
 
 *Engine:* `initialState` becomes config-driven. New state: `cycle`, the round
 tracker (`SR | OR1 | OR2 | Merger`), the minor matrix (3 columns + availability
-cursor), the chosen DD revenue card, and an (initially empty) **runtime map**.
+cursor), and an (initially empty) **runtime map**.
 
 ---
 
@@ -107,8 +107,8 @@ The map is assembled before play from a stack of **tri-hex map tiles** (33) and
 4. If the group agrees no legal placement exists, **restart** the build (rare).
 5. Optional **12 single-hex blank tiles** can shore up minor home spaces.
 
-Hexes carry types: **Blank, Water, Basic City, Company Home, Mountain, Distant
-Destination, Border** (map legend). Minor **home hubs are printed on map tiles**;
+Hexes carry types: **Blank, Water, Basic City, Company Home, Mountain, Border**
+(map legend). Minor **home hubs are printed on map tiles**;
 an unlaunched minor's home spot stays **reserved**.
 
 *Engine — this is the big lift.* Our board model assumes a static `HEX_BY_COORD`.
@@ -246,7 +246,7 @@ Each cycle has **2 ORs**. Actions, **in order**:
    **−1**; **redeem:** pay current price to buy a share back from the pool, **no**
    price change.
 3. **Lay track** — **up to 2 yellow OR 1 upgrade**. Must trace a route to the new
-   track (a new track segment must be reachable). Yellow not on water/DD/border/
+   track (a new track segment must be reachable). Yellow not on water/border/
    existing track. **Mountain = 40.** Upgrades replace the previous-phase colour and
    **preserve existing track exactly**; cities aren't created/removed; symbol tiles
    need matching symbols.
@@ -255,10 +255,9 @@ Each cycle has **2 ORs**. Actions, **in order**:
 5. **Run trains** — one route per train. A route is continuous track including **≥1
    city with your hub**, reusing **no track**, up to the train's **stop count**;
    may **cross** at cities/some green+purple tiles; **can't pass a fully-tokened
-   city** (unless your token is there; may start/end there); **Distant Destinations
-   are start/end only**; **no city or DD twice** per train. **Local routes** (a
-   single stop within your hub city, off-track) let trains that can't reach a 2nd
-   city still earn — any number allowed.
+   city** (unless your token is there; may start/end there); **no city twice** per
+   train. **Local routes** (a single stop within your hub city, off-track) let
+   trains that can't reach a 2nd city still earn — any number allowed.
 6. **Distribute earnings** — **full pay out** (each Minor share 20% / Major share
    10%, incl. treasury-held shares) **or full withhold** (treasury gains all, price
    −1). Price band per §5. No train → revenue 0 → −1.
@@ -269,9 +268,9 @@ Each cycle has **2 ORs**. Actions, **in order**:
 8. **Pass**; next company. None left → advance the round tracker.
 
 *Engine:* extends `operating.ts` steps. Route engine (`routes.ts`) gains **local
-routes**, **Distant Destinations** (terminus-only, phase-valued via the DD card),
-and **stops = train number** counting cities+DDs. Cross-company train buy with
-consent reuses our **permission model** (bots decline → self-only in single-player).
+routes** and **stops = train number** counting cities (and towns). Cross-company
+train buy with consent reuses our **permission model** (bots decline → self-only
+in single-player).
 
 ---
 
@@ -334,24 +333,74 @@ hooks we already have (skip-blocked, extra-lay, terrain discount, extra train sl
 
 ---
 
-## 13. Open questions / confirm from physical components
+## 13. Data status (researched — confirm before building data stages)
 
-These weren't fully recoverable from the rulebook text (art/tables); confirm before
-implementing the affected stage:
+Sources: the RoLA rulebook (09.12) and the **fwtwr.com 18xx inventory** (Keith
+Thomasson, 2024) — a factual roster / market / manifest reference. Below is filled
+in from research and flagged for your confirmation; derived values are marked. (No
+Distant Destination data here — that's expansion, see `rules-rotla-expansion.md`.)
 
-1. **Full stock-track cell values** (esp. above 135) and exact increments.
-2. **Exact train-card colours** → phase mapping (green/purple/grey assignment), and
-   precise **train counts** per denomination (+ short-game removals).
-3. **Minor/Major share counts** (the 5/10-share split is derived; verify on charters).
-4. **Tri-hex tile catalogue** (the 33 map tiles, their hex contents, home hubs,
-   reserved spots, and the 3 Capital City projects) — needed for §4.
-5. **Distant Destination revenue card** value tables per phase.
-6. **Per-Minor home tiles** and the special upgrade sets (Eastern Mining / Northern
-   Port).
-7. **Token / hub costs** for Majors.
+### Resolved (base game)
 
-(Plan: get the physical components or a high-res board/charter scan; the rulebook PDF
-covers rules but not every datum.)
+**Trains** (29 cards):
+
+| Train | Cost | Qty | Rusts | Phase triggered |
+| --- | --- | --- | --- | --- |
+| 2 | 100 | 7 | — | yellow (start) |
+| 3 | 200 | 5 (+1 in 5p) | by first 6 | green |
+| 4 | 300 | 4 | by first 7/∞ | green |
+| 5 | 450 | 3 | — | purple |
+| 6 | 550 | 2 | by first 4 rusts the 2s* | purple |
+| 7 / ∞ | 750 / 1000 | 7 | — | grey |
+
+\*Rust events: first **4** rusts all **2s**; first **6** rusts all **3s**; first
+**7/∞** rusts all **4s**. The **7 and ∞ are the same physical pile** (7 on the
+front, ∞ on the back); ∞ costs **1000, or 800 + trading in a 4/5/6**.
+
+**Shares / tokens** (confirms the derivation):
+- **Minor** = president **40%** + **3 × 20%** = **5 shares**; **1** station token
+  (Expansive has **2**).
+- **Major** = president **20%** + **8 × 10%** = **10 shares**; **4** station
+  tokens. **No certificate limit** at any count.
+- The **6 Majors**: Conglomerate, Experiment, Federation, International, Syndicate,
+  Unlimited (home inherited via merger).
+
+**Minor home tri-hex tiles:** Adaptive = owner's choice; Eastern Mining = tile 2;
+Expansive = 1; Agricultural = 3; Resourceful = 4; Express = 5; Suburban = 6;
+Northern Port = 7; Tunneling = 8; Bridging = 9; Overnight = 10; Spacious = 11.
+
+**Cash / bank:** 2p 450, 3p 300, 4p 275, 5p 220. Money total 24,500 (285 cards);
+no cert limit (the Bank-Break variant uses an 8,000 bank).
+
+**Map composition:** 33 tri-hex tiles (+ optional single-hex), built at runtime;
+roughly 105 hexes total — ~57 clear, ~32 city, ~13 water, ~14 mountain, ~2 fixed.
+
+**Tile manifest** (base; standard ids reuse our `tiles.ts` catalogue). RoLA colours
+map to the engine ladder: purple → `brown`, grey → `gray`, plus **blue** bridge
+tiles for the Bridging minor.
+- Yellow (55): 5×5, 6×7, 7×6, 8×14, 9×13, 57×7, 291, 292, 293.
+- Green (43): 14×4, 15×5, 16, 17, 19, 20, 21, 22, 23×4, 24×4, 25×2, 26, 27, 28, 29,
+  30, 31, 294×2, 295×2, 296, 619×4, 624.
+- Brown/purple (27): 39, 40, 41×2, 42×2, 43×2, 44, 45×2, 46×2, 47×2, 70, 125×6,
+  297×2.
+- Grey (3, base): 51×3. Blue bridge (5): 721×2, 722×2, 723.
+
+**Stock track:** linear, with a **closed** space at 0; the ladder is non-uniform
+(e.g. **135 and 150 are adjacent**). Starting-value zones by phase: yellow 60–90,
+green 60–110, purple 60–135.
+
+### Still open (image / TTS-mod / photo only)
+
+1. **Full stock-track cell ladder** — the exact ordered values (the fwtwr stock
+   image; the top of the track above ~150).
+2. **Major hub / token costs** (printed on the Major charters).
+3. **RoLA-specific tile geometries** (70, 125, 291–297, 619, 624, 51, and the
+   721–723 bridge tiles) and the **33 tri-hex tile compositions** (hex contents +
+   printed home hubs) — needed for the map-build stage.
+4. **Eastern Mining / Northern Port** dedicated upgrade-tile sets.
+
+Best sources: the fwtwr stock-market and tile-upgrade images, the official
+**TableTop Simulator** mod (built with Asterisk's assistance), or component photos.
 
 ---
 
@@ -373,7 +422,7 @@ Each stage gates on verification (fixture-replay tests), mirroring `design.md` �
 4. **Procedural map building.** Runtime map model, tri-hex geometry, `place_map_tile`
    action + the build phase; generalize `track.ts`/`routes.ts` off the static map.
 5. **OR extras & routes.** Leadoff train, 2-yellow-or-1-upgrade, local routes,
-   Distant Destinations, ∞ train.
+   ∞ train.
 6. **Merger Round** + export-a-train + cycle tracker + end-game scoring.
 7. **Wire RoLA playable** into the menu (`games.ts` → `status: 'playable'`); fixtures
    throughout.
