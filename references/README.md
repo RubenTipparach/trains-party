@@ -11,6 +11,9 @@ counts, stock values, upgrade paths); they are not our code.
   home tiles, and bridge tiles, each with quantities and the full
   yellow -> green -> purple -> grey upgrade network. Source: **BoardGameGeek**.
   Used to validate the tile catalogue, counts, and legal upgrades for Stage 4.
+- **RailwaysRulebook-SoloMode.pdf** - the official RoLA **Solo Mode** rulebook
+  (09.01): a 1-player variant against a scripted *Conglomerate* opponent. Source:
+  Asterisk Games. Designed in `rules-rotla-solo.md`. (Distinct from AI bot mode.)
 
 ## Other sources (links, not stored here)
 
