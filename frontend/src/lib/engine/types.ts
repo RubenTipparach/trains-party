@@ -5,7 +5,7 @@
  * an ordered action list. No DOM, network, or framework imports.
  */
 
-import type { CompanyAbility } from '$lib/data/types';
+import type { CompanyAbility, HexDef } from '$lib/data/types';
 export type { CompanyAbility };
 
 export type RoundType = 'auction' | 'stock' | 'operating';
@@ -157,6 +157,10 @@ export interface GameState {
   depot: DepotTrain[];
   /** Laid tiles by hex coordinate. */
   tiles: Record<string, { id: string; rotation: number }>;
+  /** Procedurally-built runtime map (RoLA). When set, overrides config.hexByCoord. */
+  map?: Record<string, HexDef>;
+  /** How the map was made: 'auto' (algorithm) or 'manual' (player-placed). */
+  mapMode?: 'auto' | 'manual';
   log: string[];
   /** Set when the bank breaks; the current OR set finishes, then the game ends. */
   endTriggered: boolean;

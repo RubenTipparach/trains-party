@@ -1,15 +1,18 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { HEXES, HEX_BY_COORD } from '$lib/data/map1889';
-  import { CORPORATIONS } from '$lib/data/g1889';
   import type { HexDef, PathPart, TileColor } from '$lib/data/types';
   import { HEX_SIZE, APOTHEM, hexCenter, hexPolygon, edgeMidpoint } from '$lib/hexgeo';
   import { mapView } from '$lib/config/mapView';
   import { game } from '$lib/game/sandbox.svelte';
   import { anim } from '$lib/game/anim.svelte';
   import { routing } from '$lib/game/routing.svelte';
-  import { TILES, rotatePaths, trackLays, tokenPlays, corpRoutes, routeThroughStops, tileSupply, exhaustedTilesOnHex } from '$lib/engine';
+  import { TILES, rotatePaths, trackLays, tokenPlays, corpRoutes, routeThroughStops, tileSupply, exhaustedTilesOnHex, configFor } from '$lib/engine';
   import TileGraphic from './TileGraphic.svelte';
+
+  // The active board: a procedurally-built RoLA runtime map (state.map), or the
+  // title's static map. Hex structure is stable for a game, captured on mount.
+  const activeMap = game.state.map ?? configFor(game.title).hexByCoord;
+  const HEX_LIST = Object.values(activeMap);
 
   // Optional: when in the operating-round track step, hexes that can receive a
   // tile are highlighted and clickable. In the token step, tokenable cities are
@@ -42,7 +45,7 @@
       const def = TILES[t.id];
       return def.cities > 0 || def.towns > 0;
     }
-    const base = HEX_BY_COORD[hex];
+    const base = activeMap[hex];
     return !!base && (base.cities.length > 0 || base.towns.length > 0 || !!base.offboard);
   }
   function placeToken(hex: string) {
@@ -330,7 +333,7 @@
       const def = TILES[t.id];
       if (def.cities || def.towns) return def.revenue;
     }
-    const base = HEX_BY_COORD[hex];
+    const base = activeMap[hex];
     if (!base) return 0;
     if (base.offboard) {
       const tier = s.phase === '2' || s.phase === '3' ? 'yellow' : s.phase === '4' || s.phase === '5' ? 'brown' : 'diesel';
@@ -465,7 +468,7 @@
     [1, 16, 'rgba(255,255,255,.35)']
   ];
 
-  const HOME = new Map(CORPORATIONS.map((c) => [c.coordinates, c]));
+  const HOME = new Map(game.state.corporations.map((c) => [c.coordinates, c]));
   // Station tokens actually present on a hex (from live game state).
   function tokensOn(coord: string) {
     return game.state.corporations
@@ -474,7 +477,7 @@
   }
 
   type Placed = HexDef & { cx: number; cy: number };
-  const placed: Placed[] = HEXES.map((h) => {
+  const placed: Placed[] = HEX_LIST.map((h) => {
     const { x, y } = hexCenter(h.coord);
     return { ...h, cx: x, cy: y };
   });

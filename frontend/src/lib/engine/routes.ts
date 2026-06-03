@@ -17,6 +17,7 @@
  */
 
 import { configFor } from './registry';
+import { hexesFor } from './board';
 import { neighbor } from './track';
 import { TILES, rotatePaths, type TileEnd } from './tiles';
 import { GameError, type CorporationState, type GameState } from './types';
@@ -46,7 +47,7 @@ function hexSegments(s: GameState, hex: string): Seg[] {
   if (laid) {
     return rotatePaths(TILES[laid.id], laid.rotation);
   }
-  const base = configFor(s.title).hexByCoord[hex];
+  const base = hexesFor(s)[hex];
   if (!base) return [];
   return base.paths.map((p) => ({ a: p.a === 'center' ? 'c' : p.a, b: p.b === 'center' ? 'c' : p.b }));
 }
@@ -78,7 +79,7 @@ function centreRevenue(s: GameState, hex: string, diesel = false): number {
     const def = TILES[laid.id];
     if (def.cities || def.towns) return def.revenue;
   }
-  const base = configFor(s.title).hexByCoord[hex];
+  const base = hexesFor(s)[hex];
   if (!base) return 0;
   if (base.offboard) return offboardRevenue(s, base.offboard.revenue, diesel);
   if (laid) return 0; // laid plain track, no centre
@@ -94,14 +95,14 @@ function hasCentre(s: GameState, hex: string): boolean {
     const def = TILES[laid.id];
     return def.cities > 0 || def.towns > 0;
   }
-  const base = configFor(s.title).hexByCoord[hex];
+  const base = hexesFor(s)[hex];
   return !!base && (base.cities.length > 0 || base.towns.length > 0 || !!base.offboard);
 }
 
 function isCity(s: GameState, hex: string): boolean {
   const laid = s.tiles?.[hex];
   if (laid) return TILES[laid.id].cities > 0;
-  const base = configFor(s.title).hexByCoord[hex];
+  const base = hexesFor(s)[hex];
   return !!base && (base.cities.length > 0 || !!base.offboard);
 }
 
@@ -109,7 +110,7 @@ function isCity(s: GameState, hex: string): boolean {
 function citySlots(s: GameState, hex: string): number {
   const laid = s.tiles?.[hex];
   if (laid) return TILES[laid.id]?.slots ?? 0;
-  return configFor(s.title).hexByCoord[hex]?.cities?.[0]?.slots ?? 0;
+  return hexesFor(s)[hex]?.cities?.[0]?.slots ?? 0;
 }
 
 /** How many corporations currently have a station token in `hex`. */
@@ -163,7 +164,7 @@ function bestRouteFrom(
   corp: CorporationState,
   diesel = false
 ): { route: Route; segs: Set<string>; links: Set<string> } | null {
-  const hexes = configFor(s.title).hexByCoord;
+  const hexes = hexesFor(s);
   let best: { route: Route; segs: Set<string>; links: Set<string> } | null = null;
 
   // Walk state: we are AT a centre in `hex`; choose an outgoing tile segment
@@ -314,7 +315,7 @@ export function routeThroughStops(
   diesel = false
 ): { route: Route; segs: Set<string>; links: Set<string> } | null {
   if (stops.length < 2 || stops.length > maxStops) return null;
-  const hexes = configFor(s.title).hexByCoord;
+  const hexes = hexesFor(s);
   // Token blocking: an interior stop full of other corporations' tokens cannot
   // be passed through (only route endpoints may be such a blocked city).
   if (corp) {

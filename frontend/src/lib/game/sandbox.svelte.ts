@@ -41,6 +41,9 @@ class Sandbox {
   seats = $state<SeatConfig[]>(DEFAULT_SEATS);
   /** Active title (registry key, e.g. "1889" or "rola"). */
   title = $state('1889');
+  /** Procedural-map seed (RoLA) and how the map is built. */
+  seed = $state(1);
+  mapMode = $state<'auto' | 'manual'>('auto');
   /** The committed action log; replaying it yields the live game. */
   actions = $state<GameAction[]>([]);
   /** Undone actions available to redo. */
@@ -49,14 +52,21 @@ class Sandbox {
   cursor = $state(0);
   error = $state<string | null>(null);
 
-  private base = $derived(initialState(seatIds(this.seats), this.title));
+  private base = $derived(
+    initialState(seatIds(this.seats), this.title, RULES_VERSION, { seed: this.seed, mapMode: this.mapMode })
+  );
 
   /** The live (latest) game state. */
   get live(): GameState {
     return replay(this.base, this.actions);
   }
   /** The state shown to the user (live, or an earlier point while reviewing). */
-  state = $derived(replay(initialState(seatIds(this.seats), this.title), this.actions.slice(0, this.cursor)));
+  state = $derived(
+    replay(
+      initialState(seatIds(this.seats), this.title, RULES_VERSION, { seed: this.seed, mapMode: this.mapMode }),
+      this.actions.slice(0, this.cursor)
+    )
+  );
 
   get reviewing(): boolean {
     return this.cursor < this.actions.length;
@@ -92,9 +102,11 @@ class Sandbox {
     return this.seats.find((s) => s.id === id)?.level ?? 'normal';
   }
 
-  newGame(seats: SeatConfig[], title = '1889') {
+  newGame(seats: SeatConfig[], title = '1889', opts: { seed?: number; mapMode?: 'auto' | 'manual' } = {}) {
     this.seats = seats;
     this.title = title;
+    this.seed = opts.seed ?? Math.floor(Math.random() * 1_000_000_000);
+    this.mapMode = opts.mapMode ?? 'auto';
     this.actions = [];
     this.redoStack = [];
     this.cursor = 0;
@@ -109,7 +121,13 @@ class Sandbox {
     // Acting while reviewing the past first returns to the live head.
     if (this.reviewing) this.cursor = this.actions.length;
     try {
-      const next = apply(replay(initialState(seatIds(this.seats), this.title), this.actions), action); // validate
+      const next = apply(
+        replay(
+          initialState(seatIds(this.seats), this.title, RULES_VERSION, { seed: this.seed, mapMode: this.mapMode }),
+          this.actions
+        ),
+        action
+      ); // validate
       void next;
       this.actions = [...this.actions, action];
       this.redoStack = [];
@@ -173,6 +191,8 @@ class Sandbox {
         JSON.stringify({
           v: RULES_VERSION,
           title: this.title,
+          seed: this.seed,
+          mapMode: this.mapMode,
           seats: $state.snapshot(this.seats),
           actions: $state.snapshot(this.actions)
         })
@@ -190,13 +210,15 @@ class Sandbox {
       const data = JSON.parse(raw);
       if (!Array.isArray(data?.actions) || !Array.isArray(data?.seats)) return;
       const title: string = data.title ?? this.title;
+      const seed: number = data.seed ?? this.seed;
+      const mapMode: 'auto' | 'manual' = data.mapMode ?? this.mapMode;
 
       // The save is the action LOG. Replay DEFENSIVELY: apply actions one by one
       // and keep the longest prefix that still applies cleanly under the current
       // engine. This way a rules change that invalidates a late action only
       // rewinds the game slightly instead of discarding it entirely (which is
       // what made games "reset after each update").
-      const base = initialState(seatIds(data.seats), title);
+      const base = initialState(seatIds(data.seats), title, RULES_VERSION, { seed, mapMode });
       const valid: GameAction[] = [];
       let s = base;
       for (const action of data.actions as GameAction[]) {
@@ -211,6 +233,8 @@ class Sandbox {
 
       this.seats = data.seats;
       this.title = title;
+      this.seed = seed;
+      this.mapMode = mapMode;
       this.actions = valid;
       this.redoStack = [];
       this.cursor = valid.length;

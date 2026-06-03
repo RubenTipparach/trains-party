@@ -9,6 +9,7 @@
   const NAME_KEY = 'tp.playerName';
 
   let count = $state(4); // RoLA: 2-5 players
+  let mapMode = $state<'auto' | 'manual'>('auto');
   const names = $state(['You', 'Bot 2', 'Bot 3', 'Bot 4', 'Bot 5']);
   const bots = $state([false, true, true, true, true]);
   const levels = $state<BotLevel[]>(['normal', 'normal', 'normal', 'normal', 'normal']);
@@ -26,7 +27,7 @@
       bot: bots[i],
       level: levels[i]
     }));
-    game.newGame(seats, 'rola');
+    game.newGame(seats, 'rola', { mapMode });
     goto(`${base}/board`);
   }
 </script>
@@ -52,6 +53,14 @@
       </select>
     </div>
 
+    <div class="players-row">
+      <span class="maplbl">Map</span>
+      <div class="toggle">
+        <button class:on={mapMode === 'auto'} onclick={() => (mapMode = 'auto')}>Auto (algorithm)</button>
+        <button class:on={mapMode === 'manual'} onclick={() => (mapMode = 'manual')}>Manual (place tiles)</button>
+      </div>
+    </div>
+
     <div class="seats">
       {#each Array(count) as _, i}
         <div class="seat">
@@ -69,8 +78,8 @@
     </div>
 
     <p class="note">
-      Early access: bots play the full launch / operate loop. Human stock-round controls
-      (launching a minor) and the linear market panel are still being wired up.
+      Auto builds a fresh procedural board each game. Manual (you + bots lay tri-hex
+      tiles in turn) is in progress and currently falls back to a fixed starter map.
     </p>
 
     <button class="start" onclick={start}>Start game →</button>

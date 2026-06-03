@@ -18,6 +18,7 @@
  */
 
 import { configFor } from './registry';
+import { hexesFor } from './board';
 import { GameError, type CorporationState, type GameState } from './types';
 import { TILES, rotatePaths, type TileEnd } from './tiles';
 import type { TileColor, HexDef } from '$lib/data/types';
@@ -67,7 +68,7 @@ interface TileInfo {
 }
 function tileInfo(s: GameState, coord: string): TileInfo {
   const laid = s.tiles[coord];
-  const base = configFor(s.title).hexByCoord[coord];
+  const base = hexesFor(s)[coord];
   if (laid) {
     const def = TILES[laid.id];
     return {
@@ -121,7 +122,7 @@ function phaseColors(s: GameState): TileColor[] {
 
 /** The set of hexes the corporation's track reaches from its token(s). */
 function network(s: GameState, corp: CorporationState): Set<string> {
-  const hexes = configFor(s.title).hexByCoord;
+  const hexes = hexesFor(s);
   const visited = new Set<string>(corp.tokenHexes);
   const queue = [...corp.tokenHexes];
   while (queue.length) {
@@ -178,7 +179,7 @@ export function blockedHexes(s: GameState): Set<string> {
 
 /** Build-cost discount on `hex` from a terrain-discount private the corp owns (SMR). */
 function buildCostDiscount(s: GameState, corp: CorporationState, hex: string): number {
-  const terrain = configFor(s.title).hexByCoord[hex]?.terrain;
+  const terrain = hexesFor(s)[hex]?.terrain;
   if (!terrain || terrain.length === 0) return 0;
   let disc = 0;
   for (const sym of corp.companies) {
@@ -193,7 +194,7 @@ function buildCostDiscount(s: GameState, corp: CorporationState, hex: string): n
 
 /** Net build cost of laying on `hex` for `corp` (terrain cost minus owned discounts). */
 function buildCost(s: GameState, corp: CorporationState, hex: string): number {
-  const base = configFor(s.title).hexByCoord[hex]?.upgradeCost ?? 0;
+  const base = hexesFor(s)[hex]?.upgradeCost ?? 0;
   return Math.max(0, base - buildCostDiscount(s, corp, hex));
 }
 
@@ -204,7 +205,7 @@ function buildCost(s: GameState, corp: CorporationState, hex: string): number {
  * the normal lay search and the private special lays (which skip connectivity).
  */
 function tileFitsHex(s: GameState, hex: string, tile: string, rotation: number): boolean {
-  const hexes = configFor(s.title).hexByCoord;
+  const hexes = hexesFor(s);
   const def = TILES[tile];
   const base = hexes[hex];
   if (!def || !base) return false;
@@ -255,7 +256,7 @@ export function tileSupply(s: GameState, id: string): number {
 /** All legal tile plays (fresh yellow lays + green/brown upgrades) for a corp. */
 export function legalLays(s: GameState, corp: CorporationState): TileLay[] {
   if (corp.tokenHexes.length === 0) return [];
-  const hexes = configFor(s.title).hexByCoord;
+  const hexes = hexesFor(s);
   const allowed = phaseColors(s);
   const net = network(s, corp);
   const blocked = blockedHexes(s);
@@ -326,7 +327,7 @@ export function legalLays(s: GameState, corp: CorporationState): TileLay[] {
  * missing from the option fan. Only reports a colour the phase allows on this hex.
  */
 export function exhaustedTilesOnHex(s: GameState, hex: string): string[] {
-  if (!configFor(s.title).hexByCoord[hex]) return [];
+  if (!hexesFor(s)[hex]) return [];
   const cur = tileInfo(s, hex);
   const nextColor = COLORS[colorIdx(cur.color) + 1];
   if (!nextColor || !phaseColors(s).includes(nextColor)) return [];

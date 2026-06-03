@@ -4,7 +4,8 @@
 
 import { configFor, DEFAULT_TITLE } from './registry';
 import { GameError, RULES_VERSION, type CompanyState, type CorporationState, type GameState } from './types';
-import type { GameConfig } from '$lib/data/types';
+import { generateRolaMap } from './genRolaMap';
+import type { GameConfig, HexDef } from '$lib/data/types';
 
 export interface Seat {
   id: string;
@@ -49,7 +50,8 @@ function rolaCorporations(cfg: GameConfig): CorporationState[] {
 export function initialState(
   seats: Seat[],
   title: string = DEFAULT_TITLE,
-  rulesVersion: string = RULES_VERSION
+  rulesVersion: string = RULES_VERSION,
+  opts: { seed?: number; mapMode?: 'auto' | 'manual' } = {}
 ): GameState {
   const cfg = configFor(title);
   const n = seats.length;
@@ -104,6 +106,23 @@ export function initialState(
 
   const depot = cfg.trains.map((t) => ({ name: t.name, remaining: t.num }));
 
+  // RoLA: procedurally build the runtime map from the seed. Minors take their
+  // generated home cities; without a seed the fixed starter map (config) is used.
+  let map: Record<string, HexDef> | undefined;
+  let mapMode: 'auto' | 'manual' | undefined;
+  if (rola) {
+    mapMode = opts.mapMode ?? 'auto';
+    // Auto: build the map procedurally from the seed. Manual: use the fixed
+    // starter map for now (interactive tri-hex placement is a later slice).
+    if (opts.seed && mapMode === 'auto') {
+      const gen = generateRolaMap(opts.seed, (cfg.minors ?? []).map((m) => m.sym), n);
+      map = gen.hexByCoord;
+      for (const c of corporations) {
+        if (c.kind === 'minor' && gen.minorHomes[c.sym]) c.coordinates = gen.minorHomes[c.sym];
+      }
+    }
+  }
+
   return {
     title,
     rulesVersion,
@@ -126,6 +145,8 @@ export function initialState(
     or: null,
     depot,
     tiles: {},
+    map,
+    mapMode,
     log: [
       rola
         ? 'Stock round 1 begins; minors may launch'
