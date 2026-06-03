@@ -1,32 +1,61 @@
 <script lang="ts">
   import { game } from '$lib/game/sandbox.svelte';
-  import { stockLegalActions, playerValue, playerLiquidity, exchangeOptions, currencyFor } from '$lib/engine';
-  import { COMPANIES, MARKET, PAR_PRICES, CERT_LIMIT } from '$lib/data/g1889';
+  import {
+    stockLegalActions,
+    rolaStockLegalActions,
+    playerValue,
+    playerLiquidity,
+    exchangeOptions,
+    currencyFor,
+    configFor
+  } from '$lib/engine';
+  import { COMPANIES, PAR_PRICES } from '$lib/data/g1889';
   import type { CorporationState, PlayerState } from '$lib/engine';
   import PrivateChip from './PrivateChip.svelte';
   import MoneyValue from './MoneyValue.svelte';
 
   const CURRENCY = $derived(currencyFor(game.title));
+  const isRola = $derived(game.title === 'rola');
+  const market = $derived(configFor(game.title).market);
   const SEAT = ['#f5c542', '#3fb6a8', '#e0655c', '#9b8cf0', '#7cc36b', '#e8923a'];
   const seatColor = (id: string) => SEAT[game.state.players.findIndex((p) => p.id === id) % SEAT.length];
   const pname = (id: string) => game.state.players.find((p) => p.id === id)?.name ?? id;
 
-  const sl = $derived(stockLegalActions(game.state));
-  // Private-company exchange abilities the active player may use now (Dougo -> IR).
-  const exchanges = $derived(game.canAct ? exchangeOptions(game.state, sl.player) : []);
-  // Has the active player already bought/sold this turn? If so a "pass" ends the
-  // turn rather than counting as a consecutive pass, so the button reads "Done".
+  // Active player + legal actions. RoLA launches a minor by bidding; 1889 pars.
+  const me = $derived(game.state.players[game.state.current]?.id ?? '');
+  const sl = $derived(isRola ? null : stockLegalActions(game.state));
+  const rsl = $derived(isRola ? rolaStockLegalActions(game.state) : null);
+  const exchanges = $derived(game.canAct && !isRola ? exchangeOptions(game.state, me) : []);
   const acted = $derived(game.state.stock?.acted ?? false);
+
+  // RoLA launch selection: a minor + its par space (start price) + the bid (treasury).
+  let launchSel = $state<{ corp: string; par: number; bid: number } | null>(null);
+  const launchPars = (sym: string) => rsl?.launch.find((l) => l.corp === sym)?.pars ?? null;
+  const canBuyIpo = (sym: string) => (isRola ? rsl!.buyIpo : sl!.buyIpo).includes(sym);
+  const canBuyPool = (sym: string) => (isRola ? rsl!.buyPool : sl!.buyPool).includes(sym);
+  const canSellSym = (sym: string) => (isRola ? rsl!.sell : sl!.sell).includes(sym);
+  const canPar = (sym: string) => !isRola && !!sl?.par.includes(sym);
+
+  function pickPar(corp: string, par: number) {
+    const bid = launchSel?.corp === corp ? Math.max(par, launchSel.bid) : par;
+    launchSel = { corp, par, bid };
+  }
+  function doLaunch(corp: string) {
+    if (!launchSel || launchSel.corp !== corp) return;
+    const bid = Math.max(launchSel.par, launchSel.bid || launchSel.par);
+    game.act({ type: 'launch', player: me, corp, price: launchSel.par, bid });
+    if (!game.error) launchSel = null;
+  }
 
   // Buy a share, then end the turn in one click (the common stock-round move).
   function buyAndDone(corp: string, from: 'ipo' | 'pool') {
-    game.act({ type: 'buy', player: sl.player, corp, from });
-    if (!game.error) game.act({ type: 'pass', player: sl.player });
+    game.act({ type: 'buy', player: me, corp, from });
+    if (!game.error) game.act({ type: 'pass', player: me });
   }
 
   function priceOf(c: CorporationState): number | null {
     if (c.priceRow === null || c.priceCol === null) return null;
-    return MARKET[c.priceRow][c.priceCol].price;
+    return market[c.priceRow]?.[c.priceCol]?.price ?? null;
   }
   function held(p: PlayerState, sym: string) {
     return p.shares[sym] ?? 0;
@@ -44,7 +73,7 @@
   function totalShares(p: PlayerState) {
     return game.state.corporations.reduce((n, c) => n + held(p, c.sym) / 10, 0);
   }
-  const certLimit = $derived(CERT_LIMIT[game.state.players.length]);
+  const certLimit = $derived(configFor(game.title).certLimit[game.state.players.length] ?? -1);
 
   const privInfo = (sym: string) => COMPANIES.find((c) => c.sym === sym);
   const privIncome = (p: PlayerState) => p.companies.reduce((n, sym) => n + (privInfo(sym)?.revenue ?? 0), 0);
@@ -64,7 +93,7 @@
   <!-- player summary cards -->
   <div class="players">
     {#each game.state.players as p, i (p.id)}
-      <div class="pcard" class:active={p.id === sl.player} style="--p:{SEAT[i % SEAT.length]}">
+      <div class="pcard" class:active={p.id === me} style="--p:{SEAT[i % SEAT.length]}">
         <div class="ph">
           <span class="pn">{p.name}{#if game.isBot(p.id)}<span class="bot">BOT</span>{/if}</span>
           {#if game.state.priority === i}<span class="pd">Priority</span>{/if}
@@ -73,7 +102,7 @@
           <div><span>Cash</span><b><MoneyValue value={p.cash} /></b></div>
           <div><span>Value</span><b>{CURRENCY}{playerValue(game.state, p.id)}</b></div>
           <div><span>Liquidity</span><b>{CURRENCY}{playerLiquidity(game.state, p.id)}</b></div>
-          <div><span>Certs</span><b class:over={certs(p) > certLimit}>{certs(p)}/{certLimit}</b></div>
+          <div><span>Certs</span><b class:over={certLimit >= 0 && certs(p) > certLimit}>{certs(p)}/{certLimit < 0 ? '∞' : certLimit}</b></div>
           <div><span>Shares</span><b>{totalShares(p)}</b></div>
           {#if p.companies.length}<div><span>Pvt income</span><b>{CURRENCY}{privIncome(p)}/OR</b></div>{/if}
         </div>
@@ -97,19 +126,19 @@
 
   <div class="paronce">
     {#if game.canAct}
-      <span class="turnnote myturn" style="--p:{seatColor(sl.player)}">Your turn, {playerName(sl.player)}</span>
-      <button class="pass" class:done={acted} onclick={() => game.act({ type: 'pass', player: sl.player })}>
+      <span class="turnnote myturn" style="--p:{seatColor(me)}">Your turn, {playerName(me)}</span>
+      <button class="pass" class:done={acted} onclick={() => game.act({ type: 'pass', player: me })}>
         {acted ? 'Done' : 'Pass'}
       </button>
     {:else}
-      <span class="turnnote">{playerName(sl.player)} is {game.isBot(sl.player) ? 'thinking' : 'acting'}…</span>
+      <span class="turnnote">{playerName(me)} is {game.isBot(me) ? 'thinking' : 'acting'}…</span>
     {/if}
   </div>
 
   {#if exchanges.length}
     <div class="exchanges">
       {#each exchanges as ex (ex.company)}
-        <button onclick={() => game.act({ type: 'exchange', player: sl.player, company: ex.company })}>
+        <button onclick={() => game.act({ type: 'exchange', player: me, company: ex.company })}>
           Exchange {ex.company} for a 10% share of {ex.corp}
         </button>
       {/each}
@@ -144,14 +173,14 @@
           </table>
           {#if c.floated}<div class="treasury">Treasury {CURRENCY}{c.cash}</div>{/if}
 
-          {#if game.canAct && sl.par.includes(c.sym)}
+          {#if game.canAct && canPar(c.sym)}
             <div class="parrow">
               <span class="parlabel">Par at</span>
               {#each PAR_PRICES as price (price)}
                 <button
                   class="parbtn"
-                  disabled={playerCash(sl.player) < 2 * price}
-                  onclick={() => game.act({ type: 'par', player: sl.player, corp: c.sym, price })}
+                  disabled={playerCash(me) < 2 * price}
+                  onclick={() => game.act({ type: 'par', player: me, corp: c.sym, price })}
                 >
                   {CURRENCY}{price}
                 </button>
@@ -159,18 +188,45 @@
             </div>
           {/if}
 
+          {#if game.canAct && isRola && launchPars(c.sym)}
+            <div class="parrow">
+              <span class="parlabel">Launch · par</span>
+              {#each launchPars(c.sym) ?? [] as price (price)}
+                <button
+                  class="parbtn"
+                  class:sel={launchSel?.corp === c.sym && launchSel.par === price}
+                  onclick={() => pickPar(c.sym, price)}
+                >
+                  {CURRENCY}{price}
+                </button>
+              {/each}
+              {#if launchSel?.corp === c.sym}
+                <label class="bidwrap">bid
+                  <input class="bidin" type="number" min={launchSel.par} step="5" bind:value={launchSel.bid} />
+                </label>
+                <button
+                  class="combo"
+                  disabled={playerCash(me) < launchSel.bid || launchSel.bid < launchSel.par}
+                  onclick={() => doLaunch(c.sym)}
+                >
+                  Launch {CURRENCY}{launchSel.bid}
+                </button>
+              {/if}
+            </div>
+          {/if}
+
           {#if game.canAct}
           <div class="cact">
-            {#if sl.buyIpo.includes(c.sym)}
-              <button onclick={() => game.act({ type: 'buy', player: sl.player, corp: c.sym, from: 'ipo' })}>Buy IPO {CURRENCY}{c.parPrice}</button>
+            {#if canBuyIpo(c.sym)}
+              <button onclick={() => game.act({ type: 'buy', player: me, corp: c.sym, from: 'ipo' })}>Buy IPO {CURRENCY}{c.parPrice}</button>
               <button class="combo" onclick={() => buyAndDone(c.sym, 'ipo')}>Buy &amp; done</button>
             {/if}
-            {#if sl.buyPool.includes(c.sym)}
-              <button class="ghost" onclick={() => game.act({ type: 'buy', player: sl.player, corp: c.sym, from: 'pool' })}>Buy pool {CURRENCY}{priceOf(c)}</button>
+            {#if canBuyPool(c.sym)}
+              <button class="ghost" onclick={() => game.act({ type: 'buy', player: me, corp: c.sym, from: 'pool' })}>Buy pool {CURRENCY}{priceOf(c)}</button>
               <button class="combo" onclick={() => buyAndDone(c.sym, 'pool')}>Buy &amp; done</button>
             {/if}
-            {#if sl.sell.includes(c.sym)}
-              <button class="ghost" onclick={() => game.act({ type: 'sell', player: sl.player, corp: c.sym, count: 1 })}>Sell</button>
+            {#if canSellSym(c.sym)}
+              <button class="ghost" onclick={() => game.act({ type: 'sell', player: me, corp: c.sym, count: 1 })}>Sell</button>
             {/if}
           </div>
           {/if}
@@ -328,6 +384,30 @@
   }
   .parbtn:disabled {
     opacity: 0.35;
+    cursor: not-allowed;
+  }
+  .parbtn.sel {
+    outline: 2px solid var(--ink);
+    outline-offset: 1px;
+  }
+  .bidwrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.72rem;
+    color: var(--muted);
+  }
+  .bidin {
+    width: 4.4rem;
+    background: var(--bg);
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 0.15rem 0.35rem;
+    font: 600 0.74rem ui-sans-serif, sans-serif;
+  }
+  .combo:disabled {
+    opacity: 0.4;
     cursor: not-allowed;
   }
   .corps {
