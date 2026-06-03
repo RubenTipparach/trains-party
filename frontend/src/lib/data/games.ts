@@ -2,6 +2,8 @@
  * Game catalog: the titles selectable from the main menu. Adding a new 18xx game
  * is a single entry here (plus its data/engine + a setup route once playable).
  * The menu renders straight from this list, so it stays the single source of truth.
+ *
+ * Record each title's rulebook / reference sources in design.md (section 10).
  */
 
 import { DESIGNER, PUBLISHER, RULEBOOK_URL } from './g1889';

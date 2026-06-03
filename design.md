@@ -268,3 +268,29 @@ trains-party/
 
 When any of these (or new requirements) are ambiguous, **use planning mode and ask**
 before building — see `CLAUDE.md`.
+
+---
+
+## 10. Reference rulebooks & future titles
+
+Sources for the games we implement (or plan to). When adding a title, add an entry
+to `frontend/src/lib/data/games.ts` (the menu's catalog) and record its sources here.
+
+**Engine reference (all titles):** [tobymao/18xx](https://github.com/tobymao/18xx)
+— check `lib/engine/game/g_<title>/` for rules, numbers, and mechanics before
+implementing. Not every published game has a port there (see RoLA below).
+
+**1889: History of Shikoku Railways** — Grand Trunk Games, Yasutaka Ikeda.
+- Rulebook (PDF): https://drive.google.com/file/d/14NH7j0hhTQDvJKcP2Qa6mC2Blki14Q0-/view
+- Reference engine: [`lib/engine/game/g_1889/`](https://github.com/tobymao/18xx/tree/master/lib/engine/game/g_1889)
+- Status: **implemented**.
+
+**Railways of the Lost Atlas** — Asterisk Games.
+- Rulebooks index: https://www.asterisk-games.com/rulebook
+- Title page: https://www.asterisk-games.com/railwaysofthelostatlas
+- BoardGameGeek: https://boardgamegeek.com/boardgame/365357/railways-of-the-lost-atlas
+- Status: **listed in the menu, rules not yet ported.** Notes for the eventual
+  port: the map is **built by players during setup** (no fixed map module), and
+  minor companies **merge into majors** — neither mechanic exists in our engine
+  yet, and there is **no `tobymao` reference**, so it is a multi-stage effort. The
+  **solo mode ships with the expansion** and is out of scope for now.
