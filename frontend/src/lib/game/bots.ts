@@ -93,8 +93,7 @@ function botRolaStock(s: GameState, level: BotLevel): GameAction {
 
   if (myMinors.length === 0 && sl.launch.length) {
     const opt = sl.launch[0];
-    const par = opt.pars[0]; // cheapest affordable par; bid = par to keep treasury modest
-    return { type: 'launch', player: me, corp: opt.corp, price: par, bid: par };
+    return { type: 'launch', player: me, corp: opt.corp, bid: opt.minBid }; // open at the minimum bid (120)
   }
   if (level === 'normal') {
     if (sl.buyIpo.length) return { type: 'buy', player: me, corp: sl.buyIpo[0], from: 'ipo' };

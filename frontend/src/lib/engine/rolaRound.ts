@@ -11,7 +11,7 @@
 
 import { configFor } from './registry';
 import { currentPrice } from './stock';
-import { launchMinor, sellPriceMove, soldOutMove, launchablePars } from './rolaStock';
+import { launchMinor, sellPriceMove, soldOutMove, parForBid, MIN_LAUNCH_BID } from './rolaStock';
 import { startOperatingRound } from './operating';
 import { GameError, type CorporationState, type GameAction, type GameState, type PlayerState } from './types';
 
@@ -57,12 +57,11 @@ function endTurn(s: GameState): void {
   st.bought = false;
 }
 
-function doLaunch(s: GameState, id: string, sym: string, price: number, bid: number): void {
+function doLaunch(s: GameState, id: string, sym: string, bid: number): void {
   const st = s.stock!;
   if (st.bought) throw new GameError('only one launch/buy per turn');
   const c = corp(s, sym);
-  if (bid < price) throw new GameError(`launch bid ${bid} is below the par price ${price}`);
-  launchMinor(s, c, id, price, bid); // validates kind/par/band/affordability, sets treasury + 40% cert
+  launchMinor(s, c, id, bid); // validates kind/bid/affordability, derives par, sets treasury + 40% cert
   st.bought = true;
   st.acted = true;
   st.passes = 0;
@@ -170,7 +169,7 @@ export function applyRolaStock(s: GameState, action: GameAction): void {
 
   switch (action.type) {
     case 'launch':
-      doLaunch(s, action.player, action.corp, action.price, action.bid);
+      doLaunch(s, action.player, action.corp, action.bid);
       break;
     case 'buy':
       doBuy(s, action.player, action.corp, action.from);
@@ -197,8 +196,8 @@ export function applyRolaStock(s: GameState, action: GameAction): void {
 export interface RolaStockLegal {
   player: string;
   canPass: boolean;
-  /** Unlaunched minors the player can launch, with the par prices they can afford. */
-  launch: { corp: string; pars: number[] }[];
+  /** Unlaunched minors the player can launch (bid >= minBid; price is derived). */
+  launch: { corp: string; minBid: number; par: number }[];
   buyIpo: string[];
   buyPool: string[];
   sell: string[];
@@ -210,8 +209,7 @@ export function rolaStockLegalActions(s: GameState): RolaStockLegal {
   const empty: RolaStockLegal = { player: id, canPass: false, launch: [], buyIpo: [], buyPool: [], sell: [] };
   if (!st) return empty;
   const p = player(s, id);
-  const pars = launchablePars(s);
-  const launch: { corp: string; pars: number[] }[] = [];
+  const launch: { corp: string; minBid: number; par: number }[] = [];
   const buyIpo: string[] = [];
   const buyPool: string[] = [];
   const sell: string[] = [];
@@ -221,8 +219,9 @@ export function rolaStockLegalActions(s: GameState): RolaStockLegal {
     const soldThisRound = st.soldThisRound[id]?.includes(c.sym) ?? false;
     if (!st.bought && !soldThisRound) {
       if (c.kind === 'minor' && c.parPrice === null) {
-        const affordable = pars.filter((pp) => p.cash >= pp); // min bid = par
-        if (affordable.length) launch.push({ corp: c.sym, pars: affordable });
+        if (p.cash >= MIN_LAUNCH_BID) {
+          launch.push({ corp: c.sym, minBid: MIN_LAUNCH_BID, par: parForBid(s, MIN_LAUNCH_BID) });
+        }
       } else if (c.parPrice !== null) {
         const unit = unitOf(c);
         if (c.ipoShares >= unit && holds(p, c.sym) + unit <= HOLD_CAP && p.cash >= (c.parPrice ?? 0)) buyIpo.push(c.sym);

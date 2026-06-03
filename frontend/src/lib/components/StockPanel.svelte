@@ -7,7 +7,8 @@
     playerLiquidity,
     exchangeOptions,
     currencyFor,
-    configFor
+    configFor,
+    parForBid
   } from '$lib/engine';
   import { COMPANIES, PAR_PRICES } from '$lib/data/g1889';
   import type { CorporationState, PlayerState } from '$lib/engine';
@@ -29,21 +30,21 @@
   const acted = $derived(game.state.stock?.acted ?? false);
 
   // RoLA launch selection: a minor + its par space (start price) + the bid (treasury).
-  let launchSel = $state<{ corp: string; par: number; bid: number } | null>(null);
-  const launchPars = (sym: string) => rsl?.launch.find((l) => l.corp === sym)?.pars ?? null;
+  let launchSel = $state<{ corp: string; bid: number } | null>(null);
+  const launchInfo = (sym: string) => rsl?.launch.find((l) => l.corp === sym) ?? null;
+  // Price is one-half the bid, rounded down within the phase band (rulebook p.10).
+  const launchPrice = (bid: number) => parForBid(game.state, bid);
   const canBuyIpo = (sym: string) => (isRola ? rsl!.buyIpo : sl!.buyIpo).includes(sym);
   const canBuyPool = (sym: string) => (isRola ? rsl!.buyPool : sl!.buyPool).includes(sym);
   const canSellSym = (sym: string) => (isRola ? rsl!.sell : sl!.sell).includes(sym);
   const canPar = (sym: string) => !isRola && !!sl?.par.includes(sym);
 
-  function pickPar(corp: string, par: number) {
-    const bid = launchSel?.corp === corp ? Math.max(par, launchSel.bid) : par;
-    launchSel = { corp, par, bid };
+  function pickLaunch(corp: string, minBid: number) {
+    launchSel = { corp, bid: launchSel?.corp === corp ? launchSel.bid : minBid };
   }
   function doLaunch(corp: string) {
     if (!launchSel || launchSel.corp !== corp) return;
-    const bid = Math.max(launchSel.par, launchSel.bid || launchSel.par);
-    game.act({ type: 'launch', player: me, corp, price: launchSel.par, bid });
+    game.act({ type: 'launch', player: me, corp, bid: launchSel.bid });
     if (!game.error) launchSel = null;
   }
 
@@ -188,28 +189,24 @@
             </div>
           {/if}
 
-          {#if game.canAct && isRola && launchPars(c.sym)}
+          {#if game.canAct && isRola && launchInfo(c.sym)}
+            {@const info = launchInfo(c.sym)!}
             <div class="parrow">
-              <span class="parlabel">Launch · par</span>
-              {#each launchPars(c.sym) ?? [] as price (price)}
-                <button
-                  class="parbtn"
-                  class:sel={launchSel?.corp === c.sym && launchSel.par === price}
-                  onclick={() => pickPar(c.sym, price)}
-                >
-                  {CURRENCY}{price}
-                </button>
-              {/each}
               {#if launchSel?.corp === c.sym}
                 <label class="bidwrap">bid
-                  <input class="bidin" type="number" min={launchSel.par} step="5" bind:value={launchSel.bid} />
+                  <input class="bidin" type="number" min={info.minBid} step="5" bind:value={launchSel.bid} />
                 </label>
+                <span class="parlabel">→ price {CURRENCY}{launchPrice(launchSel.bid)} · treasury {CURRENCY}{launchSel.bid}</span>
                 <button
                   class="combo"
-                  disabled={playerCash(me) < launchSel.bid || launchSel.bid < launchSel.par}
+                  disabled={playerCash(me) < launchSel.bid || launchSel.bid < info.minBid || launchSel.bid % 5 !== 0}
                   onclick={() => doLaunch(c.sym)}
                 >
-                  Launch {CURRENCY}{launchSel.bid}
+                  Launch
+                </button>
+              {:else}
+                <button class="parbtn" onclick={() => pickLaunch(c.sym, info.minBid)}>
+                  Launch (bid ≥ {CURRENCY}{info.minBid})
                 </button>
               {/if}
             </div>
@@ -385,10 +382,6 @@
   .parbtn:disabled {
     opacity: 0.35;
     cursor: not-allowed;
-  }
-  .parbtn.sel {
-    outline: 2px solid var(--ink);
-    outline-offset: 1px;
   }
   .bidwrap {
     display: inline-flex;

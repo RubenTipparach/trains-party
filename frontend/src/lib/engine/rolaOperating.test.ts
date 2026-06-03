@@ -11,7 +11,7 @@ const seats = [
 /** Launch AG (home C2) and run the stock round out to the operating round. */
 function toOperating(): GameState {
   let s = initialState(seats, 'rola');
-  s = apply(s, { type: 'launch', player: 'p1', corp: 'AG', price: 80, bid: 100 });
+  s = apply(s, { type: 'launch', player: 'p1', corp: 'AG', bid: 160 });
   s = apply(s, { type: 'pass', player: 'p1' }); // end p1 turn
   s = apply(s, { type: 'pass', player: 'p2' });
   s = apply(s, { type: 'pass', player: 'p3' });

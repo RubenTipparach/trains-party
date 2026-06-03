@@ -4,6 +4,7 @@ import { currentPrice } from './stock';
 import {
   launchMinor,
   launchablePars,
+  parForBid,
   issueShare,
   redeemShare,
   applyDividend,
@@ -37,30 +38,34 @@ describe('RoLA stock model (Stage 3)', () => {
   it('launches a minor with incremental capitalization (treasury = bid, 40% president cert)', () => {
     const s = rola();
     const ag = minor(s, 'AG');
-    launchMinor(s, ag, 'p1', 80, 120);
+    launchMinor(s, ag, 'p1', 160);
     expect(ag).toMatchObject({ parPrice: 80, priceRow: 0, priceCol: 8, president: 'p1', floated: true });
     expect(currentPrice(s, ag)).toBe(80);
-    expect(ag.cash).toBe(120); // treasury = the winning bid only
+    expect(ag.cash).toBe(160); // treasury = the full winning bid
     expect(ag.ipoShares).toBe(60); // 100 - 40% president cert
     expect(s.players[0].shares['AG']).toBe(40);
-    expect(s.players[0].cash).toBe(180); // 300 - 120 bid (to treasury, not the bank)
+    expect(s.players[0].cash).toBe(140); // 300 - 160 bid (to treasury, not the bank)
   });
 
-  it('gates launch par prices by the phase band', () => {
+  it('derives the price from the bid (half, rounded down within band) and enforces min bid 120', () => {
     const s = rola(); // phase 2 -> yellow band 60-90
     expect(launchablePars(s)).toEqual([60, 70, 80, 90]);
-    expect(() => launchMinor(s, minor(s, 'AG'), 'p1', 100, 120)).toThrow(/phase band/);
-    expect(() => launchMinor(s, minor(s, 'AG'), 'p1', 65, 120)).toThrow(/invalid par/); // 65 is not a par cell
+    expect(parForBid(s, 120)).toBe(60); // minimum bid -> price 60
+    expect(parForBid(s, 160)).toBe(80);
+    expect(parForBid(s, 165)).toBe(80); // 82 rounded down to the printed 80
+    expect(parForBid(s, 400)).toBe(90); // capped at the yellow band high
+    expect(() => launchMinor(s, minor(s, 'AG'), 'p1', 100)).toThrow(/at least 120/);
+    expect(() => launchMinor(s, minor(s, 'AG'), 'p1', 121)).toThrow(/increments of 5/);
   });
 
   it('issues shares: treasury gains the price, price drops, pool caps at 50%', () => {
     const s = rola();
     const ag = minor(s, 'AG');
-    launchMinor(s, ag, 'p1', 80, 120);
+    launchMinor(s, ag, 'p1', 160);
     issueShare(s, ag); // sells a 20% share to the pool at 80
     expect(ag.poolShares).toBe(20);
     expect(ag.ipoShares).toBe(40);
-    expect(ag.cash).toBe(200); // 120 + 80
+    expect(ag.cash).toBe(240); // 160 + 80
     expect(currentPrice(s, ag)).toBe(70); // dropped one space
     issueShare(s, ag); // pool 40, price 60
     expect(ag.poolShares).toBe(40);
@@ -70,19 +75,19 @@ describe('RoLA stock model (Stage 3)', () => {
   it('redeems a pooled share for the current price with no price move', () => {
     const s = rola();
     const ag = minor(s, 'AG');
-    launchMinor(s, ag, 'p1', 80, 120);
-    issueShare(s, ag); // pool 20, treasury 200, price 70
+    launchMinor(s, ag, 'p1', 160);
+    issueShare(s, ag); // pool 20, treasury 240, price 70
     redeemShare(s, ag);
     expect(ag.poolShares).toBe(0);
     expect(ag.ipoShares).toBe(60);
-    expect(ag.cash).toBe(130); // 200 - 70
+    expect(ag.cash).toBe(170); // 240 - 70
     expect(currentPrice(s, ag)).toBe(70); // unchanged
   });
 
   it('moves the price by the dividend bands', () => {
     const s = rola();
     const ag = minor(s, 'AG');
-    launchMinor(s, ag, 'p1', 80, 120); // priceCol 8 (=80)
+    launchMinor(s, ag, 'p1', 160); // priceCol 8 (=80)
 
     applyDividend(s, ag, 'withhold', 0);
     expect(ag.priceCol).toBe(7); // down one
@@ -105,7 +110,7 @@ describe('RoLA stock model (Stage 3)', () => {
   it('sell drops one space, sold-out rises one, and the ladder clamps at the ends', () => {
     const s = rola();
     const ag = minor(s, 'AG');
-    launchMinor(s, ag, 'p1', 80, 120); // col 8
+    launchMinor(s, ag, 'p1', 160); // col 8
     sellPriceMove(s, ag);
     expect(ag.priceCol).toBe(7);
 
@@ -124,7 +129,7 @@ describe('RoLA stock model (Stage 3)', () => {
   it('dissolves at the CLOSED space: treasury to bank, trains to depot, shares cleared', () => {
     const s = rola();
     const ag = minor(s, 'AG');
-    launchMinor(s, ag, 'p1', 80, 120);
+    launchMinor(s, ag, 'p1', 160);
     ag.cash = 90;
     ag.trains = ['2'];
     const depot2 = s.depot.find((d) => d.name === '2')!;

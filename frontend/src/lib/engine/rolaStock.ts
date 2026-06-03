@@ -65,29 +65,37 @@ export function launchablePars(s: GameState): number[] {
     .map((cell) => cell.price);
 }
 
+/** Minimum opening launch bid; bids rise in increments of 5 (rulebook p.10). */
+export const MIN_LAUNCH_BID = 120;
+export const BID_INCREMENT = 5;
+
 /**
- * Launch a minor (incremental capitalization, no float): the president pays the
- * winning `bid` into the company treasury, takes the 40% president certificate,
- * and the price token is placed on the chosen par space (within the phase band).
- * The launch auction (Stage 7) supplies/validates the bid amount; here the bid
- * must be positive and affordable.
+ * Initial stock price for a winning `bid`: one-half the bid, rounded DOWN to the
+ * nearest printed par space within the current phase band (rulebook p.10:
+ * "one-half the winning bid rounded down"; bands 60-90 / 60-110 / 60-135).
+ * e.g. bid 120 -> 60, bid 160 -> 80, bid 165 -> 80, bid 140 -> 70.
  */
-export function launchMinor(
-  s: GameState,
-  c: CorporationState,
-  playerId: string,
-  parPrice: number,
-  bid: number
-): void {
+export function parForBid(s: GameState, bid: number): number {
+  const [lo, hi] = bandForPhase(s);
+  const half = Math.min(Math.floor(bid / 2), hi);
+  const pars = launchablePars(s).filter((p) => p <= half);
+  return pars.length ? Math.max(...pars) : lo;
+}
+
+/**
+ * Launch a minor (incremental capitalization, no float). The winning `bid` (min
+ * 120, increments of 5) is paid by the president into the company treasury and
+ * the president takes the 40% certificate (2 shares). The initial stock price is
+ * derived from the bid (one-half, rounded down within the phase band).
+ */
+export function launchMinor(s: GameState, c: CorporationState, playerId: string, bid: number): void {
   if (c.kind !== 'minor') throw new GameError(`${c.sym} is not a minor`);
   if (c.parPrice !== null) throw new GameError(`${c.sym} has already launched`);
+  if (bid < MIN_LAUNCH_BID) throw new GameError(`launch bid must be at least ${MIN_LAUNCH_BID}`);
+  if (bid % BID_INCREMENT !== 0) throw new GameError(`launch bid must be in increments of ${BID_INCREMENT}`);
+  const parPrice = parForBid(s, bid);
   const idx = ladder(s).findIndex((cell) => cell.price === parPrice && cell.par);
   if (idx < 0) throw new GameError(`invalid par price ${parPrice}`);
-  const [lo, hi] = bandForPhase(s);
-  if (parPrice < lo || parPrice > hi) {
-    throw new GameError(`par ${parPrice} is outside the ${lo}-${hi} phase band`);
-  }
-  if (bid < 1) throw new GameError('launch bid must be positive');
   const p = player(s, playerId);
   if (p.cash < bid) throw new GameError(`${playerId} cannot afford the ${bid} launch bid`);
 
@@ -96,12 +104,12 @@ export function launchMinor(
   c.priceCol = idx;
   stampPrice(s, c);
   c.president = playerId;
-  c.ipoShares -= 40; // president's certificate = 40%
+  c.ipoShares -= 40; // president's certificate = 40% (2 shares)
   p.shares[c.sym] = holds(p, c.sym) + 40;
   p.cash -= bid;
-  c.cash += bid; // treasury = winning bid only (incremental capitalization)
+  c.cash += bid; // treasury = the full winning bid (incremental capitalization)
   c.floated = true;
-  s.log.push(`${p.name} launches ${c.sym} at ${parPrice} (treasury ${bid})`);
+  s.log.push(`${p.name} launches ${c.sym} at ${parPrice} (bid ${bid}, treasury ${bid})`);
 }
 
 /**
