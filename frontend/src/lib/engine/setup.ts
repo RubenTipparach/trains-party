@@ -5,6 +5,7 @@
 import { configFor, DEFAULT_TITLE } from './registry';
 import { GameError, RULES_VERSION, type CompanyState, type CorporationState, type GameState } from './types';
 import { generateRolaMap } from './genRolaMap';
+import { generateTriHexPool, placementCoords, BUILD_CENTER } from './triHex';
 import type { GameConfig, HexDef } from '$lib/data/types';
 
 export interface Seat {
@@ -110,16 +111,27 @@ export function initialState(
   // generated home cities; without a seed the fixed starter map (config) is used.
   let map: Record<string, HexDef> | undefined;
   let mapMode: 'auto' | 'manual' | undefined;
-  if (rola) {
+  let mapBuild: GameState['mapBuild'];
+  if (rola && opts.seed) {
     mapMode = opts.mapMode ?? 'auto';
-    // Auto: build the map procedurally from the seed. Manual: use the fixed
-    // starter map for now (interactive tri-hex placement is a later slice).
-    if (opts.seed && mapMode === 'auto') {
+    if (mapMode === 'auto') {
+      // Auto: build the whole map procedurally from the seed.
       const gen = generateRolaMap(opts.seed, (cfg.minors ?? []).map((m) => m.sym), n);
       map = gen.hexByCoord;
       for (const c of corporations) {
         if (c.kind === 'minor' && gen.minorHomes[c.sym]) c.coordinates = gen.minorHomes[c.sym];
       }
+    } else {
+      // Manual: players grow the map. Seed the centre tile, queue the rest, and
+      // clear minor homes (assigned when the build finishes).
+      const pool = generateTriHexPool(opts.seed, n, (cfg.minors ?? []).length);
+      map = {};
+      const first = pool.shift()!;
+      placementCoords(BUILD_CENTER, 'A').forEach((coord, i) => {
+        map![coord] = { coord, ...first.cells[i] };
+      });
+      for (const c of corporations) if (c.kind === 'minor') c.coordinates = '';
+      mapBuild = { pool, turn: 0, order: seats.map((seat) => seat.id) };
     }
   }
 
@@ -129,7 +141,7 @@ export function initialState(
     seq: 0,
     // RoLA has no initial private auction: it opens in the first stock round
     // (where minors launch). 1889 opens with the waterfall private auction.
-    round: rola ? 'stock' : 'auction',
+    round: mapBuild ? 'mapbuild' : rola ? 'stock' : 'auction',
     phase: '2',
     srCount: rola ? 1 : 0,
     orSet: 0,
@@ -147,6 +159,7 @@ export function initialState(
     tiles: {},
     map,
     mapMode,
+    mapBuild,
     log: [
       rola
         ? 'Stock round 1 begins; minors may launch'

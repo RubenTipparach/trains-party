@@ -6,13 +6,25 @@
   import { game } from '$lib/game/sandbox.svelte';
   import { anim } from '$lib/game/anim.svelte';
   import { routing } from '$lib/game/routing.svelte';
-  import { TILES, rotatePaths, trackLays, tokenPlays, corpRoutes, routeThroughStops, tileSupply, exhaustedTilesOnHex, configFor } from '$lib/engine';
+  import { TILES, rotatePaths, trackLays, tokenPlays, corpRoutes, routeThroughStops, tileSupply, exhaustedTilesOnHex, configFor, legalPlacements } from '$lib/engine';
   import TileGraphic from './TileGraphic.svelte';
 
   // The active board: a procedurally-built RoLA runtime map (state.map), or the
   // title's static map. Hex structure is stable for a game, captured on mount.
-  const activeMap = game.state.map ?? configFor(game.title).hexByCoord;
-  const HEX_LIST = Object.values(activeMap);
+  const activeMap = $derived(game.state.map ?? configFor(game.title).hexByCoord);
+  const HEX_LIST = $derived(Object.values(activeMap));
+
+  // RoLA Manual map-build round: the active human places tri-hex tiles by clicking
+  // a ghost. `buildShape` flips between the two triangle orientations.
+  const building = $derived(game.state.round === 'mapbuild');
+  let buildShape = $state<'A' | 'B'>('A');
+  const canBuild = $derived(building && !!game.active && !game.isBot(game.active) && !game.reviewing);
+  const ghosts = $derived(canBuild ? legalPlacements(activeMap).filter((g) => g.shape === buildShape) : []);
+  const tilesLeft = $derived(game.state.mapBuild?.pool.length ?? 0);
+  const buildName = $derived(game.state.players.find((p) => p.id === game.active)?.name ?? '');
+  function placeTri(anchor: string, shape: 'A' | 'B') {
+    if (game.active) game.act({ type: 'place_tri', player: game.active, anchor, shape });
+  }
 
   // Optional: when in the operating-round track step, hexes that can receive a
   // tile are highlighted and clickable. In the token step, tokenable cities are
@@ -468,7 +480,7 @@
     [1, 16, 'rgba(255,255,255,.35)']
   ];
 
-  const HOME = new Map(game.state.corporations.map((c) => [c.coordinates, c]));
+  const HOME = $derived(new Map(game.state.corporations.map((c) => [c.coordinates, c])));
   // Station tokens actually present on a hex (from live game state).
   function tokensOn(coord: string) {
     return game.state.corporations
@@ -477,28 +489,33 @@
   }
 
   type Placed = HexDef & { cx: number; cy: number };
-  const placed: Placed[] = HEX_LIST.map((h) => {
-    const { x, y } = hexCenter(h.coord);
-    return { ...h, cx: x, cy: y };
-  });
+  const placed = $derived(
+    HEX_LIST.map((h) => {
+      const { x, y } = hexCenter(h.coord);
+      return { ...h, cx: x, cy: y } as Placed;
+    })
+  );
 
-  const xs = placed.map((p) => p.cx);
-  const ys = placed.map((p) => p.cy);
   const pad = HEX_SIZE + 28;
-  const minX = Math.min(...xs) - pad;
-  const minY = Math.min(...ys) - pad;
-  const width = Math.max(...xs) - Math.min(...xs) + pad * 2;
-  const height = Math.max(...ys) - Math.min(...ys) + pad * 2;
+  const xs = $derived(placed.map((p) => p.cx));
+  const ys = $derived(placed.map((p) => p.cy));
+  const minX = $derived(Math.min(...xs) - pad);
+  const minY = $derived(Math.min(...ys) - pad);
+  const width = $derived(Math.max(...xs) - Math.min(...xs) + pad * 2);
+  const height = $derived(Math.max(...ys) - Math.min(...ys) + pad * 2);
 
-  const colLabels = new Map<string, number>();
-  const rowLabels = new Map<number, number>();
-  for (const p of placed) {
-    const m = p.coord.match(/^([A-Za-z]+)(\d+)$/)!;
-    colLabels.set(m[1], p.cx);
-    rowLabels.set(parseInt(m[2], 10), p.cy);
-  }
-  const cols = [...colLabels.entries()].sort((a, b) => a[1] - b[1]);
-  const rows = [...rowLabels.entries()].sort((a, b) => a[1] - b[1]);
+  const labels = $derived.by(() => {
+    const colLabels = new Map<string, number>();
+    const rowLabels = new Map<number, number>();
+    for (const p of placed) {
+      const m = p.coord.match(/^([A-Za-z]+)(\d+)$/)!;
+      colLabels.set(m[1], p.cx);
+      rowLabels.set(parseInt(m[2], 10), p.cy);
+    }
+    return { colLabels, rowLabels };
+  });
+  const cols = $derived([...labels.colLabels.entries()].sort((a, b) => a[1] - b[1]));
+  const rows = $derived([...labels.rowLabels.entries()].sort((a, b) => a[1] - b[1]));
 
   const poly = hexPolygon(0, 0);
 
@@ -516,15 +533,24 @@
   // --- pan / zoom (SVG viewBox) ---------------------------------------------
   let wrap: HTMLDivElement;
   let svgEl: SVGSVGElement;
-  let view = $state({ x: minX, y: minY, w: width, h: height });
+  let view = $state({ x: 0, y: 0, w: 100, h: 100 });
+  let fittedOnce = false;
+  // Fit the viewBox to the map on first render, and keep refitting while the map
+  // is being built (it grows tile by tile) so the whole board stays in frame.
+  $effect(() => {
+    if (!fittedOnce || building) {
+      view = { x: minX, y: minY, w: width, h: height };
+      fittedOnce = true;
+    }
+  });
   let dragging = $state(false);
   let rotation = $state(0); // whole-map rotation in degrees (rotate button)
   let isFullscreen = $state(false);
   // On a quarter turn the landscape map would overflow the frame, so shrink it to fit.
   const onQuarterTurn = $derived(((rotation % 180) + 180) % 180 === 90);
   const fitScale = $derived(onQuarterTurn ? Math.min(width / height, height / width) : 1);
-  const MIN_W = width * mapView.minZoomFraction; // max zoom in
-  const MAX_W = width * mapView.maxZoomFraction; // max zoom out
+  const MIN_W = $derived(width * mapView.minZoomFraction); // max zoom in
+  const MAX_W = $derived(width * mapView.maxZoomFraction); // max zoom out
   const pointers = new Map<number, { x: number; y: number }>();
   let moved = false;
   let viewRaf = 0; // in-flight animated-view frame
@@ -893,6 +919,32 @@
         </g>
       {/each}
 
+      {#if ghosts.length}
+        {#each ghosts as g (g.anchor + g.shape)}
+          <g
+            class="ghost"
+            role="button"
+            tabindex="-1"
+            aria-label="place tile at {g.anchor}"
+            onclick={(e) => {
+              e.stopPropagation();
+              placeTri(g.anchor, g.shape);
+            }}
+            onkeydown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                placeTri(g.anchor, g.shape);
+              }
+            }}
+          >
+            {#each g.coords as c (c)}
+              {@const ctr = hexCenter(c)}
+              <polygon points={poly} transform="translate({ctr.x} {ctr.y})" class="ghosthex" />
+            {/each}
+          </g>
+        {/each}
+      {/if}
+
       {#if tip}
         <g transform="translate({tip.hx} {tip.hy})">
           <polygon points={poly} class="selring" />
@@ -1048,6 +1100,21 @@
     </div>
   {/if}
 
+  {#if building}
+    <div class="maphud">
+      <span class="mhtitle">Building the map</span>
+      <span class="mhstat">{tilesLeft} tile{tilesLeft === 1 ? '' : 's'} left</span>
+      {#if canBuild}
+        <span class="mhturn">Your turn — click a ghost to place</span>
+        <button type="button" class="mhflip" onclick={() => (buildShape = buildShape === 'A' ? 'B' : 'A')}>
+          Flip orientation ({buildShape})
+        </button>
+      {:else}
+        <span class="mhturn">{buildName ? `${buildName} placing…` : 'finishing…'}</span>
+      {/if}
+    </div>
+  {/if}
+
   <div class="controls">
     <button type="button" aria-label="Zoom in" onclick={() => zoomCenter(1 / mapView.zoomButtonFactor)}>+</button>
     <button type="button" aria-label="Zoom out" onclick={() => zoomCenter(mapView.zoomButtonFactor)}>−</button>
@@ -1181,6 +1248,61 @@
     stroke: var(--rail, #f5c542);
     stroke-width: 3;
     pointer-events: none;
+  }
+  .ghost {
+    cursor: pointer;
+  }
+  .ghosthex {
+    fill: rgba(120, 200, 190, 0.14);
+    stroke: #2bb6a6;
+    stroke-width: 1.5;
+    stroke-dasharray: 4 3;
+    pointer-events: all;
+    transition: fill 0.12s ease;
+  }
+  .ghost:hover .ghosthex,
+  .ghost:focus-visible .ghosthex {
+    fill: rgba(120, 200, 190, 0.42);
+    stroke-width: 2.5;
+    stroke-dasharray: none;
+  }
+  .maphud {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    padding: 7px 12px;
+    background: rgba(20, 28, 30, 0.86);
+    color: #eef3f2;
+    border: 1px solid rgba(120, 200, 190, 0.5);
+    border-radius: 999px;
+    font-size: 13px;
+    z-index: 6;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+  }
+  .mhtitle {
+    font-weight: 700;
+  }
+  .mhstat {
+    opacity: 0.85;
+  }
+  .mhturn {
+    color: #8fe0d3;
+  }
+  .mhflip {
+    border: 1px solid rgba(120, 200, 190, 0.6);
+    background: rgba(120, 200, 190, 0.16);
+    color: #eef3f2;
+    border-radius: 999px;
+    padding: 3px 10px;
+    cursor: pointer;
+    font-size: 12px;
+  }
+  .mhflip:hover {
+    background: rgba(120, 200, 190, 0.3);
   }
   .previewtile {
     pointer-events: none;

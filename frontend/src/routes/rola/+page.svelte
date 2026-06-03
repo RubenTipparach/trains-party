@@ -78,8 +78,8 @@
     </div>
 
     <p class="note">
-      Auto builds a fresh procedural board each game. Manual (you + bots lay tri-hex
-      tiles in turn) is in progress and currently falls back to a fixed starter map.
+      Auto builds a fresh procedural board instantly. Manual lets you and the bots
+      lay tri-hex tiles in turn on the Map tab to build the board together.
     </p>
 
     <button class="start" onclick={start}>Start game →</button>

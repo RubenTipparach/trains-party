@@ -17,6 +17,7 @@ import { applyAuction, auctionActivePlayer, minBid } from './auction';
 import { applyStock, applyExchange } from './stock';
 import { applyRolaStock } from './rolaRound';
 import { applyOperating, operatingActivePlayer, operatingView } from './operating';
+import { applyMapBuild, mapBuildActivePlayer } from './mapbuild';
 
 export { initialState } from './setup';
 export type { Seat } from './setup';
@@ -44,6 +45,10 @@ export type { TileDef } from './tiles';
 export { playerValue, playerLiquidity } from './metrics';
 export { corpRoutes, routeRevenue, routeThroughStops, TRAIN_ROUTE_COLORS } from './routes';
 export type { Route } from './routes';
+export { hexesFor } from './board';
+export { legalPlacements, placementCoords, isLegalPlacement, generateTriHexPool, BUILD_CENTER } from './triHex';
+export type { Placement, TriHex, TriShape } from './triHex';
+export { mapBuildActivePlayer, pickBuildPlacement } from './mapbuild';
 
 /** Apply one action, returning the next state. Pure: the input is not mutated. */
 export function apply(state: GameState, action: GameAction): GameState {
@@ -62,6 +67,9 @@ export function apply(state: GameState, action: GameAction): GameState {
   switch (s.round) {
     case 'auction':
       applyAuction(s, action);
+      break;
+    case 'mapbuild':
+      applyMapBuild(s, action);
       break;
     case 'stock':
       if (configFor(s.title).minors) applyRolaStock(s, action);
@@ -88,6 +96,7 @@ export function activePlayer(state: GameState): string | null {
   if (state.round === 'auction') return auctionActivePlayer(state);
   if (state.round === 'stock' && state.stock) return state.players[state.current].id;
   if (state.round === 'operating') return operatingActivePlayer(state);
+  if (state.round === 'mapbuild') return mapBuildActivePlayer(state);
   return null;
 }
 

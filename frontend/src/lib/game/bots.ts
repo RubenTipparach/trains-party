@@ -13,6 +13,7 @@ import {
   trackLays,
   tokenPlays,
   configFor,
+  pickBuildPlacement,
   type GameAction,
   type GameState
 } from '$lib/engine';
@@ -156,6 +157,7 @@ function botOperating(s: GameState): GameAction | null {
 /** Choose a legal action for the active (bot) player, or null if none. */
 export function botAction(s: GameState, level: BotLevel): GameAction | null {
   if (s.finished) return null;
+  if (s.round === 'mapbuild') return pickBuildPlacement(s);
   if (s.round === 'auction' && s.auction) {
     // guard: only act if we are actually the active player
     if (auctionActivePlayer(s) !== s.players[s.current].id && !s.auction.auctioning) return null;

@@ -6,9 +6,10 @@
  */
 
 import type { CompanyAbility, HexDef } from '$lib/data/types';
+import type { TriHex } from './triHex';
 export type { CompanyAbility };
 
-export type RoundType = 'auction' | 'stock' | 'operating';
+export type RoundType = 'auction' | 'mapbuild' | 'stock' | 'operating';
 
 export interface PlayerState {
   id: string;
@@ -161,6 +162,8 @@ export interface GameState {
   map?: Record<string, HexDef>;
   /** How the map was made: 'auto' (algorithm) or 'manual' (player-placed). */
   mapMode?: 'auto' | 'manual';
+  /** Active map-build round (RoLA Manual): remaining tile pool + turn order. */
+  mapBuild?: { pool: TriHex[]; turn: number; order: string[] };
   log: string[];
   /** Set when the bank breaks; the current OR set finishes, then the game ends. */
   endTriggered: boolean;
@@ -180,6 +183,7 @@ export type GameAction =
   | { type: 'sell'; player: string; corp: string; count: number }
   | { type: 'lay_tile'; player: string; corp: string; hex: string; tile: string; rotation: number }
   | { type: 'place_token'; player: string; corp: string; hex: string }
+  | { type: 'place_tri'; player: string; anchor: string; shape: 'A' | 'B' }
   // Run trains. `routes` (optional) is the player's chosen stops per train
   // (ordered revenue-centre hexes); when omitted the engine runs the best routes
   // it can find. `revenue` is advisory only - the engine recomputes it.
