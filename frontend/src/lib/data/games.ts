@@ -50,9 +50,11 @@ export const GAMES: GameSummary[] = [
     title: 'Railways of the Lost Atlas',
     subtitle: '18xx in a shifting landscape',
     publisher: 'Asterisk Games',
+    players: '2-5',
     blurb:
-      'An 18xx where the map itself is built by players during setup, so no two games share a geography. Minor companies launch, expand, and merge into majors. Rules port in progress.',
-    status: 'coming-soon',
+      'An 18xx where minor companies launch on a linear market, operate, and merge into majors. Early access: playable against bots; human stock-round controls are being wired up.',
+    status: 'playable',
+    path: '/rola',
     rulebookUrl: 'https://www.asterisk-games.com/s/Railways-Rulebook-0912.pdf',
     accent: '#5fb0e6'
   }
