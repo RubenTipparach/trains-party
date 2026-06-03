@@ -115,6 +115,8 @@ export interface MinorDef {
   tokens: number;
   /** Tri-hex home tile (1-11), or null when owner's choice (Adaptive). */
   homeTriHex: number | null;
+  /** Home hex coordinate on the fixed starter map (until procedural build lands). */
+  homeCoord?: string;
   ability?: MinorAbility;
   desc: string;
 }

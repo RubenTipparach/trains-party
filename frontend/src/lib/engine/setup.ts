@@ -19,11 +19,11 @@ export interface Seat {
 function rolaCorporations(cfg: GameConfig): CorporationState[] {
   const make =
     (kind: 'minor' | 'major', shareUnit: number) =>
-    (c: { sym: string; name: string; color: string; tokens: number }): CorporationState => ({
+    (c: { sym: string; name: string; color: string; tokens: number; homeCoord?: string }): CorporationState => ({
       sym: c.sym,
       name: c.name,
       color: c.color,
-      coordinates: '', // minor home is a runtime map tile; major home is inherited
+      coordinates: c.homeCoord ?? '', // minor home hex; majors inherit at merger
       kind,
       shareUnit,
       floated: false,

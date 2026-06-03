@@ -20,6 +20,7 @@ import type {
   TileManifestEntry,
   TrainDef
 } from './types';
+import { HEXES, HEX_BY_COORD, MINOR_HOMES } from './map_rola';
 
 export const TITLE = 'rola';
 export const CURRENCY = '$';
@@ -160,6 +161,9 @@ export const MINORS: MinorDef[] = [
     desc: 'Gains 60 to treasury each time it pays a mountain terrain cost.' }
 ];
 
+// Fixed starter-map home coordinates (until the procedural map build lands).
+for (const m of MINORS) m.homeCoord = MINOR_HOMES[m.sym];
+
 // --- Major corporations (6) ------------------------------------------------
 // 10 shares each (president 20% + 8 x 10%), 4 station tokens. Home inherited at
 // merger. Token/hub costs are printed on the charters (TODO - rules-rotla.md §13).
@@ -251,7 +255,7 @@ export const configRola: GameConfig = {
   companies: [], // RoLA has no 1889-style private companies
   minors: MINORS,
   majors: MAJORS,
-  hexes: [], // built procedurally at runtime (Stage 4)
-  hexByCoord: {},
+  hexes: HEXES,
+  hexByCoord: HEX_BY_COORD,
   tileManifest: TILE_MANIFEST
 };
