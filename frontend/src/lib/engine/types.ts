@@ -5,7 +5,11 @@
  * an ordered action list. No DOM, network, or framework imports.
  */
 
-export type RoundType = 'auction' | 'stock' | 'operating';
+import type { CompanyAbility, HexDef } from '$lib/data/types';
+import type { TriHex } from './triHex';
+export type { CompanyAbility };
+
+export type RoundType = 'auction' | 'mapbuild' | 'stock' | 'operating';
 
 export interface PlayerState {
   id: string;
@@ -26,9 +30,15 @@ export interface CompanyState {
   revenue: number;
   /** Auction price reduction (waterfall). Min bid = value - discount. */
   discount: number;
-  /** Player id, or null while in the initial offering. */
+  /** Player id, or null while in the initial offering (or owned by a corp). */
   owner: string | null;
   closed: boolean;
+  /** Special abilities (copied from static config at setup). */
+  abilities: CompanyAbility[];
+  /** A one-shot `tile_lay` ability has been used (e.g. Mitsubishi Ferry port). */
+  usedAbility?: boolean;
+  /** Set when sold to a corporation: a `when:'sold'` tile lay is pending (Ehime). */
+  pendingLay?: boolean;
 }
 
 export interface CorporationState {
@@ -36,6 +46,12 @@ export interface CorporationState {
   name: string;
   color: string;
   coordinates: string;
+  /** RoLA: minor vs major (undefined for 1889 corporations). */
+  kind?: 'minor' | 'major';
+  /** RoLA share denomination / dividend percent per share (minor 20, major 10). */
+  shareUnit?: number;
+  /** RoLA: set when the price reached 0 and the company dissolved. */
+  dissolved?: boolean;
   floated: boolean;
   cash: number;
   /** Percent of shares still in the IPO and the bank pool. */
@@ -54,6 +70,13 @@ export interface CorporationState {
   tokenHexes: string[];
   /** Cost of each station token, in placement order (0 = free home token). */
   tokens: number[];
+  /**
+   * Monotonic stamp set each time the share price enters its current market
+   * cell. Operating-order ties at the same price break by lowest stamp first
+   * (the corporation that reached the cell earliest operates first), mirroring
+   * the reference engine's bottom-of-stack-first rule.
+   */
+  stackSeq: number;
 }
 
 export interface DepotTrain {
@@ -108,6 +131,8 @@ export interface StockState {
 
 export interface GameState {
   rulesVersion: string;
+  /** Which title's config this state runs under (registry key, e.g. "1889"). */
+  title: string;
   /** Number of actions applied. */
   seq: number;
   round: RoundType;
@@ -120,6 +145,8 @@ export interface GameState {
   priority: number;
   /** Index of the active player in the turn rotation. */
   current: number;
+  /** Monotonic counter stamped onto a corporation's `stackSeq` on each price move. */
+  priceStack: number;
   bank: number;
   players: PlayerState[];
   companies: CompanyState[];
@@ -131,6 +158,15 @@ export interface GameState {
   depot: DepotTrain[];
   /** Laid tiles by hex coordinate. */
   tiles: Record<string, { id: string; rotation: number }>;
+  /** Procedurally-built runtime map (RoLA). When set, overrides config.hexByCoord. */
+  map?: Record<string, HexDef>;
+  /** How the map was made: 'auto' (algorithm) or 'manual' (player-placed). */
+  mapMode?: 'auto' | 'manual';
+  /** Active map-build round (RoLA Manual): remaining tile pool + turn order. */
+  mapBuild?: { pool: TriHex[]; turn: number; order: string[] };
+  /** RoLA minor matrix: columns of minor syms; only the bottom (first unlaunched)
+   *  of each column is launchable, revealing the next up the column. */
+  minorMatrix?: string[][];
   log: string[];
   /** Set when the bank breaks; the current OR set finishes, then the game ends. */
   endTriggered: boolean;
@@ -144,20 +180,34 @@ export interface GameState {
 export type GameAction =
   | { type: 'bid'; player: string; company: string; price: number }
   | { type: 'par'; player: string; corp: string; price: number }
+  // RoLA: launch a minor at `price` (a par space) paying `bid` into its treasury.
+  | { type: 'launch'; player: string; corp: string; bid: number; price?: number }
   | { type: 'buy'; player: string; corp: string; from: 'ipo' | 'pool' }
   | { type: 'sell'; player: string; corp: string; count: number }
   | { type: 'lay_tile'; player: string; corp: string; hex: string; tile: string; rotation: number }
   | { type: 'place_token'; player: string; corp: string; hex: string }
-  | { type: 'run'; player: string; corp: string; revenue: number; dividend: 'pay' | 'withhold' }
+  | { type: 'place_tri'; player: string; anchor: string; shape: 'A' | 'B' }
+  // Run trains. `routes` (optional) is the player's chosen stops per train
+  // (ordered revenue-centre hexes); when omitted the engine runs the best routes
+  // it can find. `revenue` is advisory only - the engine recomputes it.
+  | { type: 'run'; player: string; corp: string; revenue: number; dividend: 'pay' | 'withhold'; routes?: string[][] }
   // Depot buy: `from`/`price` omitted (fixed depot price). Inter-corporation
   // buy: `from` is the selling corporation and `price` the negotiated amount
   // (>= 1, up to the buyer's treasury), allowed between corporations the acting
-  // player controls (presidents both that player).
-  | { type: 'buy_train'; player: string; corp: string; train: string; from?: string; price?: number }
-  // A corporation buys a player-owned private company for `price` (>= 1, up to
-  // twice the company's face value, and within the buyer's treasury). Income
-  // then flows to the corporation instead of the player.
+  // player controls (president of both) - buying from another player's
+  // corporation needs their consent, which bots decline. `tradeIn` (optional) is
+  // an older train traded toward a diesel for the configured discount.
+  | { type: 'buy_train'; player: string; corp: string; train: string; from?: string; price?: number; tradeIn?: string }
+  // A corporation buys a private company owned by its OWN president for `price`
+  // (>= 1, up to twice the company's face value, and within the buyer's
+  // treasury). Income then flows to the corporation. Buying another player's
+  // private needs their consent, which bots decline.
   | { type: 'buy_company'; player: string; corp: string; company: string; price: number }
+  // Use a private company's special tile-lay ability (Mitsubishi Ferry port tile,
+  // or Ehime Railway's green tile on Ohzu after sale to a corporation).
+  | { type: 'special_lay'; player: string; company: string; hex: string; tile: string; rotation: number }
+  // Exchange a private company for a share of a corporation (Dougo Railway -> IR).
+  | { type: 'exchange'; player: string; company: string }
   // Emergency money raising: a president forced to fund a mandatory train sells
   // shares to the pool (emr_sell), or declares bankruptcy when nothing can cover it.
   | { type: 'emr_sell'; player: string; corp: string; count: number }

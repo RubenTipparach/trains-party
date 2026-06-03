@@ -3,7 +3,9 @@
   import AuctionPanel from './AuctionPanel.svelte';
   import StockPanel from './StockPanel.svelte';
   import OperatingPanel from './OperatingPanel.svelte';
-  import { PHASES, CURRENCY } from '$lib/data/g1889';
+  import { PHASES } from '$lib/data/g1889';
+  import { currencyFor } from '$lib/engine';
+  const CURRENCY = $derived(currencyFor(game.title));
 
   const SEAT = ['#f5c542', '#3fb6a8', '#e0655c', '#9b8cf0', '#7cc36b', '#e8923a'];
   const seatColor = (id: string) => {
@@ -17,15 +19,18 @@
   const roundLabel = $derived.by(() => {
     const s = game.state;
     if (s.round === 'auction') return 'ISR';
+    if (s.round === 'mapbuild') return 'MAP';
     if (s.round === 'stock') return `SR ${s.srCount}`;
     return s.or ? `OR ${s.orSet}.${s.or.orNumber}` : 'OR';
   });
   const roundName = $derived(
     game.state.round === 'auction'
       ? 'Initial Auction'
-      : game.state.round === 'stock'
-        ? 'Stock Round'
-        : 'Operating Round'
+      : game.state.round === 'mapbuild'
+        ? 'Building the Map'
+        : game.state.round === 'stock'
+          ? 'Stock Round'
+          : 'Operating Round'
   );
   const orCount = $derived(PHASES.find((p) => p.name === game.state.phase)?.operatingRounds ?? 1);
   // The OR set that follows the current stock round is "OR <srCount>"; while
@@ -93,6 +98,12 @@
   <div class:locked={game.reviewing}>
     {#if game.state.round === 'auction'}
       <AuctionPanel />
+    {:else if game.state.round === 'mapbuild'}
+      <div class="buildhint">
+        <p>The map is being built by laying tri-hex tiles.</p>
+        <p>Open the <strong>Map</strong> tab to place a tile on your turn.</p>
+        <p class="bhleft">{game.state.mapBuild?.pool.length ?? 0} tiles left to place</p>
+      </div>
     {:else if game.state.round === 'stock'}
       <StockPanel />
     {:else}
@@ -311,5 +322,16 @@
     color: #b7c3cf;
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
     padding: 0.15rem 0;
+  }
+  .buildhint {
+    padding: 0.6rem 0.2rem;
+    color: #c8d2dc;
+    font-size: 0.9rem;
+    line-height: 1.5;
+  }
+  .buildhint .bhleft {
+    margin-top: 0.4rem;
+    color: #8fe0d3;
+    font-weight: 600;
   }
 </style>

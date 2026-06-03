@@ -268,3 +268,40 @@ trains-party/
 
 When any of these (or new requirements) are ambiguous, **use planning mode and ask**
 before building — see `CLAUDE.md`.
+
+---
+
+## 10. Reference rulebooks & future titles
+
+Sources for the games we implement (or plan to). When adding a title, add an entry
+to `frontend/src/lib/data/games.ts` (the menu's catalog) and record its sources here.
+
+**Engine reference (all titles):** [tobymao/18xx](https://github.com/tobymao/18xx)
+— check `lib/engine/game/g_<title>/` for rules, numbers, and mechanics before
+implementing. Not every published game has a port there (see RoLA below).
+
+**1889: History of Shikoku Railways** — Grand Trunk Games, Yasutaka Ikeda.
+- Rulebook (PDF): https://drive.google.com/file/d/14NH7j0hhTQDvJKcP2Qa6mC2Blki14Q0-/view
+- Reference engine: [`lib/engine/game/g_1889/`](https://github.com/tobymao/18xx/tree/master/lib/engine/game/g_1889)
+- Status: **implemented**.
+
+**Railways of the Lost Atlas** — Asterisk Games.
+- Rulebook (PDF): https://www.asterisk-games.com/s/Railways-Rulebook-0912.pdf
+- **Solo Mode** rulebook — a distinct 1-player variant (a scripted *Conglomerate*
+  opponent), **not** the Landmarks expansion and **not** the same as our AI bot
+  mode. Source: https://www.asterisk-games.com/s/RailwaysRulebook-SoloMode-0901.pdf
+  — stored at [`references/RailwaysRulebook-SoloMode.pdf`](./references/RailwaysRulebook-SoloMode.pdf),
+  designed in [`rules-rotla-solo.md`](./rules-rotla-solo.md).
+- Tile manifest (BoardGameGeek): [`references/Tile_Manifest_RotLA.pdf`](./references/Tile_Manifest_RotLA.pdf).
+- All rulebooks: https://www.asterisk-games.com/rulebooks · Title page:
+  https://www.asterisk-games.com/railwaysofthelostatlas · BGG:
+  https://boardgamegeek.com/boardgame/365357/railways-of-the-lost-atlas
+- **Design specs:** base ruleset [`rules-rotla.md`](./rules-rotla.md); solo mode
+  [`rules-rotla-solo.md`](./rules-rotla-solo.md); Landmarks / variants
+  [`rules-rotla-expansion.md`](./rules-rotla-expansion.md).
+- Status: **core ruleset ported; playable vs bots** (linear stock + launch, OR with
+  linear-ladder dividends, fixed starter map). Remaining: a RoLA **visual identity**
+  (it currently borrows 1889's branding), human stock-round controls, the merger
+  round + end-game scoring, the procedural map build, and the official **Solo
+  (Conglomerate)** mode. Bot mode (AI on the standard rules) is distinct from Solo
+  Mode.

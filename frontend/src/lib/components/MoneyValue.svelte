@@ -1,9 +1,11 @@
 <script lang="ts">
   import { anim } from '$lib/game/anim.svelte';
-  import { CURRENCY } from '$lib/data/g1889';
+  import { game } from '$lib/game/sandbox.svelte';
+  import { currencyFor } from '$lib/engine';
 
   // Displays a cash value and pops a floating +/- delta when it changes.
   let { value }: { value: number } = $props();
+  const CURRENCY = $derived(currencyFor(game.title));
 
   let shown = $state(0);
   let prev: number | null = null;

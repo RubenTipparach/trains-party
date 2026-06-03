@@ -12,16 +12,23 @@
  */
 
 import { GameError, type GameAction, type GameState } from './types';
+import { configFor } from './registry';
 import { applyAuction, auctionActivePlayer, minBid } from './auction';
-import { applyStock } from './stock';
+import { applyStock, applyExchange } from './stock';
+import { applyRolaStock } from './rolaRound';
 import { applyOperating, operatingActivePlayer, operatingView } from './operating';
+import { applyMapBuild, mapBuildActivePlayer } from './mapbuild';
 
 export { initialState } from './setup';
 export type { Seat } from './setup';
+export { configFor, currencyFor, gameTitles, DEFAULT_TITLE } from './registry';
 export * from './types';
 export { minBid, auctionActivePlayer, auctionView, maxBidFor } from './auction';
 export type { AuctionView, AuctionCompanyView, AuctionPlayerView } from './auction';
-export { stockLegalActions } from './stock';
+export { stockLegalActions, exchangeOptions } from './stock';
+export { rolaStockLegalActions, maxRolaSell, availableMinors } from './rolaRound';
+export { parForBid, launchablePars, MIN_LAUNCH_BID, BID_INCREMENT } from './rolaStock';
+export type { RolaStockLegal } from './rolaRound';
 export {
   operatingView,
   operatingActivePlayer,
@@ -32,24 +39,42 @@ export {
   emergencyFor
 } from './operating';
 export type { OperatingView } from './operating';
-export { legalLays, neighbor, tileSupply, exhaustedTilesOnHex } from './track';
+export { legalLays, neighbor, tileSupply, exhaustedTilesOnHex, blockedHexes, specialLayOptions } from './track';
 export type { TileLay } from './track';
 export { TILES, rotatePaths } from './tiles';
 export type { TileDef } from './tiles';
 export { playerValue, playerLiquidity } from './metrics';
 export { corpRoutes, routeRevenue, routeThroughStops, TRAIN_ROUTE_COLORS } from './routes';
 export type { Route } from './routes';
+export { hexesFor } from './board';
+export { legalPlacements, placementCoords, isLegalPlacement, generateTriHexPool, BUILD_CENTER } from './triHex';
+export type { Placement, TriHex, TriShape } from './triHex';
+export { mapBuildActivePlayer, pickBuildPlacement } from './mapbuild';
 
 /** Apply one action, returning the next state. Pure: the input is not mutated. */
 export function apply(state: GameState, action: GameAction): GameState {
   const s: GameState = structuredClone(state);
   if (s.finished) throw new GameError('game is finished');
+  // Exchange abilities (e.g. Dougo Railway -> IR) may be used on the owner's turn
+  // in any round, so they are handled here rather than inside one round's reducer.
+  if (action.type === 'exchange') {
+    const active = activePlayer(s);
+    if (active !== action.player) throw new GameError(`it is ${active ?? 'nobody'}'s turn, not ${action.player}`);
+    if (s.round !== 'stock' && s.round !== 'operating') throw new GameError('cannot exchange a private now');
+    applyExchange(s, action);
+    s.seq += 1;
+    return s;
+  }
   switch (s.round) {
     case 'auction':
       applyAuction(s, action);
       break;
+    case 'mapbuild':
+      applyMapBuild(s, action);
+      break;
     case 'stock':
-      applyStock(s, action);
+      if (configFor(s.title).minors) applyRolaStock(s, action);
+      else applyStock(s, action);
       break;
     case 'operating':
       applyOperating(s, action);
@@ -72,6 +97,7 @@ export function activePlayer(state: GameState): string | null {
   if (state.round === 'auction') return auctionActivePlayer(state);
   if (state.round === 'stock' && state.stock) return state.players[state.current].id;
   if (state.round === 'operating') return operatingActivePlayer(state);
+  if (state.round === 'mapbuild') return mapBuildActivePlayer(state);
   return null;
 }
 

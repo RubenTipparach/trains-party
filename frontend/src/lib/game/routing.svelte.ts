@@ -46,6 +46,12 @@ class Routing {
   armed = $state(0);
   /** True once auto-calculate or any manual edit has produced routes. */
   active = $state(false);
+  /**
+   * True once the player has hand-edited stops (not just auto-calculated). The
+   * run action only sends explicit routes when manual, so auto-calculate keeps
+   * the engine's own best-route computation as the authoritative result.
+   */
+  manual = $state(false);
   private corp = '';
 
   /** Total revenue across all assigned trains. */
@@ -75,6 +81,12 @@ class Routing {
     }));
     this.armed = 0;
     this.active = false;
+    this.manual = false;
+  }
+
+  /** The player's chosen stop-lists per train (>= 2 stops), for the run action. */
+  chosenRoutes(): string[][] {
+    return this.trains.filter((t) => t.stops.length >= 2).map((t) => [...t.stops]);
   }
 
   /**
@@ -137,6 +149,7 @@ class Routing {
     const t = this.trains[this.armed];
     if (!t) return;
     this.active = true;
+    this.manual = true;
     const at = t.stops.indexOf(hex);
     if (at !== -1) t.stops.splice(at, 1);
     else t.stops.push(hex);
@@ -155,6 +168,7 @@ class Routing {
       t.stops = r ? [...r.hexes] : [];
     });
     this.active = true;
+    this.manual = false; // auto routes defer to the engine's own best-route calc
     this.recompute(s);
   }
 }

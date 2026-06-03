@@ -8,9 +8,12 @@ import {
   auctionView,
   maxBidFor,
   stockLegalActions,
+  rolaStockLegalActions,
   operatingView,
   trackLays,
   tokenPlays,
+  configFor,
+  pickBuildPlacement,
   type GameAction,
   type GameState
 } from '$lib/engine';
@@ -82,16 +85,33 @@ function botStock(s: GameState, level: BotLevel): GameAction {
   return { type: 'pass', player: me };
 }
 
+/** RoLA stock round: launch a minor if running none, else pick up a cheap share. */
+function botRolaStock(s: GameState, level: BotLevel): GameAction {
+  const sl = rolaStockLegalActions(s);
+  const me = sl.player;
+  const myMinors = s.corporations.filter((c) => c.kind === 'minor' && c.president === me && c.floated);
+
+  if (myMinors.length === 0 && sl.launch.length) {
+    const opt = sl.launch[0];
+    return { type: 'launch', player: me, corp: opt.corp, bid: opt.minBid }; // open at the minimum bid (120)
+  }
+  if (level === 'normal') {
+    if (sl.buyIpo.length) return { type: 'buy', player: me, corp: sl.buyIpo[0], from: 'ipo' };
+    if (sl.buyPool.length) return { type: 'buy', player: me, corp: sl.buyPool[0], from: 'pool' };
+  }
+  return { type: 'pass', player: me };
+}
+
 function botOperating(s: GameState): GameAction | null {
   const v = operatingView(s);
   if (!v || !v.president) return null;
   const me = v.president;
   const c = s.corporations.find((x) => x.sym === v.corp)!;
   if (v.step === 'track') {
-    // Lay a yellow tile (prefer the home hex to open the city), else skip.
-    const lays = trackLays(s);
+    // Lay an affordable tile (prefer the home hex, else the cheapest), else skip.
+    const lays = trackLays(s).filter((l) => l.cost <= c.cash);
     if (lays.length) {
-      const pick = lays.find((l) => l.hex === c.coordinates) ?? lays[0];
+      const pick = lays.find((l) => l.hex === c.coordinates) ?? [...lays].sort((a, b) => a.cost - b.cost)[0];
       return { type: 'lay_tile', player: me, corp: v.corp, hex: pick.hex, tile: pick.tile, rotation: pick.rotation };
     }
     return { type: 'pass', player: me };
@@ -127,7 +147,7 @@ function botOperating(s: GameState): GameAction | null {
   // Buy the cheapest train if the corporation has none and can afford it (forced
   // when it can run a route, optional otherwise).
   if (v.canBuyTrain && c.trains.length === 0) {
-    const def = TRAINS.find((t) => t.name === v.canBuyTrain)!;
+    const def = configFor(s.title).trains.find((t) => t.name === v.canBuyTrain)!;
     if (c.cash >= def.price) return { type: 'buy_train', player: me, corp: v.corp, train: v.canBuyTrain };
   }
   return { type: 'pass', player: me };
@@ -136,12 +156,15 @@ function botOperating(s: GameState): GameAction | null {
 /** Choose a legal action for the active (bot) player, or null if none. */
 export function botAction(s: GameState, level: BotLevel): GameAction | null {
   if (s.finished) return null;
+  if (s.round === 'mapbuild') return pickBuildPlacement(s);
   if (s.round === 'auction' && s.auction) {
     // guard: only act if we are actually the active player
     if (auctionActivePlayer(s) !== s.players[s.current].id && !s.auction.auctioning) return null;
     return botAuction(s, level);
   }
-  if (s.round === 'stock' && s.stock) return botStock(s, level);
+  if (s.round === 'stock' && s.stock) {
+    return configFor(s.title).minors ? botRolaStock(s, level) : botStock(s, level);
+  }
   if (s.round === 'operating' && s.or) return botOperating(s);
   return null;
 }

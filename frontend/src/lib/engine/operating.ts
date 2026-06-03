@@ -2,56 +2,67 @@
  * Operating round (1889) - financial core.
  *
  * Corporations operate in share-price order (highest first). Each corporation's
- * president, on its turn: runs trains for revenue and pays or withholds it
- * (moving the share price right or left), then buys trains from the depot
+ * president, on its turn: lays track, places a token, runs trains for revenue and
+ * pays or withholds it (moving the share price), then buys trains from the depot
  * (advancing the phase and rusting old trains on the first train of a new type).
- * After every corporation operates, the next operating round of the set runs, or
- * play returns to a stock round.
  *
- * Routes are not yet modelled: the `run` action carries the route revenue (the
- * route layer in Stage 3b will compute it). Track laying and token placement also
- * arrive in Stage 3b.
+ * Phase, train, and market data come from the title config (by `state.title`).
  */
 
-import { MARKET, TRAINS, PHASES } from '$lib/data/g1889';
+import { configFor } from './registry';
 import { GameError, type CorporationState, type GameAction, type GameState } from './types';
-import { applyLayTile, legalLays, applyToken, legalTokens } from './track';
-import { routeRevenue, canRunRoute } from './routes';
+import { applyLayTile, legalLays, applyToken, legalTokens, applySpecialLay } from './track';
+import { routeRevenue, canRunRoute, revenueForChosenRoutes } from './routes';
 import { playerValue } from './metrics';
-import { sellSharesToPool, currentPrice, canSell, maxSellCount } from './stock';
+import { sellSharesToPool, currentPrice, canSell, maxSellCount, stampPrice } from './stock';
+import { applyDividend } from './rolaStock';
 
 function corp(s: GameState, sym: string): CorporationState {
   const c = s.corporations.find((x) => x.sym === sym);
   if (!c) throw new GameError(`unknown corporation ${sym}`);
   return c;
 }
-function priceOf(c: CorporationState): number {
+function priceOf(s: GameState, c: CorporationState): number {
   if (c.priceRow === null || c.priceCol === null) return 0;
-  return MARKET[c.priceRow][c.priceCol].price;
+  return configFor(s.title).market[c.priceRow][c.priceCol].price;
 }
-function cellExists(row: number, col: number): boolean {
-  return !!MARKET[row] && col < MARKET[row].length;
+function cellExists(s: GameState, row: number, col: number): boolean {
+  const m = configFor(s.title).market;
+  return !!m[row] && col < m[row].length;
 }
-function moveRight(c: CorporationState): void {
+function moveRight(s: GameState, c: CorporationState): void {
   if (c.priceRow === null || c.priceCol === null) return;
-  if (cellExists(c.priceRow, c.priceCol + 1)) c.priceCol += 1;
-  else if (c.priceRow > 0) c.priceRow -= 1; // top of a column: nudge up
+  if (cellExists(s, c.priceRow, c.priceCol + 1)) {
+    c.priceCol += 1;
+    stampPrice(s, c);
+  } else if (c.priceRow > 0) {
+    c.priceRow -= 1; // top of a column: nudge up
+    stampPrice(s, c);
+  }
 }
-function moveLeft(c: CorporationState): void {
+function moveLeft(s: GameState, c: CorporationState): void {
   if (c.priceRow === null || c.priceCol === null) return;
-  if (c.priceCol > 0 && cellExists(c.priceRow, c.priceCol - 1)) c.priceCol -= 1;
-  else if (cellExists(c.priceRow + 1, c.priceCol)) c.priceRow += 1; // left edge: drop down
+  if (c.priceCol > 0 && cellExists(s, c.priceRow, c.priceCol - 1)) {
+    c.priceCol -= 1;
+    stampPrice(s, c);
+  } else if (cellExists(s, c.priceRow + 1, c.priceCol)) {
+    c.priceRow += 1; // left edge: drop down
+    stampPrice(s, c);
+  }
 }
 
 function orsForPhase(s: GameState): number {
-  return PHASES.find((p) => p.name === s.phase)?.operatingRounds ?? 1;
+  return configFor(s.title).phases.find((p) => p.name === s.phase)?.operatingRounds ?? 1;
 }
 
 /** Begin an operating round (or the next one in the set). */
 export function startOperatingRound(s: GameState, orNumber = 1): void {
+  // Operating order: highest share price first; ties broken by which corporation
+  // reached that market cell earliest (lowest stackSeq), i.e. the bottom of the
+  // stack operates first (reference engine). sym is a final, deterministic tiebreak.
   const order = s.corporations
     .filter((c) => c.floated)
-    .sort((a, b) => priceOf(b) - priceOf(a) || a.sym.localeCompare(b.sym))
+    .sort((a, b) => priceOf(s, b) - priceOf(s, a) || a.stackSeq - b.stackSeq || a.sym.localeCompare(b.sym))
     .map((c) => c.sym);
 
   // The OR set that follows stock round N is "OR N", so keep them aligned
@@ -65,6 +76,18 @@ export function startOperatingRound(s: GameState, orNumber = 1): void {
   s.or = { order, index: 0, step: 'track', orNumber, orsThisSet: orsForPhase(s) };
   s.log.push(`Operating round ${s.orSet}.${orNumber} begins`);
   payPrivateIncome(s);
+  ensureHomeToken(s, activeCorp(s));
+}
+
+/**
+ * Place a corporation's home token when it first operates (HOME_TOKEN_TIMING
+ * :operating_round). A home token is placed directly and ignores hex blocking.
+ */
+function ensureHomeToken(s: GameState, c: CorporationState): void {
+  if (c.tokenHexes.length === 0) {
+    c.tokenHexes.push(c.coordinates);
+    s.log.push(`${c.sym} places its home token on ${c.coordinates}`);
+  }
 }
 
 /** Private companies pay their revenue to their owners at the start of each OR. */
@@ -145,34 +168,54 @@ function nextCorp(s: GameState): void {
   if (or.index >= or.order.length) {
     if (or.orNumber < or.orsThisSet) startOperatingRound(s, or.orNumber + 1);
     else finishOperatingSet(s);
+  } else {
+    ensureHomeToken(s, activeCorp(s));
   }
+}
+
+/** The phase train limit (max trains a corporation may own). */
+function trainLimit(s: GameState, c?: CorporationState): number {
+  const ph = configFor(s.title).phases.find((p) => p.name === s.phase);
+  if (!ph) return 99;
+  // RoLA minors have a lower limit than majors; 1889 uses the single limit.
+  if (c?.kind === 'minor') return ph.minorTrainLimit ?? ph.trainLimit;
+  return ph.trainLimit;
+}
+
+/** Has the game reached `phaseName` (current phase index >= its index)? */
+function phaseReached(s: GameState, phaseName: string): boolean {
+  const phases = configFor(s.title).phases;
+  return phases.findIndex((p) => p.name === s.phase) >= phases.findIndex((p) => p.name === phaseName);
 }
 
 function doRun(s: GameState, c: CorporationState, revenue: number, mode: 'pay' | 'withhold'): void {
   if (revenue < 0) throw new GameError('revenue cannot be negative');
+  const linear = configFor(s.title).marketKind === 'linear';
   if (mode === 'pay' && revenue > 0) {
-    const perShare = revenue / 10; // 10 shares of 10%
+    // Each holder is paid in proportion to the percent they hold (so this works
+    // for any share denomination); pooled shares pay the corporation treasury,
+    // IPO shares pay nobody.
     let paidOut = 0;
     for (const p of s.players) {
       const pct = p.shares[c.sym] ?? 0;
       if (pct > 0) {
-        const amt = perShare * (pct / 10);
+        const amt = (revenue * pct) / 100;
         p.cash += amt;
         paidOut += amt;
       }
     }
-    // Market (pool) shares pay their dividend to the corporation treasury.
-    // IPO shares pay NOBODY (that portion is simply not paid out) in 1889.
-    const toTreasury = perShare * (c.poolShares / 10);
+    const toTreasury = (revenue * c.poolShares) / 100;
     c.cash += toTreasury;
     paidOut += toTreasury;
     s.bank -= paidOut;
-    moveRight(c);
+    if (linear) applyDividend(s, c, 'pay', revenue);
+    else moveRight(s, c);
     s.log.push(`${c.sym} runs for ${revenue} and pays a dividend`);
   } else {
     c.cash += revenue;
     s.bank -= revenue;
-    moveLeft(c);
+    if (linear) applyDividend(s, c, 'withhold', 0);
+    else moveLeft(s, c);
     s.log.push(`${c.sym} runs for ${revenue} and withholds`);
   }
   // End-game trigger: when the bank breaks (runs out of money), the current OR
@@ -185,50 +228,84 @@ function doRun(s: GameState, c: CorporationState, revenue: number, mode: 'pay' |
 }
 
 function advancePhaseAndRust(s: GameState, train: string): void {
-  const phaseIdx = PHASES.findIndex((p) => p.name === s.phase);
-  const newIdx = PHASES.findIndex((p) => p.on === train);
+  const cfg = configFor(s.title);
+  const phaseIdx = cfg.phases.findIndex((p) => p.name === s.phase);
+  const newIdx = cfg.phases.findIndex((p) => p.on === train);
   if (newIdx > phaseIdx) {
-    s.phase = PHASES[newIdx].name;
+    s.phase = cfg.phases[newIdx].name;
     s.log.push(`Phase ${s.phase} begins`);
-    if (PHASES[newIdx].name === '5') {
-      // The 5-train closes all private companies.
-      for (const co of s.companies) {
-        if (!co.closed) {
-          co.closed = true;
-          co.owner = null;
+    // Revenue changes that trigger on this phase (Uno-Takamatsu Ferry -> 50 at 5).
+    for (const co of s.companies) {
+      if (co.closed) continue;
+      for (const ab of co.abilities) {
+        if (ab.type === 'revenue_change' && ab.onPhase === s.phase) {
+          co.revenue = ab.revenue;
+          s.log.push(`${co.name} revenue rises to ${co.revenue}`);
         }
       }
-      for (const p of s.players) p.companies = [];
-      for (const co of s.corporations) co.companies = [];
+    }
+  }
+  // The 5-train closes private companies, except any flagged never_closes (UTF).
+  const def = cfg.trains.find((t) => t.name === train);
+  if (def?.closesCompanies) {
+    const closed = new Set<string>();
+    for (const co of s.companies) {
+      if (co.closed || co.abilities.some((a) => a.type === 'never_closes')) continue;
+      co.closed = true;
+      co.owner = null;
+      closed.add(co.sym);
+    }
+    if (closed.size) {
+      for (const p of s.players) p.companies = p.companies.filter((sym) => !closed.has(sym));
+      for (const co of s.corporations) co.companies = co.companies.filter((sym) => !closed.has(sym));
       s.log.push('Private companies close');
     }
   }
   // Rust: any train that rusts when this train is bought.
-  const rusts = TRAINS.filter((t) => t.rustsOn === train).map((t) => t.name);
+  const rusts = cfg.trains.filter((t) => t.rustsOn === train).map((t) => t.name);
   if (rusts.length) {
     for (const co of s.corporations) co.trains = co.trains.filter((t) => !rusts.includes(t));
     s.log.push(`${rusts.join(', ')}-trains rust`);
   }
 }
 
-function doBuyTrain(s: GameState, c: CorporationState, train: string): void {
+function doBuyTrain(s: GameState, c: CorporationState, train: string, tradeIn?: string): void {
   const d = s.depot.find((x) => x.name === train);
   if (!d) throw new GameError(`no such train ${train}`);
   if (d.remaining === 0) throw new GameError(`no ${train}-trains left in the bank`);
-  const def = TRAINS.find((t) => t.name === train)!;
-  // Only the cheapest available train type can be bought from the depot
-  // (depot trains must be bought in order).
+  const def = configFor(s.title).trains.find((t) => t.name === train)!;
+  // Depot trains are bought cheapest-first, except a train flagged available_on
+  // the current phase (the diesel) may be bought directly once that phase is in.
   const cheapest = s.depot.find((x) => x.remaining !== 0)!;
-  if (cheapest.name !== train) throw new GameError(`must buy the ${cheapest.name}-train next from the depot`);
+  const availableNow = !!def.availableOn && phaseReached(s, def.availableOn);
+  if (cheapest.name !== train && !availableNow) {
+    throw new GameError(`must buy the ${cheapest.name}-train next from the depot`);
+  }
 
-  if (c.cash < def.price) {
-    // The corporation cannot pay outright. This is only allowed under a forced
-    // (emergency) purchase, where the president must cover the shortfall from
-    // personal cash (after raising money by selling shares if needed).
+  // Diesel trade-in: swap an older train for part of the price.
+  let price = def.price;
+  let tradeIdx = -1;
+  if (tradeIn) {
+    const disc = def.discount?.[tradeIn];
+    if (!disc) throw new GameError(`cannot trade a ${tradeIn}-train toward a ${train}-train`);
+    tradeIdx = c.trains.indexOf(tradeIn);
+    if (tradeIdx === -1) throw new GameError(`${c.sym} has no ${tradeIn}-train to trade in`);
+    price = Math.max(0, def.price - disc);
+  }
+
+  // Train limit: may not exceed the phase limit. A trade-in keeps the count flat.
+  if (c.trains.length + 1 - (tradeIn ? 1 : 0) > trainLimit(s, c)) {
+    throw new GameError(`${c.sym} is at the ${trainLimit(s, c)}-train limit`);
+  }
+
+  if (c.cash < price) {
+    if (tradeIn) throw new GameError(`${c.sym} cannot afford the ${train}-train even with a trade-in`);
+    // Cannot pay outright: only allowed under a forced (emergency) purchase, where
+    // the president covers the shortfall (after raising money by selling shares).
     const emg = emergencyFor(s, c);
     if (!emg || emg.train !== train) throw new GameError(`${c.sym} cannot afford a ${train}-train`);
     const pres = s.players.find((p) => p.id === c.president);
-    const shortfall = def.price - c.cash;
+    const shortfall = price - c.cash;
     if (!pres || pres.cash < shortfall) {
       throw new GameError(`${c.sym} must raise ${shortfall} more before buying the ${train}-train`);
     }
@@ -237,11 +314,15 @@ function doBuyTrain(s: GameState, c: CorporationState, train: string): void {
     s.log.push(`${pname(s, pres.id)} contributes ${shortfall} to ${c.sym} (emergency)`);
   }
 
-  c.cash -= def.price;
-  s.bank += def.price;
+  if (tradeIdx !== -1) {
+    c.trains.splice(tradeIdx, 1);
+    s.log.push(`${c.sym} trades in a ${tradeIn}-train`);
+  }
+  c.cash -= price;
+  s.bank += price;
   c.trains.push(train);
   if (d.remaining > 0) d.remaining -= 1;
-  s.log.push(`${c.sym} buys a ${train}-train for ${def.price}`);
+  s.log.push(`${c.sym} buys a ${train}-train for ${price}`);
   advancePhaseAndRust(s, train);
 }
 
@@ -249,7 +330,7 @@ function doBuyTrain(s: GameState, c: CorporationState, train: string): void {
 function cheapestDepotTrain(s: GameState): { name: string; price: number } | null {
   const d = s.depot.find((x) => x.remaining !== 0);
   if (!d) return null;
-  const def = TRAINS.find((t) => t.name === d.name)!;
+  const def = configFor(s.title).trains.find((t) => t.name === d.name)!;
   return { name: d.name, price: def.price };
 }
 
@@ -277,7 +358,7 @@ export function emrSellable(s: GameState, presId: string): { corp: string; count
   const out: { corp: string; count: number; price: number }[] = [];
   for (const c of s.corporations) {
     const n = maxSellCount(s, presId, c.sym);
-    if (n > 0 && canSell(s, presId, c.sym)) out.push({ corp: c.sym, count: n, price: currentPrice(c) });
+    if (n > 0 && canSell(s, presId, c.sym)) out.push({ corp: c.sym, count: n, price: currentPrice(s, c) });
   }
   return out;
 }
@@ -320,6 +401,7 @@ function doBuyTrainFromCorp(s: GameState, buyer: CorporationState, fromSym: stri
   }
   const idx = seller.trains.indexOf(train);
   if (idx === -1) throw new GameError(`${fromSym} has no ${train}-train to sell`);
+  if (buyer.trains.length + 1 > trainLimit(s, buyer)) throw new GameError(`${buyer.sym} is at the ${trainLimit(s, buyer)}-train limit`);
   if (!Number.isInteger(price) || price < 1) throw new GameError('train price must be at least 1');
   if (price > buyer.cash) throw new GameError(`${buyer.sym} cannot pay ${price} (treasury ${buyer.cash})`);
 
@@ -333,15 +415,13 @@ function doBuyTrainFromCorp(s: GameState, buyer: CorporationState, fromSym: stri
 /** Corporations may buy private companies once the green (phase 3) trains arrive. */
 const COMPANY_BUY_PHASE = '3';
 export function corporationsCanBuyPrivates(s: GameState): boolean {
-  const i = PHASES.findIndex((p) => p.name === s.phase);
-  const j = PHASES.findIndex((p) => p.name === COMPANY_BUY_PHASE);
-  return i >= j;
+  return phaseReached(s, COMPANY_BUY_PHASE);
 }
 
 /**
- * A corporation buys a player-owned private company. The price is negotiable,
- * from 1 up to twice the company's face value (and within the buyer's treasury).
- * The selling player is paid; income afterwards flows to the corporation.
+ * A corporation buys a private company owned by its OWN president. The price is
+ * negotiable, from 1 up to twice the company's face value (and within the buyer's
+ * treasury). The selling player is paid; income afterwards flows to the corporation.
  */
 function doBuyCompany(s: GameState, buyer: CorporationState, companySym: string, price: number): void {
   if (!corporationsCanBuyPrivates(s)) {
@@ -351,6 +431,18 @@ function doBuyCompany(s: GameState, buyer: CorporationState, companySym: string,
   if (!co) throw new GameError(`no such company ${companySym}`);
   if (co.closed) throw new GameError(`${companySym} has closed`);
   if (!co.owner) throw new GameError(`${companySym} is not owned by a player`);
+  // Permission: a corporation may only absorb a private owned by its OWN
+  // president. Buying another player's private needs their consent, which bots
+  // decline in single-player.
+  if (co.owner !== buyer.president) {
+    throw new GameError(`${buyer.sym} needs ${pname(s, co.owner)}'s consent to buy ${companySym}`);
+  }
+  // Some privates can no longer be sold to a corporation past a phase (UTF at 5).
+  for (const ab of co.abilities) {
+    if (ab.type === 'revenue_change' && ab.noCorpSale && phaseReached(s, ab.onPhase)) {
+      throw new GameError(`${companySym} can no longer be sold to a corporation`);
+    }
+  }
   const seller = s.players.find((p) => p.id === co.owner);
   if (!seller) throw new GameError(`${companySym} has no owner to sell it`);
   if (!Number.isInteger(price) || price < 1) throw new GameError('company price must be at least 1');
@@ -364,6 +456,9 @@ function doBuyCompany(s: GameState, buyer: CorporationState, companySym: string,
   co.owner = null;
   buyer.companies.push(companySym);
   s.log.push(`${buyer.sym} buys the ${co.name} private from ${seller.name} for ${price}`);
+  // A "sold" tile-lay ability (Ehime Railway -> green tile on Ohzu) becomes
+  // available to the buying corporation.
+  if (co.abilities.some((a) => a.type === 'tile_lay' && a.when === 'sold')) co.pendingLay = true;
 }
 
 export function applyOperating(s: GameState, action: GameAction): void {
@@ -398,10 +493,13 @@ export function applyOperating(s: GameState, action: GameAction): void {
       if (s.or.step !== 'run' && s.or.step !== 'track' && s.or.step !== 'token') {
         throw new GameError(`${c.sym} has already run`);
       }
-      // Revenue is computed authoritatively from the corporation's routes, not
-      // taken from the action (which can't be trusted). The action only chooses
-      // pay vs withhold.
-      const revenue = routeRevenue(s, c);
+      // Revenue is computed authoritatively from the corporation's routes, never
+      // trusted from the action. If the player supplied explicit routes, validate
+      // and score those; otherwise run the best routes the engine can find.
+      const revenue =
+        action.routes && action.routes.length
+          ? revenueForChosenRoutes(s, c, action.routes)
+          : routeRevenue(s, c);
       doRun(s, c, revenue, action.dividend);
       break;
     }
@@ -410,8 +508,11 @@ export function applyOperating(s: GameState, action: GameAction): void {
       if (action.from !== undefined) {
         doBuyTrainFromCorp(s, c, action.from, action.train, action.price ?? 1);
       } else {
-        doBuyTrain(s, c, action.train);
+        doBuyTrain(s, c, action.train, action.tradeIn);
       }
+      break;
+    case 'special_lay':
+      applySpecialLay(s, action.player, action.company, action.hex, action.tile, action.rotation);
       break;
     case 'buy_company':
       if (s.or.step !== 'trains') throw new GameError(`${c.sym} can only buy companies in its buy step`);
@@ -464,6 +565,11 @@ export interface OperatingView {
   orNumber: number;
   orsThisSet: number;
   canBuyTrain: string | null; // cheapest depot train name, or null
+  /** The diesel may be bought now (phase reached and depot has one). */
+  dieselAvailable: boolean;
+  dieselPrice: number;
+  /** Owned trains that can be traded toward a diesel, with the discounted price. */
+  dieselTradeIns: { train: string; price: number }[];
   /** Best route revenue the operating corporation can earn this OR. */
   revenue: number;
   /** Whether the corporation owns any train to run. */
@@ -486,6 +592,17 @@ export function operatingView(s: GameState): OperatingView | null {
   if (!s.or) return null;
   const c = activeCorp(s);
   const cheapest = s.depot.find((x) => x.remaining !== 0);
+  const diesel = configFor(s.title).trains.find((t) => t.name === 'D');
+  const dDepot = s.depot.find((d) => d.name === 'D');
+  const dieselAvailable =
+    !!diesel?.availableOn && phaseReached(s, diesel.availableOn) && !!dDepot && dDepot.remaining !== 0;
+  const owned = new Set(c.trains);
+  const dieselTradeIns =
+    dieselAvailable && diesel?.discount
+      ? Object.keys(diesel.discount)
+          .filter((t) => owned.has(t))
+          .map((t) => ({ train: t, price: Math.max(0, diesel.price - diesel.discount![t]) }))
+      : [];
   return {
     corp: c.sym,
     president: c.president,
@@ -495,6 +612,9 @@ export function operatingView(s: GameState): OperatingView | null {
     orNumber: s.or.orNumber,
     orsThisSet: s.or.orsThisSet,
     canBuyTrain: cheapest ? cheapest.name : null,
+    dieselAvailable,
+    dieselPrice: diesel?.price ?? 0,
+    dieselTradeIns,
     revenue: c.trains.length ? routeRevenue(s, c) : 0,
     hasTrains: c.trains.length > 0,
     mustBuy: mustBuyTrain(s, c),

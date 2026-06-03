@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { HEX_BY_COORD } from '$lib/data/map1889';
 import { initialState } from './setup';
 import {
   apply,
@@ -404,34 +405,50 @@ describe('operating round', () => {
     expect(() => apply(s, { type: 'buy_train', player: 'p1', corp: 'AR', train: '2', from: seller.sym, price: 1 })).toThrow();
   });
 
-  // Give player p2 a private company, with the game in phase 3 so corps may buy.
+  // Give the operating president (p1) a private company, in phase 3 so a corp it
+  // presides over may buy it (a corporation may only absorb its president's own
+  // private; another player's needs consent, which bots decline).
   function withPrivateInPhase3() {
     let s = toOperatingRound();
     s.phase = '3';
     const co = s.companies[0];
-    co.owner = 'p2';
+    co.owner = 'p1';
     co.closed = false;
-    s.players.find((p) => p.id === 'p2')!.companies = [co.sym];
+    for (const p of s.players) p.companies = p.companies.filter((x) => x !== co.sym);
+    s.players.find((p) => p.id === 'p1')!.companies = [co.sym];
     s = apply(s, { type: 'pass', player: 'p1' }); // skip track
     s = apply(s, { type: 'run', player: 'p1', corp: 'AR', revenue: 0, dividend: 'withhold' });
     return { s, co };
   }
 
-  it('lets a corporation buy a private company and then earns its income', () => {
+  it('lets a corporation buy its president\'s private company and then earns its income', () => {
     let { s, co } = withPrivateInPhase3();
-    const p2Cash = cash(s, 'p2');
+    const p1Cash = cash(s, 'p1');
     const arCash = corp(s, 'AR').cash;
     s = apply(s, { type: 'buy_company', player: 'p1', corp: 'AR', company: co.sym, price: 2 });
     expect(corp(s, 'AR').companies).toContain(co.sym);
-    expect(s.players.find((p) => p.id === 'p2')!.companies).not.toContain(co.sym);
+    expect(s.players.find((p) => p.id === 'p1')!.companies).not.toContain(co.sym);
     expect(s.companies.find((x) => x.sym === co.sym)!.owner).toBeNull();
-    expect(cash(s, 'p2')).toBe(p2Cash + 2);
+    expect(cash(s, 'p1')).toBe(p1Cash + 2); // the president pockets the sale
     expect(corp(s, 'AR').cash).toBe(arCash - 2);
     // The next OR pays the private's income into the corporation treasury.
     const before = corp(s, 'AR').cash;
     s = apply(s, { type: 'pass', player: 'p1' }); // AR finishes -> next round / OR
     const arNow = corp(s, 'AR');
     if (s.round === 'operating') expect(arNow.cash).toBe(before + co.revenue);
+  });
+
+  it('refuses to buy another player\'s private (needs consent)', () => {
+    let s = toOperatingRound();
+    s.phase = '3';
+    const co = s.companies[0];
+    co.owner = 'p2'; // owned by someone other than AR's president (p1)
+    co.closed = false;
+    for (const p of s.players) p.companies = p.companies.filter((x) => x !== co.sym);
+    s.players.find((p) => p.id === 'p2')!.companies = [co.sym];
+    s = apply(s, { type: 'pass', player: 'p1' });
+    s = apply(s, { type: 'run', player: 'p1', corp: 'AR', revenue: 0, dividend: 'withhold' });
+    expect(() => apply(s, { type: 'buy_company', player: 'p1', corp: 'AR', company: co.sym, price: 2 })).toThrow();
   });
 
   it('rejects a company price above twice face value or below 1', () => {
@@ -443,8 +460,8 @@ describe('operating round', () => {
   it('rejects buying a private before phase 3', () => {
     let s = toOperatingRound(); // phase 2
     const co = s.companies[0];
-    co.owner = 'p2';
-    s.players.find((p) => p.id === 'p2')!.companies = [co.sym];
+    co.owner = 'p1';
+    s.players.find((p) => p.id === 'p1')!.companies = [co.sym];
     s = apply(s, { type: 'pass', player: 'p1' });
     s = apply(s, { type: 'run', player: 'p1', corp: 'AR', revenue: 0, dividend: 'withhold' });
     expect(() => apply(s, { type: 'buy_company', player: 'p1', corp: 'AR', company: co.sym, price: 1 })).toThrow();
@@ -576,11 +593,11 @@ describe('track laying - no track into the sea', () => {
     expect(lays.length).toBeGreaterThan(0);
     for (const l of lays) {
       // No tile edge may point where there is no neighbouring hex (the sea).
-      expect(neighbor(l.hex, 0) === null && neighbor(l.hex, 5) === null).toBeDefined();
+      expect(neighbor(HEX_BY_COORD, l.hex, 0) === null && neighbor(HEX_BY_COORD, l.hex, 5) === null).toBeDefined();
     }
     // K8 specifically borders no hex on edges 0 and 5; ensure no lay there uses them.
     for (const l of lays.filter((x) => x.hex === 'K8')) {
-      expect(neighbor('K8', 0)).toBeNull();
+      expect(neighbor(HEX_BY_COORD, 'K8', 0)).toBeNull();
     }
   });
 });

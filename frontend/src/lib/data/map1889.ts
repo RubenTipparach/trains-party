@@ -6,7 +6,7 @@
  * read-only HexMap component. LAYOUT is :flat (flat-top hexes).
  */
 
-import type { HexDef, PathPart, TileColor } from './types';
+import type { HexDef, PathPart, TileColor, TileManifestEntry } from './types';
 
 export const LOCATION_NAMES: Record<string, string> = {
   F3: 'Saijou',
@@ -38,6 +38,7 @@ export const LOCATION_NAMES: Record<string, string> = {
 
 /** Raw HEXES grouped by colour, exactly as in the reference. */
 const HEXES_RAW: Record<TileColor, Array<[string[], string]>> = {
+  blue: [], // RoLA bridge tiles; 1889 has none
   white: [
     [['D3', 'H3', 'J3', 'B5', 'C8', 'E8', 'I8', 'D9', 'I10'], ''],
     [['F3', 'G4', 'H7', 'A10', 'J11', 'G12', 'E2', 'I2', 'K8', 'C10'], 'city=revenue:0'],
@@ -143,13 +144,6 @@ export const HEXES: HexDef[] = (Object.keys(HEXES_RAW) as TileColor[]).flatMap((
 export const HEX_BY_COORD: Record<string, HexDef> = Object.fromEntries(HEXES.map((h) => [h.coord, h]));
 
 /** Available tile manifest (id -> count), from the reference TILES hash. */
-export interface TileManifestEntry {
-  id: string;
-  count: number;
-  /** Colour only where the source states it (the beginner tiles). */
-  color?: TileColor;
-}
-
 export const TILE_MANIFEST: TileManifestEntry[] = [
   { id: '3', count: 2 },
   { id: '5', count: 2 },
