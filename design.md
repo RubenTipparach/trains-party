@@ -291,6 +291,8 @@ implementing. Not every published game has a port there (see RoLA below).
 - All rulebooks: https://www.asterisk-games.com/rulebooks
 - Title page: https://www.asterisk-games.com/railwaysofthelostatlas
 - BoardGameGeek: https://boardgamegeek.com/boardgame/365357/railways-of-the-lost-atlas
+- **Engine design spec:** [`rules-rotla.md`](./rules-rotla.md) — RoLA's ruleset as
+  deltas from the 1889 engine, with a staged implementation plan.
 - Status: **listed in the menu, rules not yet ported.** Notes for the eventual
   port: the map is **built by players during setup** (no fixed map module), and
   minor companies **merge into majors** — neither mechanic exists in our engine
