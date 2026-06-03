@@ -76,7 +76,24 @@ const CODES: Record<string, [TileColor, string]> = {
   Beg8: ['yellow', 'path=a:0,b:2'],
   Beg9: ['yellow', 'path=a:0,b:3'],
   Beg23: ['green', 'path=a:0,b:3;path=a:0,b:4'],
-  Beg24: ['green', 'path=a:0,b:3;path=a:0,b:2']
+  Beg24: ['green', 'path=a:0,b:3;path=a:0,b:2'],
+  // --- Railways of the Lost Atlas (RoLA) ---
+  // Colours, revenues and slots from the tile-manifest PDF (references/). RoLA
+  // "purple" = brown, "grey" = gray, plus blue bridges. Track orientations mirror
+  // the standard tile of the same shape and are finalised against the art at the
+  // map stage (Stage 4).
+  '291': ['yellow', 'city=revenue:40;path=a:0,b:_0;path=a:1,b:_0;label=C'],
+  '292': ['yellow', 'city=revenue:40;path=a:0,b:_0;path=a:2,b:_0;label=C'],
+  '293': ['yellow', 'city=revenue:40;path=a:0,b:_0;path=a:_0,b:3;label=C'],
+  '294': ['green', 'city=revenue:50,slots:2;path=a:0,b:_0;path=a:1,b:_0;path=a:3,b:_0;path=a:4,b:_0;label=C'],
+  '295': ['green', 'city=revenue:50,slots:2;path=a:0,b:_0;path=a:1,b:_0;path=a:2,b:_0;path=a:3,b:_0;label=C'],
+  '296': ['green', 'city=revenue:50,slots:2;path=a:0,b:_0;path=a:2,b:_0;path=a:3,b:_0;path=a:5,b:_0;label=C'],
+  '297': ['brown', 'city=revenue:60,slots:2;path=a:0,b:_0;path=a:1,b:_0;path=a:2,b:_0;path=a:3,b:_0;label=C'],
+  '125': ['brown', 'city=revenue:40,slots:2;path=a:0,b:_0;path=a:1,b:_0;path=a:2,b:_0;path=a:3,b:_0'],
+  '51': ['gray', 'city=revenue:50,slots:2;path=a:0,b:_0;path=a:1,b:_0;path=a:2,b:_0;path=a:3,b:_0'],
+  '721': ['blue', 'path=a:0,b:3'],
+  '722': ['blue', 'path=a:0,b:2'],
+  '723': ['blue', 'path=a:0,b:1']
 };
 
 function end(v: string): TileEnd {

@@ -8,7 +8,9 @@
     white: '#f3efe4',
     yellow: '#f5d23f',
     orange: '#e8923a',
-    brown: '#c98a5a'
+    brown: '#c98a5a',
+    green: '#78c474',
+    purple: '#a67ab6'
   };
 </script>
 

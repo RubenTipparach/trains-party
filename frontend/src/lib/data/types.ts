@@ -1,6 +1,6 @@
 /** Shared types for 1889 static data. */
 
-export type TileColor = 'white' | 'yellow' | 'green' | 'brown' | 'gray' | 'red';
+export type TileColor = 'white' | 'yellow' | 'green' | 'brown' | 'gray' | 'red' | 'blue';
 
 export interface TrainDef {
   name: string;
@@ -21,6 +21,8 @@ export interface PhaseDef {
   /** Train name whose purchase triggers this phase (undefined for the first). */
   on?: string;
   trainLimit: number;
+  /** RoLA: minor companies have a lower train limit than majors (`trainLimit`). */
+  minorTrainLimit?: number;
   tiles: TileColor[];
   operatingRounds: number;
   canBuyCompanies?: boolean;
@@ -80,8 +82,57 @@ export interface MarketCell {
   price: number;
   /** Par-eligible cell. */
   par: boolean;
-  /** Zone colour for end-game / movement rules. */
-  zone: 'white' | 'yellow' | 'orange' | 'brown';
+  /** Zone colour for end-game / movement rules (RoLA adds green/purple par bands). */
+  zone: 'white' | 'yellow' | 'orange' | 'brown' | 'green' | 'purple';
+}
+
+// --- RoLA minors & majors --------------------------------------------------
+
+/** RoLA minor-company abilities (rulebook; see rules-rotla.md §12). */
+export type MinorAbility =
+  | { type: 'choose_home' } // Adaptive: pick any empty basic-city home at launch
+  | { type: 'extra_yellow_after_upgrade' } // Agricultural
+  | { type: 'bridge_tiles' } // Bridging: lay a blue bridge tile over water
+  | { type: 'skip_blocked_cities' } // Overnight
+  | { type: 'boost_stop_if_single_train' } // Express: +1 stop while owning one train
+  | { type: 'run_rusted_once' } // Resourceful
+  | { type: 'extra_train_slot' } // Spacious: +1 train limit
+  | { type: 'extra_token'; placeCost: number } // Expansive
+  | { type: 'suburb_tokens'; count: number; bonus: number } // Suburban
+  | { type: 'mountain_treasury_gain'; amount: number }; // Tunneling
+
+/** A RoLA minor company (launches, operates, then merges into a major). */
+export interface MinorDef {
+  sym: string;
+  name: string;
+  color: string;
+  /** Total shares: president (2 shares / 40%) + 3 singles (20%) = 5. */
+  shares: number;
+  presidentPercent: number;
+  /** Dividend paid per share (RoLA minor = 20%). */
+  sharePercent: number;
+  /** Station tokens (1, or 2 for Expansive). */
+  tokens: number;
+  /** Tri-hex home tile (1-11), or null when owner's choice (Adaptive). */
+  homeTriHex: number | null;
+  ability?: MinorAbility;
+  desc: string;
+}
+
+/** A RoLA major corporation (formed by merging minors). */
+export interface MajorDef {
+  sym: string;
+  name: string;
+  color: string;
+  /** Total shares: president (2 shares / 20%) + 8 singles (10%) = 10. */
+  shares: number;
+  presidentPercent: number;
+  /** Dividend paid per share (RoLA major = 10%). */
+  sharePercent: number;
+  /** Station tokens (RoLA major = 4). */
+  tokens: number;
+  /** Hub/token placement costs (printed on the charter); TBD - rules-rotla.md §13. */
+  tokenCosts?: number[];
 }
 
 // --- Map -------------------------------------------------------------------
@@ -156,4 +207,12 @@ export interface GameConfig {
   hexes: HexDef[];
   hexByCoord: Record<string, HexDef>;
   tileManifest: TileManifestEntry[];
+  /** Stock-market layout: 1889 = 2D 'grid' (default); RoLA = 1-D 'linear' ladder. */
+  marketKind?: 'grid' | 'linear';
+  /** RoLA: inclusive par-price band [min, max] by phase colour. */
+  parBands?: Record<string, [number, number]>;
+  /** RoLA minor companies (launch, operate, merge). */
+  minors?: MinorDef[];
+  /** RoLA major corporations (formed by merger). */
+  majors?: MajorDef[];
 }

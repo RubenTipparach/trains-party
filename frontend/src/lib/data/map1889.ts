@@ -38,6 +38,7 @@ export const LOCATION_NAMES: Record<string, string> = {
 
 /** Raw HEXES grouped by colour, exactly as in the reference. */
 const HEXES_RAW: Record<TileColor, Array<[string[], string]>> = {
+  blue: [], // RoLA bridge tiles; 1889 has none
   white: [
     [['D3', 'H3', 'J3', 'B5', 'C8', 'E8', 'I8', 'D9', 'I10'], ''],
     [['F3', 'G4', 'H7', 'A10', 'J11', 'G12', 'E2', 'I2', 'K8', 'C10'], 'city=revenue:0'],

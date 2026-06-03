@@ -13,7 +13,8 @@
     green: '#7cc36b',
     brown: '#c69b66',
     gray: '#aeb7bb',
-    red: '#df6a5c'
+    red: '#df6a5c',
+    blue: '#86c5e0'
   };
 
   const poly = Array.from({ length: 6 }, (_, k) => {

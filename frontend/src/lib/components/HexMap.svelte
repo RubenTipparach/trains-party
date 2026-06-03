@@ -391,7 +391,8 @@
     green: '#7cc36b',
     brown: '#c69b66',
     gray: '#aeb7bb',
-    red: '#df6a5c'
+    red: '#df6a5c',
+    blue: '#86c5e0'
   };
   const fanFill = (tile: string) => FILL[TILES[tile]?.color ?? 'yellow'];
 
@@ -438,7 +439,8 @@
     green: '#8fe673',
     brown: '#e3ad6f',
     gray: '#c8d2d8',
-    red: '#ff7c6d'
+    red: '#ff7c6d',
+    blue: '#a6d8f0'
   };
 
   function labelPos(h: HexDef): { x: number; y: number } {

@@ -5,10 +5,12 @@
  */
 import type { GameConfig } from '$lib/data/types';
 import { config1889 } from '$lib/data/g1889';
+import { configRola } from '$lib/data/grola';
 import { GameError } from './types';
 
 const CONFIGS: Record<string, GameConfig> = {
-  [config1889.title]: config1889
+  [config1889.title]: config1889,
+  [configRola.title]: configRola
 };
 
 /** The config for a title; throws if the title is unknown. */
