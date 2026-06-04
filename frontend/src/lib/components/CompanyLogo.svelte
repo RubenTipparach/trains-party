@@ -5,19 +5,18 @@
   let { sym, color = 'currentColor', size = 22 }: { sym: string; color?: string; size?: number } = $props();
 </script>
 
-<svg
-  class="logo"
-  width={size}
-  height={size}
-  viewBox="0 0 24 24"
-  fill="none"
-  stroke={color}
-  stroke-width="1.9"
-  stroke-linecap="round"
-  stroke-linejoin="round"
-  aria-hidden="true"
->
-  {#if sym === 'AD'}
+<svg class="logo" width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
+  <!-- white disc so the glyph stays readable on any (often coloured) background -->
+  <circle cx="12" cy="12" r="11.3" fill="#fbfaf6" stroke="rgba(20,18,14,0.3)" stroke-width="1" />
+  <g
+    transform="translate(12 12) scale(0.78) translate(-12 -12)"
+    fill="none"
+    stroke={color}
+    stroke-width="2.1"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
+    {#if sym === 'AD'}
     <!-- Adaptive: asterisk / flower burst -->
     <line x1="12" y1="4" x2="12" y2="20" />
     <line x1="5" y1="8" x2="19" y2="16" />
@@ -84,9 +83,10 @@
     <path d="M9 19v-4a3 3 0 0 1 6 0v4" />
     <line x1="11" y1="19" x2="11" y2="22" /><line x1="13" y1="19" x2="13" y2="22" />
   {:else}
-    <!-- Fallback: the company initial(s) -->
-    <text x="12" y="16" text-anchor="middle" font-size="11" font-weight="800" fill={color} stroke="none">{sym}</text>
-  {/if}
+      <!-- Fallback: the company initial(s) -->
+      <text x="12" y="16" text-anchor="middle" font-size="11" font-weight="800" fill={color} stroke="none">{sym}</text>
+    {/if}
+  </g>
 </svg>
 
 <style>

@@ -6,6 +6,7 @@
   import StockMarket from '$lib/components/StockMarket.svelte';
   import CorporationCard from '$lib/components/CorporationCard.svelte';
   import CompanyCard from '$lib/components/CompanyCard.svelte';
+  import CompanyLogo from '$lib/components/CompanyLogo.svelte';
   import GamePanel from '$lib/components/GamePanel.svelte';
   import Spreadsheet from '$lib/components/Spreadsheet.svelte';
   import TileGraphic from '$lib/components/TileGraphic.svelte';
@@ -265,18 +266,51 @@
             {/each}
           </div>
         </section>
-        <section>
-          <h2>Corporations <span class="count">{CORPORATIONS.length}</span></h2>
-          <div class="cards">
-            {#each CORPORATIONS as corp (corp.sym)}<CorporationCard {corp} />{/each}
-          </div>
-        </section>
-        <section>
-          <h2>Private companies <span class="count">{COMPANIES.length}</span></h2>
-          <div class="cards">
-            {#each COMPANIES as company (company.sym)}<CompanyCard {company} />{/each}
-          </div>
-        </section>
+        {#if isRola}
+          <section>
+            <h2>Minor companies <span class="count">{cfg.minors?.length ?? 0}</span></h2>
+            <div class="cards">
+              {#each cfg.minors ?? [] as m (m.sym)}
+                <div class="entcard" style="--c:{m.color}">
+                  <div class="enthead">
+                    <CompanyLogo sym={m.sym} color={m.color} size={26} />
+                    <span class="entsym">{m.sym}</span>
+                    <span class="entname">{m.name}</span>
+                  </div>
+                  <p class="entdesc">{m.desc}</p>
+                </div>
+              {/each}
+            </div>
+          </section>
+          <section>
+            <h2>Major corporations <span class="count">{cfg.majors?.length ?? 0}</span></h2>
+            <div class="cards">
+              {#each cfg.majors ?? [] as m (m.sym)}
+                <div class="entcard" style="--c:{m.color}">
+                  <div class="enthead">
+                    <CompanyLogo sym={m.sym} color={m.color} size={26} />
+                    <span class="entsym">{m.sym}</span>
+                    <span class="entname">{m.name}</span>
+                  </div>
+                  <p class="entdesc">Forms in the green phase when two minors merge.</p>
+                </div>
+              {/each}
+            </div>
+          </section>
+        {:else}
+          <section>
+            <h2>Corporations <span class="count">{CORPORATIONS.length}</span></h2>
+            <div class="cards">
+              {#each CORPORATIONS as corp (corp.sym)}<CorporationCard {corp} />{/each}
+            </div>
+          </section>
+          <section>
+            <h2>Private companies <span class="count">{COMPANIES.length}</span></h2>
+            <div class="cards">
+              {#each COMPANIES as company (company.sym)}<CompanyCard {company} />{/each}
+            </div>
+          </section>
+        {/if}
       {:else if active === 'tiles'}
         <h2>Tile manifest <span class="count">{cfg.tileManifest.reduce((n, t) => n + t.count, 0)} tiles</span></h2>
         <div class="tiles">
@@ -491,6 +525,37 @@
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
     gap: 0.8rem;
+  }
+  .entcard {
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--c);
+    border-radius: 12px;
+    background: var(--bg-soft);
+    overflow: hidden;
+  }
+  .enthead {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.55rem 0.7rem;
+  }
+  .entsym {
+    font-weight: 800;
+    color: var(--c);
+    letter-spacing: 0.02em;
+  }
+  .entname {
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .entdesc {
+    margin: 0;
+    padding: 0 0.7rem 0.6rem;
+    font-size: 0.82rem;
+    color: var(--muted);
+    line-height: 1.45;
   }
   .scroll {
     overflow-x: auto;

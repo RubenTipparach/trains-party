@@ -143,7 +143,7 @@
     {#each isRola ? game.state.corporations.filter((c) => c.parPrice !== null) : game.state.corporations as c (c.sym)}
       <div class="corp" style="--c:{c.color}">
         <div class="chead" style="background:{c.color}">
-          <CompanyLogo sym={c.sym} color="#fff" size={20} />
+          <CompanyLogo sym={c.sym} color={c.color} size={22} />
           <span class="csym">{c.sym}</span>
           <span class="cname">{c.name}</span>
         </div>

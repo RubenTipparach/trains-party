@@ -54,7 +54,7 @@
             {@const sym = c.available}
             <div class="chip cur" style="--c:{corp(sym).color}">
               <div class="chiphead" style="background:{corp(sym).color}">
-                <CompanyLogo {sym} color="#fff" size={20} />
+                <CompanyLogo {sym} color={corp(sym).color} size={22} />
                 <span class="csym">{corp(sym).sym}</span>
                 <span class="cname">{corp(sym).name}</span>
               </div>
