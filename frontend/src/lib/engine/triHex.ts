@@ -66,13 +66,26 @@ const neighbours = (coord: string): string[] => {
 export const touchesMap = (coord: string, map: Record<string, HexDef>) =>
   neighbours(coord).some((n) => map[n]);
 
-/** Whether laying a tile at (anchor, rotation) is legal against `map`. */
+/** Number of edges a placement's hexes share with already-placed (existing) hexes. */
+function sharedEdges(coords: string[], map: Record<string, HexDef>): number {
+  let n = 0;
+  for (const c of coords) {
+    const { col, row } = parseCoord(c);
+    for (const [dc, dr] of EDGE) if (map[fmtCoord(col + dc, row + dr)]) n++;
+  }
+  return n;
+}
+
+/**
+ * Whether laying a tile at (anchor, rotation) is legal: on-grid, no overlap, and
+ * (rulebook) sharing AT LEAST THREE edges with already-placed map tiles.
+ */
 export function isLegalPlacement(map: Record<string, HexDef>, anchor: string, rotation: number): boolean {
   const coords = placementCoords(anchor, rotation);
   if (coords.some((c) => !onGrid(parseCoord(c).col, parseCoord(c).row))) return false;
   if (coords.some((c) => map[c])) return false; // no overlap
   if (Object.keys(map).length === 0) return true; // first tile
-  return coords.some((c) => touchesMap(c, map)); // must connect
+  return sharedEdges(coords, map) >= 3; // rulebook: >= 3 shared edges
 }
 
 /** All legal placements for the next tile against the current map. */

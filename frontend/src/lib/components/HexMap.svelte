@@ -16,6 +16,27 @@
   const activeMap = $derived(game.state.map ?? configFor(game.title).hexByCoord);
   const HEX_LIST = $derived(Object.values(activeMap));
 
+  // Animate tiles added to the map (by you, other players, or bots): flag newly
+  // appeared hexes so they get a brief "land" entrance.
+  let recentlyPlaced = $state(new Set<string>());
+  let knownHexes = new Set<string>();
+  $effect(() => {
+    const keys = Object.keys(activeMap);
+    if (knownHexes.size === 0) {
+      knownHexes = new Set(keys);
+      return;
+    }
+    const added = keys.filter((k) => !knownHexes.has(k));
+    if (added.length) {
+      knownHexes = new Set(keys);
+      const mark = new Set(added);
+      recentlyPlaced = mark;
+      setTimeout(() => {
+        if (recentlyPlaced === mark) recentlyPlaced = new Set();
+      }, 650);
+    }
+  });
+
   // RoLA Manual map-build: click anywhere on the grid to position the next tile;
   // a green outline = legal, red = illegal. When green, confirm to lay it.
   const building = $derived(game.state.round === 'mapbuild');
@@ -886,6 +907,7 @@
       {#each placed as h (h.coord)}
         <g
           class="hex"
+          class:placing={recentlyPlaced.has(h.coord)}
           data-coord={h.coord}
           data-name={h.name ?? ''}
           transform="translate({h.cx} {h.cy})"
@@ -1303,6 +1325,31 @@
   }
   .tile {
     transition: fill 130ms ease;
+  }
+  /* a tile someone just laid lands with a quick fade + pop */
+  .hex.placing {
+    animation: tileland 0.45s ease both;
+  }
+  .hex.placing .tile {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: tilepop 0.5s cubic-bezier(0.34, 1.5, 0.5, 1) both;
+  }
+  @keyframes tileland {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes tilepop {
+    from {
+      transform: scale(0.3);
+    }
+    to {
+      transform: scale(1);
+    }
   }
   .selring {
     fill: none;

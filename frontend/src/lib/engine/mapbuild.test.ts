@@ -82,6 +82,20 @@ describe('RoLA Manual map-build round (Stage 4)', () => {
     expect(next.mapBuild!.turn).toBe(1);
   });
 
+  it('only offers placements sharing at least 3 edges (rulebook map-building rule)', () => {
+    const s = initialState(SEATS, 'rola', undefined, { seed: 7, mapMode: 'manual' });
+    const map = s.map!;
+    const sharedEdges = (coords: string[]) =>
+      coords.reduce((n, c) => {
+        const col = c.charCodeAt(0) - 65;
+        const row = parseInt(c.slice(1), 10);
+        return n + EDGE.filter(([dc, dr]) => map[String.fromCharCode(65 + col + dc) + (row + dr)]).length;
+      }, 0);
+    const offered = legalPlacements(map);
+    expect(offered.length).toBeGreaterThan(0);
+    for (const p of offered) expect(sharedEdges(p.coords)).toBeGreaterThanOrEqual(3);
+  });
+
   it('is deterministic for a fixed seed + bot policy', () => {
     // Bots place by geometry (seed-independent); the seed drives tile *content*,
     // so the content signature must be stable per seed and vary across seeds.
