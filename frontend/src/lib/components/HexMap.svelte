@@ -6,7 +6,7 @@
   import { game } from '$lib/game/sandbox.svelte';
   import { anim } from '$lib/game/anim.svelte';
   import { routing } from '$lib/game/routing.svelte';
-  import { TILES, rotatePaths, trackLays, tokenPlays, corpRoutes, routeThroughStops, tileSupply, exhaustedTilesOnHex, configFor, legalPlacements } from '$lib/engine';
+  import { TILES, rotatePaths, trackLays, tokenPlays, corpRoutes, routeThroughStops, tileSupply, exhaustedTilesOnHex, configFor, legalPlacements, placementCoords, isLegalPlacement } from '$lib/engine';
   import TileGraphic from './TileGraphic.svelte';
 
   // The active board: a procedurally-built RoLA runtime map (state.map), or the
@@ -22,6 +22,10 @@
   const ghosts = $derived(canBuild ? legalPlacements(activeMap).filter((g) => g.shape === buildShape) : []);
   const tilesLeft = $derived(game.state.mapBuild?.pool.length ?? 0);
   const buildName = $derived(game.state.players.find((p) => p.id === game.active)?.name ?? '');
+  // The next tile's three cells (so the preview shows what is actually being placed).
+  const nextCells = $derived(game.state.mapBuild?.pool[0]?.cells ?? null);
+  // Anchor the pointer is over (a valid green slot, or a placed hex -> red preview).
+  let hoverAnchor = $state<string | null>(null);
   function placeTri(anchor: string, shape: 'A' | 'B') {
     if (game.active) game.act({ type: 'place_tri', player: game.active, anchor, shape });
   }
@@ -535,10 +539,17 @@
   let svgEl: SVGSVGElement;
   let view = $state({ x: 0, y: 0, w: 100, h: 100 });
   let fittedOnce = false;
-  // Fit the viewBox to the map on first render, and keep refitting while the map
-  // is being built (it grows tile by tile) so the whole board stays in frame.
+  // During map building, frame ~11 hexes end-to-end (a 5-tile radius) centred on
+  // the built map - generous padding so placement is comfortable, and the zoom-in
+  // cap (MIN_W) below keeps it from ever getting closer than this.
+  const BUILD_VIEW = 17 * HEX_SIZE;
   $effect(() => {
-    if (!fittedOnce || building) {
+    if (building) {
+      const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+      const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+      const w = Math.max(BUILD_VIEW, width + 2 * pad);
+      view = { x: cx - w / 2, y: cy - w / 2, w, h: w };
+    } else if (!fittedOnce) {
       view = { x: minX, y: minY, w: width, h: height };
       fittedOnce = true;
     }
@@ -549,8 +560,11 @@
   // On a quarter turn the landscape map would overflow the frame, so shrink it to fit.
   const onQuarterTurn = $derived(((rotation % 180) + 180) % 180 === 90);
   const fitScale = $derived(onQuarterTurn ? Math.min(width / height, height / width) : 1);
-  const MIN_W = $derived(width * mapView.minZoomFraction); // max zoom in
-  const MAX_W = $derived(width * mapView.maxZoomFraction); // max zoom out
+  // While building, cap max zoom-IN at the 11-tile frame (you can still zoom out).
+  const MIN_W = $derived(building ? BUILD_VIEW : width * mapView.minZoomFraction); // max zoom in
+  const MAX_W = $derived(
+    building ? Math.max(BUILD_VIEW, width + 2 * pad) * 2 : width * mapView.maxZoomFraction
+  ); // max zoom out
   const pointers = new Map<number, { x: number; y: number }>();
   let moved = false;
   let viewRaf = 0; // in-flight animated-view frame
@@ -811,8 +825,16 @@
           role="button"
           tabindex="-1"
           aria-label="{h.coord}{h.name ? ` ${h.name}` : ''}"
-          onpointerenter={(e) => e.pointerType === 'mouse' && pointers.size === 0 && show(e.currentTarget, h.coord, h.name)}
-          onpointerleave={(e) => e.pointerType === 'mouse' && !dragging && hide()}
+          onpointerenter={(e) => {
+            if (e.pointerType !== 'mouse' || pointers.size !== 0) return;
+            show(e.currentTarget, h.coord, h.name);
+            if (canBuild) hoverAnchor = h.coord; // occupied hex -> red preview
+          }}
+          onpointerleave={(e) => {
+            if (e.pointerType !== 'mouse' || dragging) return;
+            hide();
+            if (hoverAnchor === h.coord) hoverAnchor = null;
+          }}
         >
           <polygon points={poly} class="tile" fill={laid(h.coord) ? tfill(laidDef(h.coord)?.color ?? 'yellow') : tip?.coord === h.coord ? thover(h.color) : tfill(h.color)} stroke="#4a4332" stroke-width="1" />
 
@@ -919,13 +941,32 @@
         </g>
       {/each}
 
-      {#if ghosts.length}
+      <!-- map-build placement: show the actual next tile, green at valid slots,
+           red where it cannot go (occupied / off the grid). -->
+      {#snippet cellMarks(cell: Omit<HexDef, 'coord'> | undefined)}
+        {#if cell?.terrain?.includes('water')}
+          <polygon points={poly} fill="#2f6f96" opacity="0.3" />
+        {/if}
+        {#if cell?.terrain?.includes('mountain')}
+          <path d="M -15 13 L -5 -6 L 3 7 L 13 -10 L 19 13 Z" fill="#7d6a47" opacity="0.85" />
+        {/if}
+        {#if cell?.cities?.length}
+          <circle r="18" fill="#f3eede" stroke="#3a3326" stroke-width="2.5" />
+        {:else if cell?.towns?.length}
+          <circle r="8" fill="#3a3326" />
+        {/if}
+      {/snippet}
+
+      {#if ghosts.length && nextCells}
         {#each ghosts as g (g.anchor + g.shape)}
           <g
             class="ghost"
+            class:hot={hoverAnchor === g.anchor}
             role="button"
             tabindex="-1"
             aria-label="place tile at {g.anchor}"
+            onpointerenter={() => (hoverAnchor = g.anchor)}
+            onpointerleave={() => hoverAnchor === g.anchor && (hoverAnchor = null)}
             onclick={(e) => {
               e.stopPropagation();
               placeTri(g.anchor, g.shape);
@@ -937,10 +978,23 @@
               }
             }}
           >
-            {#each g.coords as c (c)}
+            {#each g.coords as c, i (c)}
               {@const ctr = hexCenter(c)}
-              <polygon points={poly} transform="translate({ctr.x} {ctr.y})" class="ghosthex" />
+              <g transform="translate({ctr.x} {ctr.y})">
+                <polygon points={poly} class="okhex" />
+                {@render cellMarks(nextCells[i])}
+              </g>
             {/each}
+          </g>
+        {/each}
+      {/if}
+
+      {#if canBuild && hoverAnchor && nextCells && !isLegalPlacement(activeMap, hoverAnchor, buildShape)}
+        {#each placementCoords(hoverAnchor, buildShape) as c, i (c)}
+          {@const ctr = hexCenter(c)}
+          <g transform="translate({ctr.x} {ctr.y})">
+            <polygon points={poly} class="badhex" />
+            {@render cellMarks(nextCells[i])}
           </g>
         {/each}
       {/if}
@@ -1252,19 +1306,26 @@
   .ghost {
     cursor: pointer;
   }
-  .ghosthex {
-    fill: rgba(120, 200, 190, 0.14);
-    stroke: #2bb6a6;
-    stroke-width: 1.5;
-    stroke-dasharray: 4 3;
+  /* valid placement: the tile shown green */
+  .okhex {
+    fill: rgba(74, 195, 110, 0.22);
+    stroke: #3fb56a;
+    stroke-width: 2;
     pointer-events: all;
     transition: fill 0.12s ease;
   }
-  .ghost:hover .ghosthex,
-  .ghost:focus-visible .ghosthex {
-    fill: rgba(120, 200, 190, 0.42);
-    stroke-width: 2.5;
-    stroke-dasharray: none;
+  .ghost.hot .okhex,
+  .ghost:focus-visible .okhex {
+    fill: rgba(74, 195, 110, 0.4);
+    stroke-width: 3;
+  }
+  /* invalid placement under the pointer: the tile shown red */
+  .badhex {
+    fill: rgba(224, 101, 92, 0.26);
+    stroke: #e0655c;
+    stroke-width: 2;
+    stroke-dasharray: 5 3;
+    pointer-events: none;
   }
   .maphud {
     position: absolute;
