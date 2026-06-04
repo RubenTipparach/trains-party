@@ -47,8 +47,6 @@
   let selectedAnchor = $state<string | null>(null);
   let spin = $state(0); // cumulative 60-degree steps, so rotation animates smoothly
   const selectedRotation = $derived(((spin % 6) + 6) % 6);
-  const validRotationsAt = (anchor: string) =>
-    [0, 1, 2, 3, 4, 5].filter((r) => isLegalPlacement(activeMap, anchor, r));
   const selectedLegal = $derived(
     !!selectedAnchor && isLegalPlacement(activeMap, selectedAnchor, selectedRotation)
   );
@@ -81,8 +79,8 @@
     // Glide from the previous spot, or in from the left when a tile first spawns.
     const from = selectedAnchor ? hexCenter(selectedAnchor) : { x: to.x - view.w * 0.55, y: to.y };
     selectedAnchor = anchor;
-    spin = validRotationsAt(anchor)[0] ?? 0; // prefer a legal orientation
-    spinAngle.set(spin * 60, { duration: 0 }); // snap (no spin) on a fresh selection
+    // Keep the current orientation - only the rotate button changes it (spinAngle
+    // already tracks `spin`, so moving never re-rotates the tile).
     slide.set({ x: from.x - to.x, y: from.y - to.y }, { duration: 0 });
     slide.set({ x: 0, y: 0 }); // animate to the target
   }
