@@ -33,6 +33,9 @@
   );
   // Tweened spin angle (degrees) so the tri-hex rotates smoothly to each orientation.
   const spinAngle = tweened(0, { duration: 240, easing: cubicOut });
+  // Tweened slide offset (SVG units): the tile glides in from the side when it
+  // spawns and slides to the new spot when you move it (< 0.5s, friendly).
+  const slide = tweened({ x: 0, y: 0 }, { duration: 320, easing: cubicOut });
   /** Nearest valid (even-parity) hex to an SVG point - lets you click the open grid. */
   function hexAt(x: number, y: number): string {
     const colF = x / (1.5 * HEX_SIZE);
@@ -53,9 +56,14 @@
     return best;
   }
   function selectAnchor(anchor: string) {
+    const to = hexCenter(anchor);
+    // Glide from the previous spot, or in from the left when a tile first spawns.
+    const from = selectedAnchor ? hexCenter(selectedAnchor) : { x: to.x - view.w * 0.55, y: to.y };
     selectedAnchor = anchor;
     spin = validRotationsAt(anchor)[0] ?? 0; // prefer a legal orientation
     spinAngle.set(spin * 60, { duration: 0 }); // snap (no spin) on a fresh selection
+    slide.set({ x: from.x - to.x, y: from.y - to.y }, { duration: 0 });
+    slide.set({ x: 0, y: 0 }); // animate to the target
   }
   function rotateSel() {
     if (!selectedAnchor) return;
@@ -1013,7 +1021,7 @@
            rotation animates through the six 60-degree orientations. -->
       {#if canBuild && selectedAnchor && nextCells}
         {@const piv = hexCenter(selectedAnchor)}
-        <g class="tilepreview" transform="rotate({$spinAngle} {piv.x} {piv.y})">
+        <g class="tilepreview" transform="translate({$slide.x} {$slide.y}) rotate({$spinAngle} {piv.x} {piv.y})">
           {#each placementCoords(selectedAnchor, 0) as c, i (i)}
             {@const ctr = hexCenter(c)}
             <g transform="translate({ctr.x} {ctr.y})">
@@ -1180,11 +1188,11 @@
   {/if}
 
   {#if canBuild && selectedAnchor}
-    <!-- preview controls: rotate / place / cancel (like the 1889 tile lay) -->
-    <div class="layctl" style="left:{buildPos.x}px; top:{buildPos.y}px">
-      <button onclick={rotateSel} title="Rotate 60°">⟳ rotate</button>
-      <button class="ok" onclick={confirmBuild} title="Place" disabled={!selectedLegal}>✓ place</button>
-      <button class="cancel" onclick={cancelBuild} title="Cancel">×</button>
+    <!-- preview controls: icon-only rotate, green check to place, x to cancel -->
+    <div class="layctl buildctl" style="left:{buildPos.x}px; top:{buildPos.y}px">
+      <button class="rot" onclick={rotateSel} title="Rotate 60°" aria-label="Rotate">⟳</button>
+      <button class="ok" onclick={confirmBuild} title="Place tile" aria-label="Place" disabled={!selectedLegal}>✓</button>
+      <button class="cancel" onclick={cancelBuild} title="Cancel" aria-label="Cancel">✕</button>
     </div>
   {/if}
 
@@ -1413,6 +1421,38 @@
   .layctl button:disabled {
     opacity: 0.4;
     cursor: not-allowed;
+  }
+  /* map-build controls: friendly round icon buttons */
+  .buildctl {
+    gap: 0.4rem;
+  }
+  .buildctl button {
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border-radius: 50%;
+    font-size: 1.3rem;
+    line-height: 1;
+    display: grid;
+    place-items: center;
+    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.35);
+    transition: transform 0.12s ease, background 0.12s ease;
+  }
+  .buildctl button:hover:not(:disabled) {
+    transform: translateY(-2px);
+  }
+  .buildctl .ok {
+    background: #3fb56a;
+    color: #fff;
+    border-color: #2f8d52;
+    font-size: 1.4rem;
+  }
+  .buildctl .ok:hover:not(:disabled) {
+    background: #49c878;
+  }
+  .buildctl .cancel {
+    color: #f0b3ad;
+    font-size: 1.05rem;
   }
   .flyer {
     pointer-events: none;
