@@ -45,6 +45,7 @@
   const nextCells = $derived(game.state.mapBuild?.pool[0]?.cells ?? null);
 
   let selectedAnchor = $state<string | null>(null);
+  let hoveredHex = $state<string | null>(null); // hex under the cursor (build target highlight)
   let spin = $state(0); // cumulative 60-degree steps, so rotation animates smoothly
   const selectedRotation = $derived(((spin % 6) + 6) % 6);
   const selectedLegal = $derived(
@@ -54,7 +55,7 @@
   const spinAngle = tweened(0, { duration: 240, easing: cubicOut });
   // Tweened slide offset (SVG units): the tile glides in from the side when it
   // spawns and slides to the new spot when you move it (< 0.5s, friendly).
-  const slide = tweened({ x: 0, y: 0 }, { duration: 320, easing: cubicOut });
+  const slide = tweened({ x: 0, y: 0 }, { duration: 150, easing: cubicOut });
   /** Nearest valid (even-parity) hex to an SVG point - lets you click the open grid. */
   function hexAt(x: number, y: number): string {
     const colF = x / (1.5 * HEX_SIZE);
@@ -755,6 +756,11 @@
     if (pointers.size === 1) dragging = true;
   }
   function onMove(e: PointerEvent) {
+    // Map building: highlight the hex under the cursor (where a click would place).
+    if (canBuild && !dragging) {
+      const sp = clientToSvg(e.clientX, e.clientY);
+      hoveredHex = hexAt(sp.x, sp.y);
+    }
     if (!pointers.has(e.pointerId)) return;
     const prev = pointers.get(e.pointerId)!;
     if (pointers.size === 2) {
@@ -887,6 +893,7 @@
       onpointermove={onMove}
       onpointerup={onUp}
       onpointercancel={onUp}
+      onpointerleave={() => (hoveredHex = null)}
     >
       <defs>
         <clipPath id="hexclip"><polygon points={poly} /></clipPath>
@@ -1038,6 +1045,12 @@
           <circle r="8" fill="#3a3326" />
         {/if}
       {/snippet}
+
+      <!-- highlight the hex under the cursor so it's clear where a tile will land -->
+      {#if canBuild && hoveredHex && hoveredHex !== selectedAnchor}
+        {@const hc = hexCenter(hoveredHex)}
+        <polygon class="hoverhex" points={poly} transform="translate({hc.x} {hc.y})" />
+      {/if}
 
       <!-- outline of the tile at the clicked slot: green if legal, red if not. The
            base (rotation 0) layout is spun by the tweened angle around the anchor so
@@ -1380,6 +1393,13 @@
   }
   /* tile placement outline: green = legal, red = illegal */
   .tilepreview {
+    pointer-events: none;
+  }
+  /* hex under the cursor while building - shows where a tile will land */
+  .hoverhex {
+    fill: rgba(255, 255, 255, 0.16);
+    stroke: #ffffff;
+    stroke-width: 2.5;
     pointer-events: none;
   }
   .okline {
