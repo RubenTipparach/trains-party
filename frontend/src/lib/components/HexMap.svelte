@@ -619,16 +619,22 @@
   let svgEl: SVGSVGElement;
   let view = $state({ x: 0, y: 0, w: 100, h: 100 });
   let fittedOnce = false;
-  // During map building, frame ~11 hexes end-to-end (a 5-tile radius) centred on
-  // the built map - generous padding so placement is comfortable, and the zoom-in
-  // cap (MIN_W) below keeps it from ever getting closer than this.
+  let buildFitted = false;
+  // Map building: frame ~11 hexes (a 5-tile radius). The farthest-out zoom is fixed
+  // at that frame and only doubles once the map grows past 11 hexes wide; max
+  // zoom-IN matches the 1889 game (width * minZoomFraction).
   const BUILD_VIEW = 17 * HEX_SIZE;
+  const buildWide = $derived(xs.length > 1 && Math.max(...xs) - Math.min(...xs) > 10 * 1.5 * HEX_SIZE);
+  const buildFar = $derived(buildWide ? BUILD_VIEW * 2 : BUILD_VIEW);
   $effect(() => {
     if (building) {
-      const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
-      const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
-      const w = Math.max(BUILD_VIEW, width + 2 * pad);
-      view = { x: cx - w / 2, y: cy - w / 2, w, h: w };
+      // Fit once when building starts, then leave the zoom under the player's control.
+      if (!buildFitted) {
+        const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+        const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+        view = { x: cx - buildFar / 2, y: cy - buildFar / 2, w: buildFar, h: buildFar };
+        buildFitted = true;
+      }
     } else if (!fittedOnce) {
       view = { x: minX, y: minY, w: width, h: height };
       fittedOnce = true;
@@ -640,11 +646,8 @@
   // On a quarter turn the landscape map would overflow the frame, so shrink it to fit.
   const onQuarterTurn = $derived(((rotation % 180) + 180) % 180 === 90);
   const fitScale = $derived(onQuarterTurn ? Math.min(width / height, height / width) : 1);
-  // While building, cap max zoom-IN at the 11-tile frame (you can still zoom out).
-  const MIN_W = $derived(building ? BUILD_VIEW : width * mapView.minZoomFraction); // max zoom in
-  const MAX_W = $derived(
-    building ? Math.max(BUILD_VIEW, width + 2 * pad) * 2 : width * mapView.maxZoomFraction
-  ); // max zoom out
+  const MIN_W = $derived(width * mapView.minZoomFraction); // max zoom in - matches 1889
+  const MAX_W = $derived(building ? buildFar : width * mapView.maxZoomFraction); // farthest out
   const pointers = new Map<number, { x: number; y: number }>();
   let moved = false;
   let viewRaf = 0; // in-flight animated-view frame
