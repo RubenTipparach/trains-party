@@ -6,7 +6,7 @@
   import { game } from '$lib/game/sandbox.svelte';
   import { anim } from '$lib/game/anim.svelte';
   import { routing } from '$lib/game/routing.svelte';
-  import { TILES, rotatePaths, trackLays, tokenPlays, corpRoutes, routeThroughStops, tileSupply, exhaustedTilesOnHex, configFor, legalPlacements, placementCoords, isLegalPlacement } from '$lib/engine';
+  import { TILES, rotatePaths, trackLays, tokenPlays, corpRoutes, routeThroughStops, tileSupply, exhaustedTilesOnHex, configFor, placementCoords, isLegalPlacement } from '$lib/engine';
   import TileGraphic from './TileGraphic.svelte';
 
   // The active board: a procedurally-built RoLA runtime map (state.map), or the
@@ -14,26 +14,13 @@
   const activeMap = $derived(game.state.map ?? configFor(game.title).hexByCoord);
   const HEX_LIST = $derived(Object.values(activeMap));
 
-  // RoLA Manual map-build: works like 1889 tile-lay. White dots mark valid slots;
-  // click one to preview the tile (green), then rotate / place / cancel.
+  // RoLA Manual map-build: click anywhere on the grid to position the next tile;
+  // a green outline = legal, red = illegal. When green, confirm to lay it.
   const building = $derived(game.state.round === 'mapbuild');
   const canBuild = $derived(building && !!game.active && !game.isBot(game.active) && !game.reviewing);
   // The next tile's three cells (so the preview shows what is actually being placed).
   const nextCells = $derived(game.state.mapBuild?.pool[0]?.cells ?? null);
 
-  // One white dot per valid anchor (deduped across the two orientations).
-  const buildDots = $derived.by(() => {
-    if (!canBuild) return [] as { anchor: string; x: number; y: number }[];
-    const seen = new Set<string>();
-    const out: { anchor: string; x: number; y: number }[] = [];
-    for (const p of legalPlacements(activeMap)) {
-      if (seen.has(p.anchor)) continue;
-      seen.add(p.anchor);
-      const c = hexCenter(p.anchor);
-      out.push({ anchor: p.anchor, x: c.x, y: c.y });
-    }
-    return out;
-  });
   let selectedAnchor = $state<string | null>(null);
   let selectedShape = $state<'A' | 'B'>('A');
   const validShapesAt = (anchor: string) =>
@@ -41,8 +28,30 @@
   const selectedCoords = $derived(
     canBuild && selectedAnchor ? placementCoords(selectedAnchor, selectedShape) : null
   );
+  const selectedLegal = $derived(
+    !!selectedAnchor && isLegalPlacement(activeMap, selectedAnchor, selectedShape)
+  );
   const canRotate = $derived(!!selectedAnchor && validShapesAt(selectedAnchor).length > 1);
-  function selectDot(anchor: string) {
+  /** Nearest valid (even-parity) hex to an SVG point - lets you click the open grid. */
+  function hexAt(x: number, y: number): string {
+    const colF = x / (1.5 * HEX_SIZE);
+    const rowF = y / APOTHEM + 1;
+    let best = '';
+    let bestD = Infinity;
+    for (let col = Math.floor(colF) - 1; col <= Math.ceil(colF) + 1; col++) {
+      if (col < 0) continue;
+      for (let row = Math.floor(rowF) - 2; row <= Math.ceil(rowF) + 2; row++) {
+        if (row < 1 || (col + row) % 2 !== 0) continue;
+        const d = (col * 1.5 * HEX_SIZE - x) ** 2 + ((row - 1) * APOTHEM - y) ** 2;
+        if (d < bestD) {
+          bestD = d;
+          best = String.fromCharCode(65 + col) + row;
+        }
+      }
+    }
+    return best;
+  }
+  function selectAnchor(anchor: string) {
     selectedAnchor = anchor;
     selectedShape = validShapesAt(anchor)[0] ?? 'A';
   }
@@ -55,7 +64,9 @@
     if (game.active) game.act({ type: 'place_tri', player: game.active, anchor, shape });
     selectedAnchor = null;
   }
-  const confirmBuild = () => selectedAnchor && placeTri(selectedAnchor, selectedShape);
+  const confirmBuild = () => {
+    if (selectedAnchor && selectedLegal) placeTri(selectedAnchor, selectedShape);
+  };
   const cancelBuild = () => (selectedAnchor = null);
   // Screen position of the selected anchor (for the floating rotate/place controls).
   let buildPos = $derived.by(() => {
@@ -745,6 +756,12 @@
     pointers.delete(e.pointerId);
     if (pointers.size === 0) dragging = false;
     if (!wasDrag) {
+      // Map building: a tap anywhere on the grid positions the next tile.
+      if (canBuild) {
+        const sp = clientToSvg(e.clientX, e.clientY);
+        selectAnchor(hexAt(sp.x, sp.y));
+        return;
+      }
       const el = (document.elementFromPoint(e.clientX, e.clientY) as Element | null)?.closest('g.hex') as
         | SVGGraphicsElement
         | null;
@@ -853,8 +870,8 @@
         </pattern>
       </defs>
 
-      <!-- animated water (enlarged so it stays visible while panning/zooming) -->
-      <rect x={minX - width} y={minY - height} width={width * 3} height={height * 3} fill="url(#ripples)" />
+      <!-- animated water: covers the whole visible viewBox (3x, centred) at any zoom -->
+      <rect x={view.x - view.w} y={view.y - view.h} width={view.w * 3} height={view.h * 3} fill="url(#ripples)" />
 
       {#each placed as h (h.coord)}
         <g
@@ -989,42 +1006,18 @@
         {/if}
       {/snippet}
 
-      <!-- the single green preview of the tile at the selected slot -->
+      <!-- outline of the tile at the clicked slot: green if legal, red if not -->
       {#if selectedCoords && nextCells}
         <g class="tilepreview">
           {#each selectedCoords as c, i (c)}
             {@const ctr = hexCenter(c)}
             <g transform="translate({ctr.x} {ctr.y})">
-              <polygon points={poly} class="okhex" />
+              <polygon points={poly} class={selectedLegal ? 'okline' : 'badline'} />
               {@render cellMarks(nextCells[i])}
             </g>
           {/each}
         </g>
       {/if}
-
-      <!-- white dots at every valid slot; click one to preview/place -->
-      {#each buildDots as d (d.anchor)}
-        <circle
-          class="placedot"
-          class:sel={selectedAnchor === d.anchor}
-          cx={d.x}
-          cy={d.y}
-          r="9"
-          role="button"
-          tabindex="-1"
-          aria-label="lay tile at {d.anchor}"
-          onclick={(e) => {
-            e.stopPropagation();
-            selectDot(d.anchor);
-          }}
-          onkeydown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              selectDot(d.anchor);
-            }
-          }}
-        />
-      {/each}
 
       {#if tip}
         <g transform="translate({tip.hx} {tip.hy})">
@@ -1185,7 +1178,7 @@
     <!-- preview controls: rotate / place / cancel (like the 1889 tile lay) -->
     <div class="layctl" style="left:{buildPos.x}px; top:{buildPos.y}px">
       <button onclick={rotateSel} title="Rotate" disabled={!canRotate}>⟳ rotate</button>
-      <button class="ok" onclick={confirmBuild} title="Place">✓ place</button>
+      <button class="ok" onclick={confirmBuild} title="Place" disabled={!selectedLegal}>✓ place</button>
       <button class="cancel" onclick={cancelBuild} title="Cancel">×</button>
     </div>
   {/if}
@@ -1324,30 +1317,20 @@
     stroke-width: 3;
     pointer-events: none;
   }
-  /* white dots mark valid slots during map building */
-  .placedot {
-    fill: #fbfaf5;
-    stroke: #2f6f4a;
-    stroke-width: 2;
-    cursor: pointer;
-    transition: fill 0.12s ease, r 0.12s ease;
-  }
-  .placedot:hover,
-  .placedot:focus-visible {
-    fill: #bfe9cd;
-  }
-  .placedot.sel {
-    fill: #3fb56a;
-    stroke: #2f6f4a;
-  }
-  /* the single green preview of the selected tile */
+  /* tile placement outline: green = legal, red = illegal */
   .tilepreview {
     pointer-events: none;
   }
-  .okhex {
-    fill: rgba(74, 195, 110, 0.28);
-    stroke: #3fb56a;
-    stroke-width: 2.5;
+  .okline {
+    fill: rgba(74, 195, 110, 0.2);
+    stroke: #2fae5e;
+    stroke-width: 3.5;
+  }
+  .badline {
+    fill: rgba(224, 101, 92, 0.16);
+    stroke: #e0655c;
+    stroke-width: 3.5;
+    stroke-dasharray: 6 4;
   }
   .previewtile {
     pointer-events: none;

@@ -102,8 +102,8 @@
     {:else if game.state.round === 'mapbuild'}
       <div class="buildwrap">
         <p class="buildlead">
-          Lay tri-hex tiles to build the map. On your turn, click a white dot to preview the next
-          tile ({game.state.mapBuild?.pool.length ?? 0} left), then rotate or place it.
+          Lay tri-hex tiles to build the map. On your turn, click the board to position the next
+          tile ({game.state.mapBuild?.pool.length ?? 0} left) - green outline = legal - then rotate and place it.
         </p>
         <div class="mapwrap"><HexMap /></div>
       </div>
