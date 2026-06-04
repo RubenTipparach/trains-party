@@ -14,21 +14,61 @@
   const activeMap = $derived(game.state.map ?? configFor(game.title).hexByCoord);
   const HEX_LIST = $derived(Object.values(activeMap));
 
-  // RoLA Manual map-build round: the active human places tri-hex tiles by clicking
-  // a ghost. `buildShape` flips between the two triangle orientations.
+  // RoLA Manual map-build: works like 1889 tile-lay. White dots mark valid slots;
+  // click one to preview the tile (green), then rotate / place / cancel.
   const building = $derived(game.state.round === 'mapbuild');
-  let buildShape = $state<'A' | 'B'>('A');
   const canBuild = $derived(building && !!game.active && !game.isBot(game.active) && !game.reviewing);
-  const ghosts = $derived(canBuild ? legalPlacements(activeMap).filter((g) => g.shape === buildShape) : []);
-  const tilesLeft = $derived(game.state.mapBuild?.pool.length ?? 0);
-  const buildName = $derived(game.state.players.find((p) => p.id === game.active)?.name ?? '');
   // The next tile's three cells (so the preview shows what is actually being placed).
   const nextCells = $derived(game.state.mapBuild?.pool[0]?.cells ?? null);
-  // Anchor the pointer is over (a valid green slot, or a placed hex -> red preview).
-  let hoverAnchor = $state<string | null>(null);
+
+  // One white dot per valid anchor (deduped across the two orientations).
+  const buildDots = $derived.by(() => {
+    if (!canBuild) return [] as { anchor: string; x: number; y: number }[];
+    const seen = new Set<string>();
+    const out: { anchor: string; x: number; y: number }[] = [];
+    for (const p of legalPlacements(activeMap)) {
+      if (seen.has(p.anchor)) continue;
+      seen.add(p.anchor);
+      const c = hexCenter(p.anchor);
+      out.push({ anchor: p.anchor, x: c.x, y: c.y });
+    }
+    return out;
+  });
+  let selectedAnchor = $state<string | null>(null);
+  let selectedShape = $state<'A' | 'B'>('A');
+  const validShapesAt = (anchor: string) =>
+    (['A', 'B'] as const).filter((s) => isLegalPlacement(activeMap, anchor, s));
+  const selectedCoords = $derived(
+    canBuild && selectedAnchor ? placementCoords(selectedAnchor, selectedShape) : null
+  );
+  const canRotate = $derived(!!selectedAnchor && validShapesAt(selectedAnchor).length > 1);
+  function selectDot(anchor: string) {
+    selectedAnchor = anchor;
+    selectedShape = validShapesAt(anchor)[0] ?? 'A';
+  }
+  function rotateSel() {
+    if (!selectedAnchor) return;
+    const other = selectedShape === 'A' ? 'B' : 'A';
+    if (validShapesAt(selectedAnchor).includes(other)) selectedShape = other;
+  }
   function placeTri(anchor: string, shape: 'A' | 'B') {
     if (game.active) game.act({ type: 'place_tri', player: game.active, anchor, shape });
+    selectedAnchor = null;
   }
+  const confirmBuild = () => selectedAnchor && placeTri(selectedAnchor, selectedShape);
+  const cancelBuild = () => (selectedAnchor = null);
+  // Screen position of the selected anchor (for the floating rotate/place controls).
+  let buildPos = $derived.by(() => {
+    void view;
+    if (!selectedAnchor || !svgEl || !wrap) return { x: 0, y: 0 };
+    const c = hexCenter(selectedAnchor);
+    const r = svgEl.getBoundingClientRect();
+    const w = wrap.getBoundingClientRect();
+    return {
+      x: ((c.x - view.x) / view.w) * r.width + (r.left - w.left),
+      y: ((c.y - view.y) / view.h) * r.height + (r.top - w.top)
+    };
+  });
 
   // Optional: when in the operating-round track step, hexes that can receive a
   // tile are highlighted and clickable. In the token step, tokenable cities are
@@ -825,16 +865,8 @@
           role="button"
           tabindex="-1"
           aria-label="{h.coord}{h.name ? ` ${h.name}` : ''}"
-          onpointerenter={(e) => {
-            if (e.pointerType !== 'mouse' || pointers.size !== 0) return;
-            show(e.currentTarget, h.coord, h.name);
-            if (canBuild) hoverAnchor = h.coord; // occupied hex -> red preview
-          }}
-          onpointerleave={(e) => {
-            if (e.pointerType !== 'mouse' || dragging) return;
-            hide();
-            if (hoverAnchor === h.coord) hoverAnchor = null;
-          }}
+          onpointerenter={(e) => e.pointerType === 'mouse' && pointers.size === 0 && show(e.currentTarget, h.coord, h.name)}
+          onpointerleave={(e) => e.pointerType === 'mouse' && !dragging && hide()}
         >
           <polygon points={poly} class="tile" fill={laid(h.coord) ? tfill(laidDef(h.coord)?.color ?? 'yellow') : tip?.coord === h.coord ? thover(h.color) : tfill(h.color)} stroke="#4a4332" stroke-width="1" />
 
@@ -957,47 +989,42 @@
         {/if}
       {/snippet}
 
-      {#if ghosts.length && nextCells}
-        {#each ghosts as g (g.anchor + g.shape)}
-          <g
-            class="ghost"
-            class:hot={hoverAnchor === g.anchor}
-            role="button"
-            tabindex="-1"
-            aria-label="place tile at {g.anchor}"
-            onpointerenter={() => (hoverAnchor = g.anchor)}
-            onpointerleave={() => hoverAnchor === g.anchor && (hoverAnchor = null)}
-            onclick={(e) => {
-              e.stopPropagation();
-              placeTri(g.anchor, g.shape);
-            }}
-            onkeydown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                placeTri(g.anchor, g.shape);
-              }
-            }}
-          >
-            {#each g.coords as c, i (c)}
-              {@const ctr = hexCenter(c)}
-              <g transform="translate({ctr.x} {ctr.y})">
-                <polygon points={poly} class="okhex" />
-                {@render cellMarks(nextCells[i])}
-              </g>
-            {/each}
-          </g>
-        {/each}
+      <!-- the single green preview of the tile at the selected slot -->
+      {#if selectedCoords && nextCells}
+        <g class="tilepreview">
+          {#each selectedCoords as c, i (c)}
+            {@const ctr = hexCenter(c)}
+            <g transform="translate({ctr.x} {ctr.y})">
+              <polygon points={poly} class="okhex" />
+              {@render cellMarks(nextCells[i])}
+            </g>
+          {/each}
+        </g>
       {/if}
 
-      {#if canBuild && hoverAnchor && nextCells && !isLegalPlacement(activeMap, hoverAnchor, buildShape)}
-        {#each placementCoords(hoverAnchor, buildShape) as c, i (c)}
-          {@const ctr = hexCenter(c)}
-          <g transform="translate({ctr.x} {ctr.y})">
-            <polygon points={poly} class="badhex" />
-            {@render cellMarks(nextCells[i])}
-          </g>
-        {/each}
-      {/if}
+      <!-- white dots at every valid slot; click one to preview/place -->
+      {#each buildDots as d (d.anchor)}
+        <circle
+          class="placedot"
+          class:sel={selectedAnchor === d.anchor}
+          cx={d.x}
+          cy={d.y}
+          r="9"
+          role="button"
+          tabindex="-1"
+          aria-label="lay tile at {d.anchor}"
+          onclick={(e) => {
+            e.stopPropagation();
+            selectDot(d.anchor);
+          }}
+          onkeydown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              selectDot(d.anchor);
+            }
+          }}
+        />
+      {/each}
 
       {#if tip}
         <g transform="translate({tip.hx} {tip.hy})">
@@ -1154,18 +1181,12 @@
     </div>
   {/if}
 
-  {#if building}
-    <div class="maphud">
-      <span class="mhtitle">Building the map</span>
-      <span class="mhstat">{tilesLeft} tile{tilesLeft === 1 ? '' : 's'} left</span>
-      {#if canBuild}
-        <span class="mhturn">Your turn — click a ghost to place</span>
-        <button type="button" class="mhflip" onclick={() => (buildShape = buildShape === 'A' ? 'B' : 'A')}>
-          Flip orientation ({buildShape})
-        </button>
-      {:else}
-        <span class="mhturn">{buildName ? `${buildName} placing…` : 'finishing…'}</span>
-      {/if}
+  {#if canBuild && selectedAnchor}
+    <!-- preview controls: rotate / place / cancel (like the 1889 tile lay) -->
+    <div class="layctl" style="left:{buildPos.x}px; top:{buildPos.y}px">
+      <button onclick={rotateSel} title="Rotate" disabled={!canRotate}>⟳ rotate</button>
+      <button class="ok" onclick={confirmBuild} title="Place">✓ place</button>
+      <button class="cancel" onclick={cancelBuild} title="Cancel">×</button>
     </div>
   {/if}
 
@@ -1303,67 +1324,30 @@
     stroke-width: 3;
     pointer-events: none;
   }
-  .ghost {
+  /* white dots mark valid slots during map building */
+  .placedot {
+    fill: #fbfaf5;
+    stroke: #2f6f4a;
+    stroke-width: 2;
     cursor: pointer;
+    transition: fill 0.12s ease, r 0.12s ease;
   }
-  /* valid placement: the tile shown green */
-  .okhex {
-    fill: rgba(74, 195, 110, 0.22);
-    stroke: #3fb56a;
-    stroke-width: 2;
-    pointer-events: all;
-    transition: fill 0.12s ease;
+  .placedot:hover,
+  .placedot:focus-visible {
+    fill: #bfe9cd;
   }
-  .ghost.hot .okhex,
-  .ghost:focus-visible .okhex {
-    fill: rgba(74, 195, 110, 0.4);
-    stroke-width: 3;
+  .placedot.sel {
+    fill: #3fb56a;
+    stroke: #2f6f4a;
   }
-  /* invalid placement under the pointer: the tile shown red */
-  .badhex {
-    fill: rgba(224, 101, 92, 0.26);
-    stroke: #e0655c;
-    stroke-width: 2;
-    stroke-dasharray: 5 3;
+  /* the single green preview of the selected tile */
+  .tilepreview {
     pointer-events: none;
   }
-  .maphud {
-    position: absolute;
-    top: 10px;
-    left: 50%;
-    transform: translateX(-50%);
-    display: flex;
-    gap: 10px;
-    align-items: center;
-    padding: 7px 12px;
-    background: rgba(20, 28, 30, 0.86);
-    color: #eef3f2;
-    border: 1px solid rgba(120, 200, 190, 0.5);
-    border-radius: 999px;
-    font-size: 13px;
-    z-index: 6;
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
-  }
-  .mhtitle {
-    font-weight: 700;
-  }
-  .mhstat {
-    opacity: 0.85;
-  }
-  .mhturn {
-    color: #8fe0d3;
-  }
-  .mhflip {
-    border: 1px solid rgba(120, 200, 190, 0.6);
-    background: rgba(120, 200, 190, 0.16);
-    color: #eef3f2;
-    border-radius: 999px;
-    padding: 3px 10px;
-    cursor: pointer;
-    font-size: 12px;
-  }
-  .mhflip:hover {
-    background: rgba(120, 200, 190, 0.3);
+  .okhex {
+    fill: rgba(74, 195, 110, 0.28);
+    stroke: #3fb56a;
+    stroke-width: 2.5;
   }
   .previewtile {
     pointer-events: none;
