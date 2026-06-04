@@ -19,11 +19,11 @@ export function applyMapBuild(s: GameState, action: GameAction): void {
   const active = mapBuildActivePlayer(s);
   if (action.player !== active) throw new GameError(`it is ${active ?? 'nobody'}'s turn to place a tile`);
   if (mb.pool.length === 0) throw new GameError('no tiles left to place');
-  if (!isLegalPlacement(s.map, action.anchor, action.shape)) {
+  if (!isLegalPlacement(s.map, action.anchor, action.rotation)) {
     throw new GameError(`illegal tile placement at ${action.anchor}`);
   }
   const tile = mb.pool[0];
-  const coords = placementCoords(action.anchor, action.shape);
+  const coords = placementCoords(action.anchor, action.rotation);
   coords.forEach((coord, i) => {
     s.map![coord] = { coord, ...tile.cells[i] };
   });
@@ -77,5 +77,5 @@ export function pickBuildPlacement(s: GameState): GameAction | null {
     (a, b) => adjScore(b.coords) - adjScore(a.coords) || a.coords.join().localeCompare(b.coords.join())
   );
   const best = options[0];
-  return { type: 'place_tri', player: active, anchor: best.anchor, shape: best.shape };
+  return { type: 'place_tri', player: active, anchor: best.anchor, rotation: best.rotation };
 }

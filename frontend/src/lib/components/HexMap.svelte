@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { tweened } from 'svelte/motion';
+  import { cubicOut } from 'svelte/easing';
   import type { HexDef, PathPart, TileColor } from '$lib/data/types';
   import { HEX_SIZE, APOTHEM, hexCenter, hexPolygon, edgeMidpoint } from '$lib/hexgeo';
   import { mapView } from '$lib/config/mapView';
@@ -22,16 +24,15 @@
   const nextCells = $derived(game.state.mapBuild?.pool[0]?.cells ?? null);
 
   let selectedAnchor = $state<string | null>(null);
-  let selectedShape = $state<'A' | 'B'>('A');
-  const validShapesAt = (anchor: string) =>
-    (['A', 'B'] as const).filter((s) => isLegalPlacement(activeMap, anchor, s));
-  const selectedCoords = $derived(
-    canBuild && selectedAnchor ? placementCoords(selectedAnchor, selectedShape) : null
-  );
+  let spin = $state(0); // cumulative 60-degree steps, so rotation animates smoothly
+  const selectedRotation = $derived(((spin % 6) + 6) % 6);
+  const validRotationsAt = (anchor: string) =>
+    [0, 1, 2, 3, 4, 5].filter((r) => isLegalPlacement(activeMap, anchor, r));
   const selectedLegal = $derived(
-    !!selectedAnchor && isLegalPlacement(activeMap, selectedAnchor, selectedShape)
+    !!selectedAnchor && isLegalPlacement(activeMap, selectedAnchor, selectedRotation)
   );
-  const canRotate = $derived(!!selectedAnchor && validShapesAt(selectedAnchor).length > 1);
+  // Tweened spin angle (degrees) so the tri-hex rotates smoothly to each orientation.
+  const spinAngle = tweened(0, { duration: 240, easing: cubicOut });
   /** Nearest valid (even-parity) hex to an SVG point - lets you click the open grid. */
   function hexAt(x: number, y: number): string {
     const colF = x / (1.5 * HEX_SIZE);
@@ -53,19 +54,20 @@
   }
   function selectAnchor(anchor: string) {
     selectedAnchor = anchor;
-    selectedShape = validShapesAt(anchor)[0] ?? 'A';
+    spin = validRotationsAt(anchor)[0] ?? 0; // prefer a legal orientation
+    spinAngle.set(spin * 60, { duration: 0 }); // snap (no spin) on a fresh selection
   }
   function rotateSel() {
     if (!selectedAnchor) return;
-    const other = selectedShape === 'A' ? 'B' : 'A';
-    if (validShapesAt(selectedAnchor).includes(other)) selectedShape = other;
+    spin += 1; // next 60-degree orientation
+    spinAngle.set(spin * 60);
   }
-  function placeTri(anchor: string, shape: 'A' | 'B') {
-    if (game.active) game.act({ type: 'place_tri', player: game.active, anchor, shape });
+  function placeTri(anchor: string, rotation: number) {
+    if (game.active) game.act({ type: 'place_tri', player: game.active, anchor, rotation });
     selectedAnchor = null;
   }
   const confirmBuild = () => {
-    if (selectedAnchor && selectedLegal) placeTri(selectedAnchor, selectedShape);
+    if (selectedAnchor && selectedLegal) placeTri(selectedAnchor, selectedRotation);
   };
   const cancelBuild = () => (selectedAnchor = null);
   // Screen position of the selected anchor (for the floating rotate/place controls).
@@ -1006,10 +1008,13 @@
         {/if}
       {/snippet}
 
-      <!-- outline of the tile at the clicked slot: green if legal, red if not -->
-      {#if selectedCoords && nextCells}
-        <g class="tilepreview">
-          {#each selectedCoords as c, i (c)}
+      <!-- outline of the tile at the clicked slot: green if legal, red if not. The
+           base (rotation 0) layout is spun by the tweened angle around the anchor so
+           rotation animates through the six 60-degree orientations. -->
+      {#if canBuild && selectedAnchor && nextCells}
+        {@const piv = hexCenter(selectedAnchor)}
+        <g class="tilepreview" transform="rotate({$spinAngle} {piv.x} {piv.y})">
+          {#each placementCoords(selectedAnchor, 0) as c, i (i)}
             {@const ctr = hexCenter(c)}
             <g transform="translate({ctr.x} {ctr.y})">
               <polygon points={poly} class={selectedLegal ? 'okline' : 'badline'} />
@@ -1177,7 +1182,7 @@
   {#if canBuild && selectedAnchor}
     <!-- preview controls: rotate / place / cancel (like the 1889 tile lay) -->
     <div class="layctl" style="left:{buildPos.x}px; top:{buildPos.y}px">
-      <button onclick={rotateSel} title="Rotate" disabled={!canRotate}>⟳ rotate</button>
+      <button onclick={rotateSel} title="Rotate 60°">⟳ rotate</button>
       <button class="ok" onclick={confirmBuild} title="Place" disabled={!selectedLegal}>✓ place</button>
       <button class="cancel" onclick={cancelBuild} title="Cancel">×</button>
     </div>
