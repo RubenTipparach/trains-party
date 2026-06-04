@@ -17,12 +17,21 @@
     stroke-linejoin="round"
   >
     {#if sym === 'AD'}
-    <!-- Adaptive: asterisk / flower burst -->
-    <line x1="12" y1="4" x2="12" y2="20" />
-    <line x1="5" y1="8" x2="19" y2="16" />
-    <line x1="5" y1="16" x2="19" y2="8" />
-    <circle cx="12" cy="12" r="2.3" fill={color} stroke="none" />
-  {:else if sym === 'AG'}
+      <!-- Adaptive: a purple sun (rays) with a star at its centre -->
+      {#each [0, 45, 90, 135, 180, 225, 270, 315] as a}
+        <line
+          x1={12 + 6 * Math.cos((a * Math.PI) / 180)}
+          y1={12 + 6 * Math.sin((a * Math.PI) / 180)}
+          x2={12 + 9.5 * Math.cos((a * Math.PI) / 180)}
+          y2={12 + 9.5 * Math.sin((a * Math.PI) / 180)}
+        />
+      {/each}
+      <path
+        d="M12 7.5L13.1 10.5L16.3 10.6L13.7 12.6L14.6 15.6L12 13.8L9.4 15.6L10.3 12.6L7.7 10.6L10.9 10.5Z"
+        fill={color}
+        stroke="none"
+      />
+    {:else if sym === 'AG'}
     <!-- Agricultural: wheat stalk -->
     <line x1="12" y1="21" x2="12" y2="7" />
     <path d="M12 9q4 -1 5 -4" /><path d="M12 9q-4 -1 -5 -4" />
@@ -55,9 +64,9 @@
     <line x1="8" y1="11" x2="16" y2="11" />
     <path d="M5 14q0 5 7 5q7 0 7 -5" />
   {:else if sym === 'OV'}
-    <!-- Overnight: crescent moon + star -->
-    <path d="M17 4a8 8 0 1 0 0 16a6 6 0 1 1 0 -16z" fill={color} stroke="none" />
-    <circle cx="7.5" cy="8" r="1.4" fill={color} stroke="none" />
+    <!-- Overnight: crescent moon (a colour disc cut by an offset background disc) -->
+    <circle cx="11" cy="12" r="8.5" fill={color} stroke="none" />
+    <circle cx="15.5" cy="9.8" r="7.6" fill="#fbfaf6" stroke="none" />
   {:else if sym === 'RE'}
     <!-- Resourceful: cut gem -->
     <path d="M6 9l3 -4h6l3 4l-6 11z" />
