@@ -3,6 +3,7 @@
   import AuctionPanel from './AuctionPanel.svelte';
   import StockPanel from './StockPanel.svelte';
   import OperatingPanel from './OperatingPanel.svelte';
+  import HexMap from './HexMap.svelte';
   import { PHASES } from '$lib/data/g1889';
   import { currencyFor } from '$lib/engine';
   const CURRENCY = $derived(currencyFor(game.title));
@@ -99,10 +100,12 @@
     {#if game.state.round === 'auction'}
       <AuctionPanel />
     {:else if game.state.round === 'mapbuild'}
-      <div class="buildhint">
-        <p>The map is being built by laying tri-hex tiles.</p>
-        <p>Open the <strong>Map</strong> tab to place a tile on your turn.</p>
-        <p class="bhleft">{game.state.mapBuild?.pool.length ?? 0} tiles left to place</p>
+      <div class="buildwrap">
+        <p class="buildlead">
+          Lay tri-hex tiles to build the map. On your turn, click a highlighted ghost to place the
+          next tile ({game.state.mapBuild?.pool.length ?? 0} left); use Flip to rotate it.
+        </p>
+        <div class="mapwrap"><HexMap /></div>
       </div>
     {:else if game.state.round === 'stock'}
       <StockPanel />
@@ -323,15 +326,13 @@
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
     padding: 0.15rem 0;
   }
-  .buildhint {
-    padding: 0.6rem 0.2rem;
+  .buildlead {
+    margin: 0 0 0.6rem;
     color: #c8d2dc;
-    font-size: 0.9rem;
+    font-size: 0.88rem;
     line-height: 1.5;
   }
-  .buildhint .bhleft {
-    margin-top: 0.4rem;
-    color: #8fe0d3;
-    font-weight: 600;
+  .mapwrap {
+    min-width: 0;
   }
 </style>
