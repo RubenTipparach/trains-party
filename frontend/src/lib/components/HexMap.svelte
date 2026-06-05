@@ -625,18 +625,22 @@
   // at that frame and only doubles once the map grows past 11 hexes wide; max
   // zoom-IN matches the 1889 game (width * minZoomFraction).
   const BUILD_VIEW = 17 * HEX_SIZE;
+  // Wide, short frame while building so the embedded map doesn't get tall.
+  const BUILD_ASPECT_W = 16;
+  const BUILD_ASPECT_H = 9;
   const buildWide = $derived(xs.length > 1 && Math.max(...xs) - Math.min(...xs) > 10 * 1.5 * HEX_SIZE);
   const buildFar = $derived(buildWide ? BUILD_VIEW * 2 : BUILD_VIEW);
-  // Lock the container shape while building (square, matching the square build
-  // viewBox) so the map's height - and the camera - stay put as the map grows.
-  const wrapAspect = $derived(building ? '1 / 1' : `${width} / ${height}`);
+  const buildViewH = $derived((buildFar * BUILD_ASPECT_H) / BUILD_ASPECT_W);
+  // Lock the container shape while building (matching the build viewBox) so the
+  // map's height - and the camera - stay put as the map grows.
+  const wrapAspect = $derived(building ? `${BUILD_ASPECT_W} / ${BUILD_ASPECT_H}` : `${width} / ${height}`);
   $effect(() => {
     if (building) {
       // Fit once when building starts, then leave the zoom under the player's control.
       if (!buildFitted) {
         const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
         const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
-        view = { x: cx - buildFar / 2, y: cy - buildFar / 2, w: buildFar, h: buildFar };
+        view = { x: cx - buildFar / 2, y: cy - buildViewH / 2, w: buildFar, h: buildViewH };
         buildFitted = true;
       }
     } else if (!fittedOnce) {
@@ -661,7 +665,9 @@
   // fan of options (which sits outside the chosen hex) stays reachable.
   function clamped(v: { x: number; y: number; w: number; h: number }) {
     let { x, y, w, h } = v;
-    const m = (layHex ? mapView.layFanMargin : mapView.edgeMargin) * HEX_SIZE;
+    // While building, the view is larger than the placed map; a generous margin
+    // lets you pan around the build area instead of snapping back to centre.
+    const m = building ? buildFar : (layHex ? mapView.layFanMargin : mapView.edgeMargin) * HEX_SIZE;
     if (w >= width + 2 * m) x = minX - (w - width) / 2;
     else x = Math.min(Math.max(x, minX - m), minX + width - w + m);
     if (h >= height + 2 * m) y = minY - (h - height) / 2;
