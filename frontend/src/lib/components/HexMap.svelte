@@ -627,6 +627,9 @@
   const BUILD_VIEW = 17 * HEX_SIZE;
   const buildWide = $derived(xs.length > 1 && Math.max(...xs) - Math.min(...xs) > 10 * 1.5 * HEX_SIZE);
   const buildFar = $derived(buildWide ? BUILD_VIEW * 2 : BUILD_VIEW);
+  // Lock the container shape while building (square, matching the square build
+  // viewBox) so the map's height - and the camera - stay put as the map grows.
+  const wrapAspect = $derived(building ? '1 / 1' : `${width} / ${height}`);
   $effect(() => {
     if (building) {
       // Fit once when building starts, then leave the zoom under the player's control.
@@ -879,7 +882,7 @@
   }
 </script>
 
-<div class="wrap" bind:this={wrap} style="aspect-ratio: {width} / {height}">
+<div class="wrap" bind:this={wrap} style="aspect-ratio: {wrapAspect}">
   <div class="sea">
     <svg
       class="map"
