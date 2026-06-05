@@ -655,7 +655,7 @@
   const onQuarterTurn = $derived(((rotation % 180) + 180) % 180 === 90);
   const fitScale = $derived(onQuarterTurn ? Math.min(width / height, height / width) : 1);
   const MIN_W = $derived(width * mapView.minZoomFraction); // max zoom in - matches 1889
-  const MAX_W = $derived(building ? buildFar : width * mapView.maxZoomFraction); // farthest out
+  const MAX_W = $derived(building ? buildFar * 1.8 : width * mapView.maxZoomFraction); // farthest out (with zoom-out wiggle room)
   const pointers = new Map<number, { x: number; y: number }>();
   let moved = false;
   let viewRaf = 0; // in-flight animated-view frame
