@@ -43,11 +43,17 @@
   // also carries the operating-round interactions (lay track / token / routes).
   const opv = $derived(game.state.round === 'operating' ? operatingView(game.state) : null);
 
+  let isMobile = $state(false);
+
   // Init animation prefs and the hotkeys on the client; open the Game panel by
   // default on desktop (it holds the action UI), keep the map clear on mobile.
   onMount(() => {
     anim.init();
-    if (window.matchMedia('(min-width: 920px)').matches) active = 'game';
+    const mq = window.matchMedia('(min-width: 920px)');
+    if (mq.matches) active = 'game';
+    isMobile = !mq.matches;
+    const onMq = () => (isMobile = !mq.matches);
+    mq.addEventListener('change', onMq);
     const onKey = (e: KeyboardEvent) => {
       if (e.code === 'Space' && !(e.target instanceof HTMLInputElement)) {
         e.preventDefault();
@@ -57,7 +63,10 @@
       }
     };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      mq.removeEventListener('change', onMq);
+    };
   });
 
   // Auto-play bot turns with a watchable pause between moves (skippable).
@@ -121,6 +130,14 @@
     active = active === id ? null : id;
   }
 
+  // Mobile: during operating/merger rounds the Game panel becomes a bottom
+  // sheet (half screen) so the map and the operating company are both visible;
+  // any other full-screen modal pauses the map renderer underneath.
+  const sheet = $derived(
+    active === 'game' && (game.state.round === 'operating' || game.state.round === 'merger')
+  );
+  const mapPaused = $derived(isMobile && !!active && !sheet);
+
   // Always-visible status pill: round, active player (seat colour), bank.
   const seatColor = (id: string) => {
     const i = game.state.players.findIndex((p) => p.id === id);
@@ -161,6 +178,7 @@
   <div class="maplayer" class:squeezed={!!active}>
     <HexMap
       fill
+      paused={mapPaused}
       layMode={game.canAct && opv?.step === 'track'}
       tokenMode={game.canAct && opv?.step === 'token'}
       runMode={game.canAct && opv?.step === 'run'}
@@ -174,7 +192,7 @@
   </div>
 
   <!-- always-visible turn status -->
-  <div class="statusbar" class:myturn={game.canAct} class:shifted={!!active} style="--p:{seatColor(game.active ?? '')}">
+  <div class="statusbar" class:myturn={game.canAct} class:shifted={!!active} class:sheeted={!!active && sheet} style="--p:{seatColor(game.active ?? '')}">
     <span class="srnd">{roundLabel}</span>
     <span class="splayer">{game.canAct ? 'Your turn · ' : ''}{playerName(game.active)}</span>
     {#if game.isBot(game.active)}<span class="sbot">BOT</span>{/if}
@@ -193,15 +211,15 @@
     {/if}
   </div>
 
-  {#if active}
-    <!-- mobile-only scrim behind the modal -->
+  {#if active && !sheet}
+    <!-- mobile-only scrim behind the modal (sheet mode keeps the map live) -->
     <button class="scrim" aria-label="Close panel" onclick={() => (active = null)} transition:fade={{ duration: 120 }}></button>
   {/if}
 
   <!-- the toolbar + panel shell: tabs merge into the open panel. Mobile: a
        horizontal bar at the top that the modal hangs from. Desktop: a vertical
        rail on the panel's left edge, the whole shell docked to the right. -->
-  <div class="shell" class:open={!!active}>
+  <div class="shell" class:open={!!active} class:sheet={!!active && sheet}>
     <nav class="dock" aria-label="Board sections">
       {#each tabs as t, i (t.id)}
         <button
@@ -767,6 +785,40 @@
     overflow: auto;
     padding: 0.9rem 1rem 1.4rem;
     overscroll-behavior: contain;
+  }
+
+  /* mobile bottom sheet (operating/merger): the panel takes the lower half so
+     the map - and the operating company - stay visible and interactive. */
+  @media (max-width: 919px) {
+    .shell.sheet {
+      top: auto;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      max-height: 52%;
+      height: 52%;
+    }
+    .shell.sheet .dock {
+      border-radius: 14px 14px 0 0;
+      border-bottom: none;
+    }
+    .shell.sheet .panelhost {
+      border-radius: 0;
+      border-left: none;
+      border-right: none;
+      border-bottom: none;
+    }
+    .statusbar.sheeted {
+      display: none; /* the Game panel shows the same status */
+    }
+    /* perf: backdrop blur is expensive on phones - use solid surfaces instead */
+    .dock,
+    .panelhost,
+    .statusbar,
+    .roomchip {
+      backdrop-filter: none;
+      background: var(--bg);
+    }
   }
 
   /* desktop: the shell sits flush against the screen's top/right/bottom edges;

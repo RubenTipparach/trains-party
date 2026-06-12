@@ -119,8 +119,9 @@
     layMode = false,
     tokenMode = false,
     runMode = false,
-    fill = false
-  }: { layMode?: boolean; tokenMode?: boolean; runMode?: boolean; fill?: boolean } = $props();
+    fill = false,
+    paused = false
+  }: { layMode?: boolean; tokenMode?: boolean; runMode?: boolean; fill?: boolean; paused?: boolean } = $props();
   const lays = $derived(layMode ? trackLays(game.state) : []);
   const layHexes = $derived(new Set(lays.map((l) => l.hex)));
   const tokenHexes = $derived(tokenMode ? new Set(tokenPlays(game.state).map((t) => t.hex)) : new Set<string>());
@@ -961,7 +962,7 @@
   }
 </script>
 
-<div class="wrap" class:fill bind:this={wrap} style="aspect-ratio: {wrapAspect}">
+<div class="wrap" class:fill class:paused bind:this={wrap} style="aspect-ratio: {wrapAspect}">
   <div class="sea">
     <svg
       class="map"
@@ -1145,7 +1146,7 @@
               <text class="label" x={lp.x} y={lp.y + 4} text-anchor="middle">{h.label}</text>
             {/if}
             {#if h.name}<text class="name" y={APOTHEM - 6 - (showCoords ? 7 : 0)} text-anchor="middle">{h.name}</text>{/if}
-            <text class="coordlbl" class:show={showCoords} y={APOTHEM - 5} text-anchor="middle">{h.coord}</text>
+            {#if showCoords}<text class="coordlbl show" y={APOTHEM - 5} text-anchor="middle">{h.coord}</text>{/if}
           </g>
         </g>
       {/each}
@@ -1391,6 +1392,11 @@
   }
   .wrap.fill .sea {
     border-radius: 0;
+  }
+  /* A full-screen modal covers the map: stop painting it (and its water
+     animation) entirely while hidden. */
+  .wrap.paused .sea {
+    display: none;
   }
   /* As a background the right edge hosts the panel shell, so park the controls
      bottom-left where they stay reachable. */
