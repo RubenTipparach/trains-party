@@ -9,7 +9,7 @@ import type { CompanyAbility, HexDef } from '$lib/data/types';
 import type { TriHex } from './triHex';
 export type { CompanyAbility };
 
-export type RoundType = 'auction' | 'mapbuild' | 'stock' | 'operating';
+export type RoundType = 'auction' | 'mapbuild' | 'stock' | 'operating' | 'merger';
 
 export interface PlayerState {
   id: string;
@@ -50,6 +50,8 @@ export interface CorporationState {
   kind?: 'minor' | 'major';
   /** Set once the company has completed an OR turn (gates leadoff + selling). */
   operated?: boolean;
+  /** Major only: the two minors this corporation was merged from (abilities persist). */
+  mergedFrom?: string[];
   /** RoLA share denomination / dividend percent per share (minor 20, major 10). */
   shareUnit?: number;
   /** RoLA: set when the price reached 0 and the company dissolved. */
@@ -136,6 +138,17 @@ export interface StockState {
   soldThisRound: Record<string, string[]>;
 }
 
+export interface MergerState {
+  /** Minor syms entitled to propose, in descending stock order. */
+  queue: string[];
+  /** Index of the minor whose president acts now. */
+  index: number;
+  /** Pairings declined this round ("A|B"), not re-proposable. */
+  declined: string[];
+  /** A cross-player proposal awaiting the target president's answer. */
+  pending: { from: string; to: string; major: string } | null;
+}
+
 export interface GameState {
   rulesVersion: string;
   /** Which title's config this state runs under (registry key, e.g. "1889"). */
@@ -176,6 +189,8 @@ export interface GameState {
   minorMatrix?: string[][];
   /** Current cycle (1-based) when the title plays fixed cycles (RoLA). */
   cycle?: number;
+  /** Merger round state (RoLA), when one is in progress. */
+  merger?: MergerState | null;
   /** Trains discarded to the bank pool (over-limit), buyable at printed price. */
   trainPool?: string[];
   log: string[];
@@ -223,6 +238,11 @@ export type GameAction =
   // shares to the pool (emr_sell), or declares bankruptcy when nothing can cover it.
   // RoLA OR step 2: issue one treasury share to the pool (price drops one), or
   // redeem one pooled share into the treasury at current price (no price move).
+  // RoLA merger round: propose merging two minors into `major`; the target's
+  // president accepts or declines when the presidents differ.
+  | { type: 'propose_merge'; player: string; from: string; to: string; major: string }
+  | { type: 'accept_merge'; player: string }
+  | { type: 'decline_merge'; player: string }
   | { type: 'issue'; player: string; corp: string }
   | { type: 'redeem'; player: string; corp: string }
   | { type: 'emr_sell'; player: string; corp: string; count: number }

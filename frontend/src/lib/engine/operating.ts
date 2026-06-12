@@ -16,6 +16,7 @@ import { routeRevenue, canRunRoute, revenueForChosenRoutes } from './routes';
 import { playerValue } from './metrics';
 import { sellSharesToPool, currentPrice, canSell, maxSellCount, stampPrice } from './stock';
 import { applyDividend, issueShare, redeemShare } from './rolaStock';
+import { maybeStartMergerRound } from './rolaMerger';
 import { hexesFor } from './board';
 
 function corp(s: GameState, sym: string): CorporationState {
@@ -135,6 +136,14 @@ function finishOperatingSet(s: GameState): void {
     endGame(s);
     return;
   }
+  // RoLA: after both ORs, minors may merge into majors (once green has begun).
+  // The merger round resumes the cycle (export + new SR) when it completes.
+  if (maybeStartMergerRound(s)) return;
+  advanceCycleAfterOrs(s);
+}
+
+/** Advance past the end of an OR set: count the cycle / export / start the SR. */
+export function advanceCycleAfterOrs(s: GameState): void {
   // Fixed-cycle titles (RoLA): a cycle = SR + the ORs (+ the merger round when
   // it lands). After the final cycle the game ends; otherwise export the top
   // train (which may rust trains / advance the phase) and start the next SR.
@@ -317,18 +326,22 @@ function advancePhaseAndRust(s: GameState, train: string): void {
     s.trainPool = (s.trainPool ?? []).filter((t) => !rusts.includes(t));
     s.log.push(`${rusts.join(', ')}-trains rust`);
   }
-  // New (lower) train limits apply immediately: over-limit companies discard a
-  // train to the bank pool (auto-pick the oldest; it stays buyable at price).
-  for (const co of s.corporations) {
-    while (co.trains.length > trainLimit(s, co)) {
-      const oldest = [...co.trains].sort(
-        (a, b) =>
-          cfg.trains.findIndex((t) => t.name === a) - cfg.trains.findIndex((t) => t.name === b)
-      )[0];
-      co.trains.splice(co.trains.indexOf(oldest), 1);
-      (s.trainPool ??= []).push(oldest);
-      s.log.push(`${co.sym} is over the train limit and discards a ${oldest}-train to the pool`);
-    }
+  // New (lower) train limits apply immediately: over-limit companies discard.
+  for (const co of s.corporations) discardOverLimit(s, co);
+}
+
+/** Discard trains to the bank pool until the company is within its limit
+ * (auto-pick the oldest; pool trains stay buyable at printed price). */
+export function discardOverLimit(s: GameState, co: CorporationState): void {
+  const cfg = configFor(s.title);
+  while (co.trains.length > trainLimit(s, co)) {
+    const oldest = [...co.trains].sort(
+      (a, b) =>
+        cfg.trains.findIndex((t) => t.name === a) - cfg.trains.findIndex((t) => t.name === b)
+    )[0];
+    co.trains.splice(co.trains.indexOf(oldest), 1);
+    (s.trainPool ??= []).push(oldest);
+    s.log.push(`${co.sym} is over the train limit and discards a ${oldest}-train to the pool`);
   }
 }
 

@@ -133,6 +133,7 @@
     if (s.round === 'auction') return 'ISR';
     if (s.round === 'mapbuild') return 'MAP';
     if (s.round === 'stock') return `SR ${s.srCount}`;
+    if (s.round === 'merger') return 'MR';
     return s.or ? `OR ${s.orSet}.${s.or.orNumber}` : 'OR';
   });
 

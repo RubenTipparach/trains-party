@@ -14,6 +14,7 @@ import {
   tokenPlays,
   configFor,
   pickBuildPlacement,
+  mergerActivePlayer,
   type GameAction,
   type GameState
 } from '$lib/engine';
@@ -165,6 +166,13 @@ function botOperating(s: GameState): GameAction | null {
 export function botAction(s: GameState, level: BotLevel): GameAction | null {
   if (s.finished) return null;
   if (s.round === 'mapbuild') return pickBuildPlacement(s);
+  if (s.round === 'merger' && s.merger) {
+    const me = mergerActivePlayer(s);
+    if (!me) return null;
+    // Conservative bots: decline cross-player proposals, never initiate.
+    if (s.merger.pending) return { type: 'decline_merge', player: me };
+    return { type: 'pass', player: me };
+  }
   if (s.round === 'auction' && s.auction) {
     // guard: only act if we are actually the active player
     if (auctionActivePlayer(s) !== s.players[s.current].id && !s.auction.auctioning) return null;

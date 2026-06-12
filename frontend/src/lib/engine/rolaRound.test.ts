@@ -132,3 +132,75 @@ describe('RoLA minor matrix (2 columns, bottom-row launchable)', () => {
     expect(() => apply(s, { type: 'launch', player: 'p1', corp: buried, bid: 120 })).toThrow();
   });
 });
+
+describe('RoLA merger round', () => {
+  /** Launch AG + EA under p1, run both through the OR set at phase 3. */
+  function toMerger(): GameState {
+    let s = initialState(seats, 'rola');
+    s = apply(s, { type: 'launch', player: 'p1', corp: 'AG', bid: 120 });
+    s = apply(s, { type: 'pass', player: 'p1' });
+    s = apply(s, { type: 'pass', player: 'p2' });
+    s = apply(s, { type: 'pass', player: 'p3' });
+    s = apply(s, { type: 'launch', player: 'p1', corp: 'EA', bid: 120 });
+    s = apply(s, { type: 'pass', player: 'p1' });
+    s = apply(s, { type: 'pass', player: 'p2' });
+    s = apply(s, { type: 'pass', player: 'p3' });
+    s = apply(s, { type: 'pass', player: 'p1' }); // full pass lap -> OR
+    s.phase = '3'; // first green bought (mergers unlock)
+    // run both companies through both ORs (leadoff only on the first)
+    for (let or = 0; or < 2; or++) {
+      for (let i = 0; i < 2; i++) {
+        const sym = s.or!.order[s.or!.index];
+        if (s.or!.step === 'leadoff') s = apply(s, { type: 'pass', player: 'p1' });
+        s = apply(s, { type: 'pass', player: 'p1' }); // track
+        s = apply(s, { type: 'pass', player: 'p1' }); // token
+        s = apply(s, { type: 'run', player: 'p1', corp: sym, revenue: 0, dividend: 'withhold' });
+        if (s.round !== 'operating') return s;
+        s = apply(s, { type: 'pass', player: 'p1' }); // finish turn
+        if (s.round !== 'operating') return s;
+      }
+    }
+    return s;
+  }
+
+  it('runs a merger round after the ORs once green has begun, and merges 1:1', () => {
+    let s = toMerger();
+    expect(s.round).toBe('merger');
+    // make EA reachable from the proposer's network for the test
+    const proposer = s.merger!.queue[s.merger!.index];
+    const other = proposer === 'AG' ? 'EA' : 'AG';
+    const a = s.corporations.find((c) => c.sym === proposer)!;
+    const b = s.corporations.find((c) => c.sym === other)!;
+    b.tokenHexes = [a.tokenHexes[0]];
+    const cashA = a.cash;
+    const cashB = b.cash;
+    s = apply(s, { type: 'propose_merge', player: 'p1', from: proposer, to: other, major: 'Con' });
+    const con = s.corporations.find((c) => c.sym === 'Con')!;
+    expect(con.floated).toBe(true);
+    expect(con.president).toBe('p1');
+    // p1 held 40% + 40% (4 minor certs) -> 4 major certs = 40%
+    expect(s.players[0].shares['Con']).toBe(40);
+    expect(con.cash).toBe(cashA + cashB);
+    expect(con.tokenHexes.length).toBe(1); // duplicate hub deduped
+    expect(con.mergedFrom?.sort()).toEqual(['AG', 'EA']);
+    expect(s.corporations.find((c) => c.sym === proposer)!.dissolved).toBe(true);
+    // both minors merged -> queue empty -> the cycle resumes (export + SR)
+    expect(s.round).toBe('stock');
+    expect(s.cycle).toBe(2);
+  });
+
+  it('prices the major at the rounded-down average on the ladder', () => {
+    let s = toMerger();
+    const proposer = s.merger!.queue[s.merger!.index];
+    const other = proposer === 'AG' ? 'EA' : 'AG';
+    const a = s.corporations.find((c) => c.sym === proposer)!;
+    const b = s.corporations.find((c) => c.sym === other)!;
+    b.tokenHexes = [a.tokenHexes[0]];
+    // both launched at 80 and withheld 4 times -> both dropped; set explicit prices
+    a.priceCol = 8; // 80
+    b.priceCol = 6; // 60
+    s = apply(s, { type: 'propose_merge', player: 'p1', from: proposer, to: other, major: 'Fed' });
+    const fed = s.corporations.find((c) => c.sym === 'Fed')!;
+    expect(fed.parPrice).toBe(70); // avg(80,60) = 70 on the ladder
+  });
+});

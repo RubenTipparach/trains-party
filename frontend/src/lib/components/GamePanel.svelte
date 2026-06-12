@@ -3,6 +3,7 @@
   import AuctionPanel from './AuctionPanel.svelte';
   import StockPanel from './StockPanel.svelte';
   import OperatingPanel from './OperatingPanel.svelte';
+  import MergerPanel from './MergerPanel.svelte';
   import { PHASES } from '$lib/data/g1889';
   import { currencyFor } from '$lib/engine';
   const CURRENCY = $derived(currencyFor(game.title));
@@ -21,6 +22,7 @@
     if (s.round === 'auction') return 'ISR';
     if (s.round === 'mapbuild') return 'MAP';
     if (s.round === 'stock') return `SR ${s.srCount}`;
+    if (s.round === 'merger') return 'MR';
     return s.or ? `OR ${s.orSet}.${s.or.orNumber}` : 'OR';
   });
   const roundName = $derived(
@@ -30,7 +32,9 @@
         ? 'Building the Map'
         : game.state.round === 'stock'
           ? 'Stock Round'
-          : 'Operating Round'
+          : game.state.round === 'merger'
+            ? 'Merger Round'
+            : 'Operating Round'
   );
   const orCount = $derived(PHASES.find((p) => p.name === game.state.phase)?.operatingRounds ?? 1);
   // The OR set that follows the current stock round is "OR <srCount>"; while
@@ -104,6 +108,8 @@
         position the next tile ({game.state.mapBuild?.pool.length ?? 0} left) - green outline =
         legal - then rotate and place it.
       </p>
+    {:else if game.state.round === 'merger'}
+      <MergerPanel />
     {:else if game.state.round === 'stock'}
       <StockPanel />
     {:else}

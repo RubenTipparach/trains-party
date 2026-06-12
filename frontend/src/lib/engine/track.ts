@@ -121,7 +121,7 @@ function phaseColors(s: GameState): TileColor[] {
 }
 
 /** The set of hexes the corporation's track reaches from its token(s). */
-function network(s: GameState, corp: CorporationState): Set<string> {
+export function network(s: GameState, corp: CorporationState): Set<string> {
   const hexes = hexesFor(s);
   const visited = new Set<string>(corp.tokenHexes);
   const queue = [...corp.tokenHexes];
