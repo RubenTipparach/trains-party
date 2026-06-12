@@ -467,7 +467,7 @@
     position: absolute;
     inset: 0;
     z-index: 0;
-    transition: right 240ms ease;
+    transition: right 240ms ease, bottom 240ms ease;
   }
   .loadingroom {
     min-height: 60vh;
@@ -829,9 +829,11 @@
       border-radius: 14px 14px 0 0;
       border-bottom: none;
     }
-    /* lift the map controls and the status pill above the sheet */
-    .board-root.opdock :global(.wrap.fill .controls) {
-      bottom: calc(50% + 14px);
+    /* render only the visible half of the map while the sheet is up: the SVG
+       shrinks to the top half, halving what the browser must rasterize (the
+       controls ride along inside it) */
+    .board-root.opdock .maplayer {
+      bottom: 50%;
     }
     .board-root.opdock .statusbar {
       bottom: calc(50% + 10px);
