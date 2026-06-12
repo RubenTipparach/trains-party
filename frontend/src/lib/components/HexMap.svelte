@@ -5,7 +5,7 @@
   import type { HexDef, PathPart, TileColor } from '$lib/data/types';
   import { HEX_SIZE, APOTHEM, hexCenter, hexPolygon, edgeMidpoint } from '$lib/hexgeo';
   import { mapView } from '$lib/config/mapView';
-  import { TILE_W, TILE_H, WATER_BASE, WATER_LOOP_S, WATER_STATIC, WATER_FRAMES } from '$lib/config/waterArt';
+  import { TILE_W, TILE_H, WATER_BASE, WATER_LOOP_S, WATER_FADE_S, WATER_STATIC, WATER_FRAMES } from '$lib/config/waterArt';
   import { game } from '$lib/game/sandbox.svelte';
   import { anim } from '$lib/game/anim.svelte';
   import { routing } from '$lib/game/routing.svelte';
@@ -559,16 +559,18 @@
     return { x: m.x * 0.58, y: m.y * 0.58 };
   }
 
-  // Six-frame pixel-art water (see $lib/config/waterArt): a discrete SMIL
-  // animation cycles the frames so the sea shimmers like classic game water.
-  /** Discrete keyTimes/values that show frame `fi` for exactly its 1/n slot. */
+  // Six-frame pixel-art water (see $lib/config/waterArt): frames crossfade into
+  // each other at 1 fps so the sea shimmers gently instead of popping.
+  /** keyTimes/values giving frame `fi` its 1/n slot with a crossfade at each edge. */
   function waterKey(fi: number): { keyTimes: string; values: string } {
     const n = WATER_FRAMES.length;
-    const a = (fi / n).toFixed(4);
-    const b = ((fi + 1) / n).toFixed(4);
-    if (fi === 0) return { keyTimes: `0;${b};1`, values: '1;0;0' };
-    if (fi === n - 1) return { keyTimes: `0;${a};1`, values: '0;1;1' };
-    return { keyTimes: `0;${a};${b};1`, values: '0;1;0;0' };
+    const f = WATER_FADE_S / WATER_LOOP_S;
+    const t = (x: number) => x.toFixed(4);
+    const a = fi / n;
+    const b = (fi + 1) / n;
+    if (fi === 0) return { keyTimes: `0;${t(b - f)};${t(b)};${t(1 - f)};1`, values: '1;1;0;0;1' };
+    if (fi === n - 1) return { keyTimes: `0;${t(a - f)};${t(a)};${t(1 - f)};1`, values: '0;0;1;1;0' };
+    return { keyTimes: `0;${t(a - f)};${t(a)};${t(b - f)};${t(b)};1`, values: '0;0;1;1;0;0' };
   }
 
   const HOME = $derived(new Map(game.state.corporations.map((c) => [c.coordinates, c])));
@@ -974,7 +976,7 @@
               {#each frame as [x, y, w, h, c]}
                 <rect {x} {y} width={w} height={h} fill={c} />
               {/each}
-              <animate attributeName="opacity" calcMode="discrete" dur="{WATER_LOOP_S}s" repeatCount="indefinite" keyTimes={k.keyTimes} values={k.values} />
+              <animate attributeName="opacity" calcMode="linear" dur="{WATER_LOOP_S}s" repeatCount="indefinite" keyTimes={k.keyTimes} values={k.values} />
             </g>
           {/each}
         </pattern>

@@ -15,8 +15,10 @@ export type Px = [number, number, number, number, string];
 export const TILE_W = 40;
 export const TILE_H = 28;
 export const WATER_BASE = '#74c1be';
-/** Seconds for one full 6-frame loop. */
-export const WATER_LOOP_S = 1.8;
+/** Seconds for one full 6-frame loop (1 frame per second). */
+export const WATER_LOOP_S = 6;
+/** Seconds of crossfade between consecutive frames (gentle, not poppy). */
+export const WATER_FADE_S = 0.45;
 
 const LIGHT = '#9bd6d1';
 const LIGHTER = '#bdeae6';
