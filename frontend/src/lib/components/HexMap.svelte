@@ -834,14 +834,19 @@
   const showCoords = $derived(view.w <= mapView.coordZoomHexes * 1.5 * HEX_SIZE);
 
   onMount(() => {
+    // Assembly intro: once per client per room, and only during the first
+    // stock round (a flag in localStorage stops replays on reload/revisit).
+    const introKey = `tp.mapIntro.${game.code}`;
     if (
       fill &&
       game.state.map &&
-      game.state.round !== 'mapbuild' &&
-      game.actions.length === 0 &&
+      game.state.round === 'stock' &&
+      game.state.srCount === 1 &&
       anim.enabled &&
-      placed.length > 12
+      placed.length > 12 &&
+      !localStorage.getItem(introKey)
     ) {
+      localStorage.setItem(introKey, '1');
       introN = 0;
       introTimer = window.setInterval(() => {
         introN += 3;
