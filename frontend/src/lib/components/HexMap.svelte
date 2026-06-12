@@ -103,7 +103,7 @@
   let buildPos = $derived.by(() => {
     void view;
     if (!selectedAnchor || !svgEl || !wrap) return { x: 0, y: 0 };
-    const c = hexCenter(selectedAnchor);
+    const c = mapToView(hexCenter(selectedAnchor));
     const r = svgEl.getBoundingClientRect();
     const w = wrap.getBoundingClientRect();
     return {
@@ -241,7 +241,7 @@
   let fanPos = $derived.by(() => {
     void view; // track pan/zoom
     if (!layHex || !svgEl || !wrap) return { x: 0, y: 0 };
-    const c = hexCenter(layHex);
+    const c = mapToView(hexCenter(layHex));
     const r = svgEl.getBoundingClientRect();
     const w = wrap.getBoundingClientRect();
     return {
@@ -679,15 +679,45 @@
     }
   });
   let dragging = $state(false);
-  let rotation = $state(0); // whole-map rotation in degrees (rotate button)
+  // Whole-map rotation (rotate button). It is applied to the map CONTENT inside
+  // the SVG, around the board centre - the water and the viewBox stay screen
+  // aligned, and per-hex art/text counter-rotates so it reads right side up.
+  // rotation is cumulative (not mod 360) so the tween never spins the long way.
+  let rotation = $state(0);
+  const rotAnim = tweened(0, { duration: mapView.rotationAnimMs, easing: cubicOut });
   let isFullscreen = $state(false);
-  // On a quarter turn the landscape map would overflow the frame, so shrink it to fit.
-  const onQuarterTurn = $derived(((rotation % 180) + 180) % 180 === 90);
-  const fitScale = $derived(onQuarterTurn ? Math.min(width / height, height / width) : 1);
+  const rotPivot = $derived({ x: minX + width / 2, y: minY + height / 2 });
+  // On quarter turns the rotated map occupies a box with width/height swapped
+  // around the pivot; pan/zoom clamping uses these effective bounds.
+  const quarter = $derived(((rotation % 180) + 180) % 180 === 90);
+  const eW = $derived(quarter ? height : width);
+  const eH = $derived(quarter ? width : height);
+  const eMinX = $derived(quarter ? rotPivot.x - height / 2 : minX);
+  const eMinY = $derived(quarter ? rotPivot.y - width / 2 : minY);
+  /** Map coords -> screen-aligned (viewBox) coords under the current rotation. */
+  function mapToView(c: { x: number; y: number }) {
+    const a = (rotation * Math.PI) / 180;
+    const dx = c.x - rotPivot.x;
+    const dy = c.y - rotPivot.y;
+    return {
+      x: rotPivot.x + dx * Math.cos(a) - dy * Math.sin(a),
+      y: rotPivot.y + dx * Math.sin(a) + dy * Math.cos(a)
+    };
+  }
+  /** Screen-aligned (viewBox) coords -> map coords (inverse of mapToView). */
+  function viewToMap(p: { x: number; y: number }) {
+    const a = (-rotation * Math.PI) / 180;
+    const dx = p.x - rotPivot.x;
+    const dy = p.y - rotPivot.y;
+    return {
+      x: rotPivot.x + dx * Math.cos(a) - dy * Math.sin(a),
+      y: rotPivot.y + dx * Math.sin(a) + dy * Math.cos(a)
+    };
+  }
   // Max zoom-in is always relative to the 1889 board, so close-up hexes are the
   // same size in every title regardless of how large the RoLA frame is.
   const MIN_W = $derived((framed ? SHIKOKU.w : width) * mapView.minZoomFraction);
-  const MAX_W = $derived(width * mapView.maxZoomFraction); // farthest out: the whole frame
+  const MAX_W = $derived(eW * mapView.maxZoomFraction); // farthest out: the whole (rotated) frame
   const pointers = new Map<number, { x: number; y: number }>();
   let moved = false;
   let viewRaf = 0; // in-flight animated-view frame
@@ -699,10 +729,10 @@
     let { x, y, w, h } = v;
     // (While building, the fixed RoLA frame already gives generous panning room.)
     const m = (layHex ? mapView.layFanMargin : mapView.edgeMargin) * HEX_SIZE;
-    if (w >= width + 2 * m) x = minX - (w - width) / 2;
-    else x = Math.min(Math.max(x, minX - m), minX + width - w + m);
-    if (h >= height + 2 * m) y = minY - (h - height) / 2;
-    else y = Math.min(Math.max(y, minY - m), minY + height - h + m);
+    if (w >= eW + 2 * m) x = eMinX - (w - eW) / 2;
+    else x = Math.min(Math.max(x, eMinX - m), eMinX + eW - w + m);
+    if (h >= eH + 2 * m) y = eMinY - (h - eH) / 2;
+    else y = Math.min(Math.max(y, eMinY - m), eMinY + eH - h + m);
     return { x, y, w, h };
   }
   function clampView() {
@@ -734,13 +764,13 @@
 
   /** Pan (and zoom in a little) so a hex is centred and its fan is fully visible. */
   function centerOn(hex: string) {
-    const c = hexCenter(hex);
+    const c = mapToView(hexCenter(hex));
     const targetW = Math.min(MAX_W, Math.max(MIN_W, HEX_SIZE * 10));
-    const targetH = targetW * (height / width);
+    const targetH = targetW * (view.h / view.w);
     animateView({ x: c.x - targetW / 2, y: c.y - targetH / 2, w: targetW, h: targetH });
   }
 
-  /** Map a client point to SVG user coordinates, honouring the CSS rotation. */
+  /** Map a client point to screen-aligned SVG (viewBox) coordinates. */
   function clientToSvg(clientX: number, clientY: number): { x: number; y: number } {
     const ctm = svgEl.getScreenCTM();
     if (ctm) {
@@ -772,7 +802,8 @@
   }
   /** Rotate the whole map by the configured step (replaces the old reset button). */
   function rotateMap() {
-    rotation = (rotation + mapView.rotationStepDeg) % 360;
+    rotation += mapView.rotationStepDeg;
+    rotAnim.set(rotation);
   }
   function toggleFullscreen() {
     if (!document.fullscreenElement) wrap?.requestFullscreen?.().catch(() => {});
@@ -793,7 +824,7 @@
   function onMove(e: PointerEvent) {
     // Map building: highlight the hex under the cursor (where a click would place).
     if (canBuild && !dragging) {
-      const sp = clientToSvg(e.clientX, e.clientY);
+      const sp = viewToMap(clientToSvg(e.clientX, e.clientY));
       hoveredHex = hexAt(sp.x, sp.y);
     }
     if (!pointers.has(e.pointerId)) return;
@@ -831,7 +862,7 @@
     if (!wasDrag) {
       // Map building: a tap anywhere on the grid positions the next tile.
       if (canBuild) {
-        const sp = clientToSvg(e.clientX, e.clientY);
+        const sp = viewToMap(clientToSvg(e.clientX, e.clientY));
         selectAnchor(hexAt(sp.x, sp.y));
         return;
       }
@@ -921,7 +952,6 @@
       class:grabbing={dragging}
       bind:this={svgEl}
       viewBox="{view.x} {view.y} {view.w} {view.h}"
-      style="transform: rotate({rotation}deg) scale({fitScale}); transform-origin: center; transition: transform {mapView.rotationAnimMs}ms ease;"
       role="application"
       aria-label="1889 Shikoku map (drag to pan, scroll to zoom)"
       onpointerdown={onDown}
@@ -950,9 +980,13 @@
         </pattern>
       </defs>
 
-      <!-- animated water: covers the whole visible viewBox (3x, centred) at any zoom -->
+      <!-- animated water: covers the whole visible viewBox (3x, centred) at any zoom.
+           It stays OUTSIDE the rotated group so the pixels never turn sideways and
+           the sea always reaches the screen edges. -->
       <rect x={view.x - view.w} y={view.y - view.h} width={view.w * 3} height={view.h * 3} fill="url(#ripples)" />
 
+      <!-- everything on the board rotates as a group around the board centre -->
+      <g transform="rotate({$rotAnim} {rotPivot.x} {rotPivot.y})">
       {#each placed as h (h.coord)}
         <g
           class="hex"
@@ -980,24 +1014,29 @@
 
           {#if h.terrain?.includes('water')}
             <polygon points={poly} fill="#2f6f96" opacity="0.32" />
-            {#each [-7, 1, 9] as wy}
-              <path d="M -13 {wy} q 4 -3 8 0 q 4 3 8 0 q 4 -3 8 0" class="wave" />
-            {/each}
           {/if}
 
-          {#if h.terrain?.includes('mountain')}
-            {#each peaks(h.coord) as pk}
-              <path d="M {pk.x} 14 L {pk.x + pk.s / 2} {14 - pk.s} L {pk.x + pk.s} 14 Z" fill="#7d6a47" />
-              <path d="M {pk.x + pk.s / 2} {14 - pk.s} L {pk.x + pk.s} 14 L {pk.x + pk.s * 0.62} 14 Z" fill="#5c4d31" />
-              <path
-                d="M {pk.x + pk.s / 2} {14 - pk.s} l {pk.s * 0.16} {pk.s * 0.34} l {pk.s * 0.18} -{pk.s * 0.12} l {pk.s * 0.16} {pk.s * 0.2}"
-                fill="none"
-                stroke="#efe9da"
-                stroke-width="1"
-                opacity="0.8"
-              />
-            {/each}
-          {/if}
+          <!-- terrain art counter-rotates so it stays right side up -->
+          <g transform="rotate({-$rotAnim})">
+            {#if h.terrain?.includes('water')}
+              {#each [-7, 1, 9] as wy}
+                <path d="M -13 {wy} q 4 -3 8 0 q 4 3 8 0 q 4 -3 8 0" class="wave" />
+              {/each}
+            {/if}
+            {#if h.terrain?.includes('mountain')}
+              {#each peaks(h.coord) as pk}
+                <path d="M {pk.x} 14 L {pk.x + pk.s / 2} {14 - pk.s} L {pk.x + pk.s} 14 Z" fill="#7d6a47" />
+                <path d="M {pk.x + pk.s / 2} {14 - pk.s} L {pk.x + pk.s} 14 L {pk.x + pk.s * 0.62} 14 Z" fill="#5c4d31" />
+                <path
+                  d="M {pk.x + pk.s / 2} {14 - pk.s} l {pk.s * 0.16} {pk.s * 0.34} l {pk.s * 0.18} -{pk.s * 0.12} l {pk.s * 0.16} {pk.s * 0.2}"
+                  fill="none"
+                  stroke="#efe9da"
+                  stroke-width="1"
+                  opacity="0.8"
+                />
+              {/each}
+            {/if}
+          </g>
 
           <g clip-path="url(#hexclip)">
             {#each h.paths as p}
@@ -1016,59 +1055,65 @@
                 {#if showRoutes}{@const sc = segColor(h.coord, p.a, p.b)}{#if sc}<path d={pathD(p)} class="routeline" style="stroke:{sc}" />{/if}{/if}
               {/each}
             </g>
-            {#if def && def.cities > 0}
-              <circle r="13" class="city" />
-              {#if def.revenue > 0}<text class="rev" y="-17" text-anchor="middle">{def.revenue}</text>{/if}
-            {:else if def && def.towns > 0}
-              <rect x="-9" y="-4" width="18" height="8" rx="2" class="town" transform="rotate(30)" />
-              {#if def.revenue > 0}<text class="rev" y="-15" text-anchor="middle">{def.revenue}</text>{/if}
-            {/if}
-          {/if}
-
-          {#if !laid(h.coord)}
-            {#each h.towns as t}
-              <rect x="-9" y="-4" width="18" height="8" rx="2" class="town" transform="rotate(30)" />
-              {#if t.revenue > 0}<text class="rev" y="-15" text-anchor="middle">{t.revenue}</text>{/if}
-            {/each}
-
-            {#each h.cities as c}
-              {#if c.slots > 1}
-                <rect x={-12 * c.slots} y="-13" width={24 * c.slots} height="26" rx="13" class="city" />
-              {:else}
+            <!-- the laid tile's stops and revenue stay right side up -->
+            <g transform="rotate({-$rotAnim})">
+              {#if def && def.cities > 0}
                 <circle r="13" class="city" />
+                {#if def.revenue > 0}<text class="rev" y="-17" text-anchor="middle">{def.revenue}</text>{/if}
+              {:else if def && def.towns > 0}
+                <rect x="-9" y="-4" width="18" height="8" rx="2" class="town" transform="rotate(30)" />
+                {#if def.revenue > 0}<text class="rev" y="-15" text-anchor="middle">{def.revenue}</text>{/if}
               {/if}
-              {#if c.revenue > 0}<text class="rev" y="-17" text-anchor="middle">{c.revenue}</text>{/if}
-              {#if c.slots === 1 && !HOME.has(h.coord)}
-                <g clip-path="url(#cityclip)">
-                  {#each skyline(h.coord) as b}
-                    <rect x={b.x} y={9 - b.h} width={b.w} height={b.h} fill="#43566a" />
-                    {#if b.lit}<rect x={b.x + b.w / 2 - 0.5} y={11 - b.h} width="1" height="1" fill="#ffd76a" />{/if}
-                  {/each}
-                  <rect x="-13" y="9" width="26" height="4" fill="#36475a" />
-                </g>
-              {/if}
-            {/each}
-          {/if}
-
-          {#if h.offboard}
-            {#each Object.entries(h.offboard.revenue) as [tier, val], i}
-              <text class="off" x="0" y={i * 13 - 6} text-anchor="middle" fill={OFFBOARD_TIER[tier] ?? '#333'}>{val}</text>
-            {/each}
-          {/if}
-
-          {#each tokensOn(h.coord) as t, ti (t.sym)}
-            <g transform="translate({ti * 11 - (tokensOn(h.coord).length - 1) * 5.5} 0)">
-              <circle r="9" fill={t.color} stroke="#fff" stroke-width="1.5" />
-              <text class="tok" y="3" text-anchor="middle">{t.sym}</text>
             </g>
-          {/each}
-
-          {#if h.label}
-            {@const lp = labelPos(h)}
-            <text class="label" x={lp.x} y={lp.y + 4} text-anchor="middle">{h.label}</text>
           {/if}
-          {#if h.name}<text class="name" y={APOTHEM - 6 - (showCoords ? 7 : 0)} text-anchor="middle">{h.name}</text>{/if}
-          <text class="coordlbl" class:show={showCoords} y={APOTHEM - 5} text-anchor="middle">{h.coord}</text>
+
+          <!-- stops, tokens, and every label counter-rotate so they read upright -->
+          <g transform="rotate({-$rotAnim})">
+            {#if !laid(h.coord)}
+              {#each h.towns as t}
+                <rect x="-9" y="-4" width="18" height="8" rx="2" class="town" transform="rotate(30)" />
+                {#if t.revenue > 0}<text class="rev" y="-15" text-anchor="middle">{t.revenue}</text>{/if}
+              {/each}
+
+              {#each h.cities as c}
+                {#if c.slots > 1}
+                  <rect x={-12 * c.slots} y="-13" width={24 * c.slots} height="26" rx="13" class="city" />
+                {:else}
+                  <circle r="13" class="city" />
+                {/if}
+                {#if c.revenue > 0}<text class="rev" y="-17" text-anchor="middle">{c.revenue}</text>{/if}
+                {#if c.slots === 1 && !HOME.has(h.coord)}
+                  <g clip-path="url(#cityclip)">
+                    {#each skyline(h.coord) as b}
+                      <rect x={b.x} y={9 - b.h} width={b.w} height={b.h} fill="#43566a" />
+                      {#if b.lit}<rect x={b.x + b.w / 2 - 0.5} y={11 - b.h} width="1" height="1" fill="#ffd76a" />{/if}
+                    {/each}
+                    <rect x="-13" y="9" width="26" height="4" fill="#36475a" />
+                  </g>
+                {/if}
+              {/each}
+            {/if}
+
+            {#if h.offboard}
+              {#each Object.entries(h.offboard.revenue) as [tier, val], i}
+                <text class="off" x="0" y={i * 13 - 6} text-anchor="middle" fill={OFFBOARD_TIER[tier] ?? '#333'}>{val}</text>
+              {/each}
+            {/if}
+
+            {#each tokensOn(h.coord) as t, ti (t.sym)}
+              <g transform="translate({ti * 11 - (tokensOn(h.coord).length - 1) * 5.5} 0)">
+                <circle r="9" fill={t.color} stroke="#fff" stroke-width="1.5" />
+                <text class="tok" y="3" text-anchor="middle">{t.sym}</text>
+              </g>
+            {/each}
+
+            {#if h.label}
+              {@const lp = labelPos(h)}
+              <text class="label" x={lp.x} y={lp.y + 4} text-anchor="middle">{h.label}</text>
+            {/if}
+            {#if h.name}<text class="name" y={APOTHEM - 6 - (showCoords ? 7 : 0)} text-anchor="middle">{h.name}</text>{/if}
+            <text class="coordlbl" class:show={showCoords} y={APOTHEM - 5} text-anchor="middle">{h.coord}</text>
+          </g>
         </g>
       {/each}
 
@@ -1104,7 +1149,7 @@
             {@const ctr = hexCenter(c)}
             <g transform="translate({ctr.x} {ctr.y})">
               <polygon points={poly} class={selectedLegal ? 'okline' : 'badline'} />
-              {@render cellMarks(nextCells[i])}
+              <g transform="rotate({-$rotAnim - $spinAngle})">{@render cellMarks(nextCells[i])}</g>
             </g>
           {/each}
         </g>
@@ -1120,12 +1165,12 @@
         {@const def = TILES[id]}
         {#if def.cities > 0}
           <circle r="11" class="city" />
-          {#if def.revenue > 0}<text class="rev" y="-15" text-anchor="middle">{def.revenue}</text>{/if}
+          {#if def.revenue > 0}<g transform="rotate({-$rotAnim})"><text class="rev" y="-15" text-anchor="middle">{def.revenue}</text></g>{/if}
         {:else if def.towns > 0}
           <rect x="-9" y="-4" width="18" height="8" rx="2" class="town" transform="rotate(30)" />
-          {#if def.revenue > 0}<text class="rev" y="-14" text-anchor="middle">{def.revenue}</text>{/if}
+          {#if def.revenue > 0}<g transform="rotate({-$rotAnim})"><text class="rev" y="-14" text-anchor="middle">{def.revenue}</text></g>{/if}
         {/if}
-        {#if def.label}<text class="label" x={APOTHEM - 9} y={-APOTHEM + 17} text-anchor="middle">{def.label}</text>{/if}
+        {#if def.label}<g transform="rotate({-$rotAnim})"><text class="label" x={APOTHEM - 9} y={-APOTHEM + 17} text-anchor="middle">{def.label}</text></g>{/if}
       {/snippet}
 
       {#if layMode && layHex}
@@ -1146,9 +1191,10 @@
             </g>
           {/key}
         {:else}
-          <!-- dim the board so the floating option tiles read clearly -->
+          <!-- dim the board so the floating option tiles read clearly (3x the
+               viewBox so it still covers the screen when the map is rotated) -->
           <rect
-            x={view.x} y={view.y} width={view.w} height={view.h}
+            x={view.x - view.w} y={view.y - view.h} width={view.w * 3} height={view.h * 3}
             fill="#0b1622" opacity="0.45"
           />
           <g transform="translate({lc.x} {lc.y})">
@@ -1176,10 +1222,12 @@
                 {/each}
               </g>
               {@render tileCentre(entry.tile)}
-              <text class="fanid" y={APOTHEM - 4} text-anchor="middle">#{entry.tile}</text>
-              <text class="fanleft" class:none={entry.left === 0} y={-APOTHEM - 6} text-anchor="middle">
-                {entry.left} left
-              </text>
+              <g transform="rotate({-$rotAnim})">
+                <text class="fanid" y={APOTHEM - 4} text-anchor="middle">#{entry.tile}</text>
+                <text class="fanleft" class:none={entry.left === 0} y={-APOTHEM - 6} text-anchor="middle">
+                  {entry.left} left
+                </text>
+              </g>
             </g>
           {/each}
         {/if}
@@ -1226,9 +1274,11 @@
       {/if}
       {#each coins as coin (coin.id)}
         <g transform="translate({coin.x} {coin.y})">
-          <g class="coin">
-            <circle r="11" fill="#f5c542" stroke={coin.color} stroke-width="2" />
-            <text y="3.5" text-anchor="middle" class="coint">{coin.val > 0 ? coin.val : '¥'}</text>
+          <g transform="rotate({-$rotAnim})">
+            <g class="coin">
+              <circle r="11" fill="#f5c542" stroke={coin.color} stroke-width="2" />
+              <text y="3.5" text-anchor="middle" class="coint">{coin.val > 0 ? coin.val : '¥'}</text>
+            </g>
           </g>
         </g>
       {/each}
@@ -1248,6 +1298,7 @@
           </g>
         </g>
       {/if}
+      </g>
     </svg>
   </div>
 
