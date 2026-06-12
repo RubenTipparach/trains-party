@@ -1246,6 +1246,9 @@
   .wrap {
     position: relative;
     width: 100%;
+    /* click-drag pans the map; never let the drag select hex names/labels */
+    user-select: none;
+    -webkit-user-select: none;
   }
   /* As a background layer the wrap fills its parent; ignore the inline aspect-ratio. */
   .wrap.fill {

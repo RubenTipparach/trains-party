@@ -13,6 +13,7 @@
   import PrivateChip from '$lib/components/PrivateChip.svelte';
   import { game } from '$lib/game/sandbox.svelte';
   import { playerValue, playerLiquidity, configFor, currencyFor, operatingView } from '$lib/engine';
+  import { BUILD_SHA } from '$lib/version';
 
   const SEAT = ['#f5c542', '#3fb6a8', '#e0655c', '#9b8cf0', '#7cc36b', '#e8923a'];
   // The entities tab still lists 1889's privates/corporations directly (RoLA's
@@ -76,6 +77,11 @@
 
   // Floating-toolbar panels. The map is not a panel: it is the background.
   const tabs = [
+    {
+      id: 'menu',
+      label: 'Menu',
+      icon: '<path d="M4 6.5h16"/><path d="M4 12h16"/><path d="M4 17.5h16"/>'
+    },
     {
       id: 'game',
       label: 'Game',
@@ -149,8 +155,9 @@
 
 {#if ready}
 <div class="board-root" class:theme-rola={isRola}>
-  <!-- the map: full-screen, always on, the board's background -->
-  <div class="maplayer">
+  <!-- the map: full-screen, always on, the board's background. On desktop the
+       open panel pushes it over so the board re-centres in the visible space. -->
+  <div class="maplayer" class:squeezed={!!active}>
     <HexMap
       fill
       layMode={game.canAct && opv?.step === 'track'}
@@ -171,6 +178,15 @@
     <span class="splayer">{game.canAct ? 'Your turn · ' : ''}{playerName(game.active)}</span>
     {#if game.isBot(game.active)}<span class="sbot">BOT</span>{/if}
     <span class="sbank">Bank {currency}{game.state.bank.toLocaleString()}</span>
+    <span class="shist" role="group" aria-label="History">
+      <button class="hb" title="To start" aria-label="To start" disabled={!game.canBack} onclick={() => game.first()}>|&lt;</button>
+      <button class="hb" title="Back" aria-label="Back" disabled={!game.canBack} onclick={() => game.back()}>&lt;&lt;</button>
+      <span class="hpos" class:rev={game.reviewing} title={game.reviewing ? 'Reviewing an earlier point' : 'History position'}>{game.cursor}/{game.actions.length}</span>
+      <button class="hb" title="Forward" aria-label="Forward" disabled={!game.canForward} onclick={() => game.forward()}>&gt;&gt;</button>
+      <button class="hb" title="To latest" aria-label="To latest" disabled={!game.canForward} onclick={() => game.last()}>&gt;|</button>
+      <button class="hb u" title="Undo" aria-label="Undo" disabled={!game.canUndo} onclick={() => game.undo()}>↶</button>
+      <button class="hb u" title="Redo" aria-label="Redo" disabled={!game.canRedo} onclick={() => game.redo()}>↷</button>
+    </span>
     {#if anim.pacing}
       <button class="skip" onclick={() => anim.skip()}>Skip ⏭ <kbd>Space</kbd></button>
     {/if}
@@ -186,11 +202,7 @@
        rail on the panel's left edge, the whole shell docked to the right. -->
   <div class="shell" class:open={!!active}>
     <nav class="dock" aria-label="Board sections">
-      <a class="dbtn" href="{base}/" title="All games" aria-label="All games">
-        <svg viewBox="0 0 24 24"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
-      </a>
-      <span class="dsep" aria-hidden="true"></span>
-      {#each tabs as t (t.id)}
+      {#each tabs as t, i (t.id)}
         <button
           class="dbtn"
           class:on={active === t.id}
@@ -201,18 +213,8 @@
         >
           <svg viewBox="0 0 24 24">{@html t.icon}</svg>
         </button>
+        {#if i === 0}<span class="dsep" aria-hidden="true"></span>{/if}
       {/each}
-      <span class="dsep" aria-hidden="true"></span>
-      <button
-        class="dbtn"
-        class:on={anim.enabled}
-        title="Animations {anim.enabled ? 'on' : 'off'}"
-        aria-label="Toggle animations"
-        aria-pressed={anim.enabled}
-        onclick={() => anim.toggle()}
-      >
-        <svg viewBox="0 0 24 24"><path d="M13 2.8L3.8 13.6h6L8.6 21.2 17.8 10.4h-6z"/></svg>
-      </button>
     </nav>
 
     {#if active && activeTab}
@@ -225,7 +227,21 @@
       <div class="pbody">
         {#key active}
           <div class="panel" in:fade={{ duration: 150 }}>
-            {#if active === 'game'}
+            {#if active === 'menu'}
+              <div class="menu">
+                <div class="mrow">
+                  <div class="mtext">
+                    <span class="mname">Animations</span>
+                    <span class="mdesc">Pace bot moves and board changes so they are easy to follow.</span>
+                  </div>
+                  <button class="mtoggle" class:on={anim.enabled} role="switch" aria-checked={anim.enabled} onclick={() => anim.toggle()}>
+                    {anim.enabled ? 'On' : 'Off'}
+                  </button>
+                </div>
+                <a class="mlobby" href="{base}/">Return to lobby</a>
+                <p class="mbuild">{meta.title}{game.code ? ` · Room ${game.code.toUpperCase()}` : ''} · build {BUILD_SHA}</p>
+              </div>
+            {:else if active === 'game'}
               <GamePanel />
             {:else if active === 'spreadsheet'}
               <Spreadsheet />
@@ -421,6 +437,7 @@
     position: absolute;
     inset: 0;
     z-index: 0;
+    transition: right 240ms ease;
   }
   .loadingroom {
     min-height: 60vh;
@@ -563,8 +580,10 @@
     transform: translateX(-50%);
     max-width: calc(100vw - 120px);
     display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
     align-items: center;
-    gap: 0.55rem;
+    gap: 0.3rem 0.55rem;
     padding: 0.45rem 0.85rem;
     border-radius: 999px;
     background: color-mix(in srgb, var(--bg) 86%, transparent);
@@ -608,6 +627,49 @@
     .sbank {
       display: none;
     }
+  }
+  /* history / rewind cluster (wraps to its own row on narrow screens) */
+  .shist {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+  }
+  .hb {
+    min-width: 26px;
+    height: 24px;
+    padding: 0 0.3rem;
+    border-radius: 7px;
+    border: 1px solid var(--line);
+    background: transparent;
+    color: var(--muted);
+    font: 700 0.72rem ui-monospace, monospace;
+    cursor: pointer;
+  }
+  .hb:hover:not(:disabled) {
+    color: var(--ink);
+    border-color: var(--rail-deep);
+  }
+  .hb:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+  .hb.u {
+    font-family: ui-sans-serif, sans-serif;
+    color: var(--rail);
+    border-color: var(--rail-deep);
+  }
+  .hb.u:disabled {
+    color: var(--muted);
+    border-color: var(--line);
+  }
+  .hpos {
+    font: 0.7rem ui-monospace, monospace;
+    color: var(--muted);
+    padding: 0 0.15rem;
+  }
+  .hpos.rev {
+    color: var(--rail);
+    font-weight: 700;
   }
   .skip {
     display: inline-flex;
@@ -706,12 +768,18 @@
     overscroll-behavior: contain;
   }
 
-  /* desktop: the shell docks right; the icon rail fuses to the panel's left edge */
+  /* desktop: the shell sits flush against the screen's top/right/bottom edges;
+     the icon rail fuses to the panel's left edge, and the open panel pushes the
+     map over so the board re-centres in the space that remains. */
   @media (min-width: 920px) {
+    .board-root {
+      /* panel (540px) + icon rail (~54px): the space the open shell occupies */
+      --shellw: 594px;
+    }
     .shell {
-      top: 12px;
-      bottom: 12px;
-      right: 12px;
+      top: 0;
+      bottom: 0;
+      right: 0;
       left: auto;
       max-height: none;
       flex-direction: row;
@@ -721,17 +789,21 @@
     .shell.open {
       align-items: stretch;
     }
+    .maplayer.squeezed {
+      right: var(--shellw);
+    }
     .dock {
       flex-direction: column;
       max-width: none;
       max-height: 100%;
       overflow-x: visible;
       overflow-y: auto;
+      border-radius: 14px 0 0 14px;
+      border-right: none;
     }
     .shell.open .dock {
       border-radius: 14px 0 0 14px;
       border-bottom: 1px solid var(--line);
-      border-right: none;
     }
     .dsep {
       width: 26px;
@@ -745,11 +817,11 @@
       bottom: auto;
       top: 14px;
       max-width: min(60vw, 700px);
+      transition: left 240ms ease;
     }
-    /* centre the pill over the visible map while the panel is open
-       (shell ≈ 540px panel + 54px rail + 12px edge) */
+    /* centre the pill over the visible map while the panel is open */
     .statusbar.shifted {
-      left: calc((100vw - 606px) / 2);
+      left: calc((100vw - var(--shellw)) / 2);
     }
     .scrim {
       display: none;
@@ -759,7 +831,10 @@
       min-height: 0;
       height: 100%;
       width: min(540px, calc(100vw - 96px));
-      border-radius: 0 14px 14px 0;
+      border-radius: 0;
+      border-top: none;
+      border-right: none;
+      border-bottom: none;
     }
   }
 
@@ -976,5 +1051,74 @@
   }
   .chip.ora {
     background: #e8923a;
+  }
+
+  /* ---- menu panel ---- */
+  .menu {
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+    max-width: 440px;
+  }
+  .mrow {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    padding: 0.7rem 0.85rem;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--bg-soft);
+  }
+  .mtext {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+  .mname {
+    font-weight: 700;
+  }
+  .mdesc {
+    font-size: 0.78rem;
+    color: var(--muted);
+    line-height: 1.4;
+  }
+  .mtoggle {
+    flex: none;
+    min-width: 56px;
+    padding: 0.4rem 0.8rem;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: transparent;
+    color: var(--muted);
+    font: 700 0.82rem ui-sans-serif, sans-serif;
+    cursor: pointer;
+  }
+  .mtoggle.on {
+    background: var(--rail);
+    border-color: var(--rail-deep);
+    color: #1b1b1b;
+  }
+  .mlobby {
+    display: block;
+    text-align: center;
+    padding: 0.65rem 0.85rem;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--bg-soft);
+    color: var(--ink);
+    font-weight: 700;
+    text-decoration: none;
+  }
+  .mlobby:hover {
+    border-color: var(--rail-deep);
+    color: var(--rail);
+  }
+  .mbuild {
+    margin: 0.4rem 0 0;
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.78rem;
   }
 </style>
