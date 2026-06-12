@@ -24,46 +24,46 @@ const FOAM = 'rgba(255,255,255,.55)';
 const DEEP = '#5fb3ae';
 
 export const WATER_STATIC: Px[] = [
-  [30, 8, 6, 2, DEEP],
-  [8, 14, 6, 2, DEEP]
+  [10, 8, 6, 2, DEEP],
+  [18, 18, 4, 2, DEEP]
 ];
 
-// Crest A rides row y=6, crest B row y=18, small swell C row y=24. Each grows,
-// drifts right while breaking (detached foam above), then settles back.
+// Three crests in a zig-zag (top-right, mid-left, bottom-right) so the tiling
+// never reads as diagonal stripes. Each crest pulses mostly in place (drift of
+// at most one pixel), with phase-shifted peaks and detached foam above.
 export const WATER_FRAMES: Px[][] = [
   [
-    [2, 6, 4, 2, LIGHT],
-    [22, 18, 4, 2, LIGHT],
-    [12, 24, 4, 2, LIGHTER]
+    [22, 4, 6, 2, LIGHT],
+    [2, 14, 4, 2, LIGHTER],
+    [30, 22, 6, 2, LIGHTER]
   ],
   [
-    [2, 6, 6, 2, LIGHT],
-    [22, 18, 6, 2, LIGHT],
-    [12, 24, 4, 2, LIGHTER]
+    [22, 4, 8, 2, LIGHT],
+    [2, 14, 4, 2, LIGHT],
+    [30, 22, 8, 2, LIGHT]
   ],
   [
-    [2, 6, 8, 2, LIGHTER],
-    [22, 18, 8, 2, LIGHT],
-    [14, 24, 4, 2, LIGHTER],
-    [34, 2, 2, 2, FOAM]
+    [22, 4, 8, 2, LIGHTER],
+    [26, 0, 2, 2, FOAM],
+    [2, 14, 6, 2, LIGHT],
+    [32, 22, 6, 2, LIGHTER],
+    [34, 18, 2, 2, FOAM]
   ],
   [
-    [4, 6, 6, 2, LIGHT],
-    [12, 2, 2, 2, FOAM],
-    [24, 18, 6, 2, LIGHTER],
-    [14, 24, 4, 2, LIGHTER]
+    [24, 4, 6, 2, LIGHT],
+    [2, 14, 8, 2, LIGHT],
+    [32, 22, 4, 2, LIGHTER]
   ],
   [
-    [6, 6, 4, 2, LIGHT],
-    [14, 2, 2, 2, FOAM],
-    [26, 18, 4, 2, LIGHTER],
-    [32, 14, 2, 2, FOAM],
-    [16, 24, 4, 2, LIGHTER]
+    [24, 4, 4, 2, LIGHTER],
+    [2, 14, 8, 2, LIGHTER],
+    [4, 10, 2, 2, FOAM],
+    [30, 22, 4, 2, LIGHTER]
   ],
   [
-    [4, 6, 4, 2, LIGHTER],
-    [24, 18, 4, 2, LIGHT],
-    [14, 24, 4, 2, LIGHTER],
-    [4, 10, 2, 2, FOAM]
+    [22, 4, 4, 2, LIGHT],
+    [4, 14, 6, 2, LIGHT],
+    [30, 22, 4, 2, LIGHTER],
+    [16, 2, 2, 2, FOAM]
   ]
 ];
