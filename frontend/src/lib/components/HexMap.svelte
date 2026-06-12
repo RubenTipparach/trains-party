@@ -5,6 +5,7 @@
   import type { HexDef, PathPart, TileColor } from '$lib/data/types';
   import { HEX_SIZE, APOTHEM, hexCenter, hexPolygon, edgeMidpoint } from '$lib/hexgeo';
   import { mapView } from '$lib/config/mapView';
+  import { TILE_W, TILE_H, WATER_BASE, WATER_LOOP_S, WATER_STATIC, WATER_FRAMES } from '$lib/config/waterArt';
   import { game } from '$lib/game/sandbox.svelte';
   import { anim } from '$lib/game/anim.svelte';
   import { routing } from '$lib/game/routing.svelte';
@@ -558,56 +559,8 @@
     return { x: m.x * 0.58, y: m.y * 0.58 };
   }
 
-  // Six-frame pixel-art water (40x28 tile, 2px pixels). Two wave crests drift,
-  // swell, and break into foam; sparkles blink between them. WATER_STATIC is
-  // drawn on every frame; each WATER_FRAMES entry is one animation frame of
-  // [x, y, w, h, colour] pixels, cycled by a discrete SMIL animation.
-  type Px = [number, number, number, number, string];
-  const W_LIGHT = '#9bd6d1';
-  const W_LIGHTER = '#bdeae6';
-  const W_FOAM = 'rgba(255,255,255,.55)';
-  const W_DEEP = '#5fb3ae';
-  const WATER_STATIC: Px[] = [
-    [30, 8, 6, 2, W_DEEP],
-    [8, 14, 6, 2, W_DEEP]
-  ];
-  const WATER_FRAMES: Px[][] = [
-    [
-      [2, 6, 6, 2, W_LIGHT],
-      [22, 18, 6, 2, W_LIGHT],
-      [12, 24, 4, 2, W_LIGHTER]
-    ],
-    [
-      [2, 6, 8, 2, W_LIGHT],
-      [8, 4, 2, 2, W_FOAM],
-      [22, 18, 6, 2, W_LIGHT],
-      [12, 24, 4, 2, W_LIGHTER]
-    ],
-    [
-      [4, 6, 8, 2, W_LIGHTER],
-      [10, 4, 2, 2, W_FOAM],
-      [22, 18, 8, 2, W_LIGHT],
-      [14, 24, 4, 2, W_LIGHTER],
-      [34, 2, 2, 2, W_FOAM]
-    ],
-    [
-      [6, 6, 6, 2, W_LIGHT],
-      [24, 18, 8, 2, W_LIGHTER],
-      [30, 16, 2, 2, W_FOAM],
-      [14, 24, 4, 2, W_LIGHTER]
-    ],
-    [
-      [8, 6, 4, 2, W_LIGHT],
-      [26, 18, 6, 2, W_LIGHTER],
-      [16, 24, 4, 2, W_LIGHTER],
-      [6, 14, 2, 2, W_FOAM]
-    ],
-    [
-      [4, 6, 4, 2, W_LIGHTER],
-      [24, 18, 4, 2, W_LIGHT],
-      [14, 24, 4, 2, W_LIGHTER]
-    ]
-  ];
+  // Six-frame pixel-art water (see $lib/config/waterArt): a discrete SMIL
+  // animation cycles the frames so the sea shimmers like classic game water.
   /** Discrete keyTimes/values that show frame `fi` for exactly its 1/n slot. */
   function waterKey(fi: number): { keyTimes: string; values: string } {
     const n = WATER_FRAMES.length;
@@ -980,8 +933,8 @@
       <defs>
         <clipPath id="hexclip"><polygon points={poly} /></clipPath>
         <clipPath id="cityclip"><circle r="12.5" /></clipPath>
-        <pattern id="ripples" width="40" height="28" patternUnits="userSpaceOnUse">
-          <rect width="40" height="28" fill="#74c1be" />
+        <pattern id="ripples" width={TILE_W} height={TILE_H} patternUnits="userSpaceOnUse">
+          <rect width={TILE_W} height={TILE_H} fill={WATER_BASE} />
           {#each WATER_STATIC as [x, y, w, h, c]}
             <rect {x} {y} width={w} height={h} fill={c} />
           {/each}
@@ -991,7 +944,7 @@
               {#each frame as [x, y, w, h, c]}
                 <rect {x} {y} width={w} height={h} fill={c} />
               {/each}
-              <animate attributeName="opacity" calcMode="discrete" dur="1.8s" repeatCount="indefinite" keyTimes={k.keyTimes} values={k.values} />
+              <animate attributeName="opacity" calcMode="discrete" dur="{WATER_LOOP_S}s" repeatCount="indefinite" keyTimes={k.keyTimes} values={k.values} />
             </g>
           {/each}
         </pattern>
