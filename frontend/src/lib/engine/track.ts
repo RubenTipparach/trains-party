@@ -17,7 +17,7 @@
  * is title-agnostic.
  */
 
-import { configFor } from './registry';
+import { configFor, rolaAbility } from './registry';
 import { hexesFor } from './board';
 import { GameError, type CorporationState, type GameState } from './types';
 import { TILES, rotatePaths, type TileEnd } from './tiles';
@@ -342,6 +342,14 @@ export function applyLayTile(s: GameState, corp: CorporationState, hex: string, 
   if (cost > 0) {
     corp.cash -= cost;
     s.bank += cost;
+    // Tunneling Company: gains into its treasury each time it digs a mountain
+    // (the cost is paid first; the rulebook's net gain is amount - cost).
+    const tun = rolaAbility(s.title, corp, 'mountain_treasury_gain');
+    if (tun?.amount && (hexesFor(s)[hex]?.terrain ?? []).includes('mountain')) {
+      corp.cash += tun.amount;
+      s.bank -= tun.amount;
+      s.log.push(`${corp.sym} tunnels the mountain and gains ${tun.amount}`);
+    }
   }
   const upgrade = !!s.tiles[hex];
   s.tiles[hex] = { id: tile, rotation };

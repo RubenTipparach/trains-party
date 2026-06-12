@@ -9,7 +9,7 @@
  * Phase, train, and market data come from the title config (by `state.title`).
  */
 
-import { configFor } from './registry';
+import { configFor, rolaAbility } from './registry';
 import { GameError, type CorporationState, type GameAction, type GameState } from './types';
 import { applyLayTile, legalLays, applyToken, legalTokens, applySpecialLay } from './track';
 import { routeRevenue, canRunRoute, revenueForChosenRoutes } from './routes';
@@ -215,7 +215,10 @@ function trainLimit(s: GameState, c?: CorporationState): number {
   const ph = configFor(s.title).phases.find((p) => p.name === s.phase);
   if (!ph) return 99;
   // RoLA minors have a lower limit than majors; 1889 uses the single limit.
-  if (c?.kind === 'minor') return ph.minorTrainLimit ?? ph.trainLimit;
+  // Spacious Company (and a major merged from it) always has one extra slot.
+  const extra = c && rolaAbility(s.title, c, 'extra_train_slot') ? 1 : 0;
+  if (c?.kind === 'minor') return (ph.minorTrainLimit ?? ph.trainLimit) + extra;
+  if (extra && c?.kind === 'major') return ph.trainLimit + extra;
   return ph.trainLimit;
 }
 

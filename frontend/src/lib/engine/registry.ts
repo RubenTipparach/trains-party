@@ -32,3 +32,20 @@ export const DEFAULT_TITLE = config1889.title;
 export function gameTitles(): string[] {
   return Object.keys(CONFIGS);
 }
+
+/** RoLA: does this company carry the given minor ability? Minors carry their
+ * own; majors inherit every ability of the minors they merged from. */
+export function rolaAbility(
+  title: string,
+  c: { kind?: 'minor' | 'major'; sym: string; mergedFrom?: string[] },
+  type: string
+): { type: string; amount?: number } | null {
+  const minors = configFor(title).minors;
+  if (!minors || !c.kind) return null;
+  const syms = c.kind === 'minor' ? [c.sym] : (c.mergedFrom ?? []);
+  for (const sym of syms) {
+    const ab = minors.find((m) => m.sym === sym)?.ability;
+    if (ab && ab.type === type) return ab as { type: string; amount?: number };
+  }
+  return null;
+}
