@@ -2,8 +2,6 @@
   import { game } from '$lib/game/sandbox.svelte';
   import AuctionPanel from './AuctionPanel.svelte';
   import StockPanel from './StockPanel.svelte';
-  import OperatingPanel from './OperatingPanel.svelte';
-  import MergerPanel from './MergerPanel.svelte';
   import { PHASES } from '$lib/data/g1889';
   import { currencyFor, configFor } from '$lib/engine';
   const CURRENCY = $derived(currencyFor(game.title));
@@ -133,12 +131,10 @@
         position the next tile ({game.state.mapBuild?.pool.length ?? 0} left) - green outline =
         legal - then rotate and place it.
       </p>
-    {:else if game.state.round === 'merger'}
-      <MergerPanel />
     {:else if game.state.round === 'stock'}
       <StockPanel />
     {:else}
-      <OperatingPanel />
+      <p class="buildlead">The current operation runs in its own panel along the bottom of the screen.</p>
     {/if}
   </div>
 

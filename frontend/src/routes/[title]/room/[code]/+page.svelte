@@ -8,6 +8,8 @@
   import CompanyCard from '$lib/components/CompanyCard.svelte';
   import CompanyLogo from '$lib/components/CompanyLogo.svelte';
   import GamePanel from '$lib/components/GamePanel.svelte';
+  import OperatingPanel from '$lib/components/OperatingPanel.svelte';
+  import MergerPanel from '$lib/components/MergerPanel.svelte';
   import Spreadsheet from '$lib/components/Spreadsheet.svelte';
   import TileGraphic from '$lib/components/TileGraphic.svelte';
   import PrivateChip from '$lib/components/PrivateChip.svelte';
@@ -130,28 +132,13 @@
     active = active === id ? null : id;
   }
 
-  // Mobile: during operating/merger rounds the Game panel becomes a bottom
-  // sheet (half screen) so the map and the operating company are both visible;
-  // any other full-screen modal pauses the map renderer underneath.
-  const sheet = $derived(
-    active === 'game' && (game.state.round === 'operating' || game.state.round === 'merger')
+  // The current operation (OR/MR) lives in its OWN always-on panel, separate
+  // from the tab system: a bottom sheet on mobile, a floating panel on desktop.
+  const opPanel = $derived(
+    game.state.round === 'operating' || game.state.round === 'merger'
   );
-  const mapPaused = $derived(isMobile && !!active && !sheet);
-
-  // Mobile: when an operating/merger round begins, open the Game sheet by
-  // default so the operating company is visible. Re-opens once per round
-  // (keyed by OR number), so closing it by hand stays closed for that round.
-  let autoOpenedKey = $state('');
-  $effect(() => {
-    if (!isMobile || !ready) return;
-    const r = game.state.round;
-    if (r !== 'operating' && r !== 'merger') return;
-    const key = `${r}:${game.state.orSet}:${game.state.or?.orNumber ?? 0}`;
-    if (active === null && autoOpenedKey !== key) {
-      autoOpenedKey = key;
-      active = 'game';
-    }
-  });
+  // A full-screen modal covering the map pauses its renderer (mobile).
+  const mapPaused = $derived(isMobile && !!active);
 
   // Always-visible status pill: round, active player (seat colour), bank.
   const seatColor = (id: string) => {
@@ -187,7 +174,7 @@
 </svelte:head>
 
 {#if ready}
-<div class="board-root" class:theme-rola={isRola}>
+<div class="board-root" class:theme-rola={isRola} class:opdock={opPanel}>
   <!-- the map: full-screen, always on, the board's background. On desktop the
        open panel pushes it over so the board re-centres in the visible space. -->
   <div class="maplayer" class:squeezed={!!active}>
@@ -207,7 +194,7 @@
   </div>
 
   <!-- always-visible turn status -->
-  <div class="statusbar" class:myturn={game.canAct} class:shifted={!!active} class:sheeted={!!active && sheet} style="--p:{seatColor(game.active ?? '')}">
+  <div class="statusbar" class:myturn={game.canAct} class:shifted={!!active} style="--p:{seatColor(game.active ?? '')}">
     <span class="srnd">{roundLabel}</span>
     <span class="splayer">{game.canAct ? 'Your turn · ' : ''}{playerName(game.active)}</span>
     {#if game.isBot(game.active)}<span class="sbot">BOT</span>{/if}
@@ -226,15 +213,24 @@
     {/if}
   </div>
 
-  {#if active && !sheet}
-    <!-- mobile-only scrim behind the modal (sheet mode keeps the map live) -->
+  {#if opPanel}
+    <!-- the current operation: its own persistent panel, never closeable -->
+    <section class="oppanel" aria-label="Current operation">
+      <div class="opbody" class:locked={game.reviewing}>
+        {#if game.state.round === 'merger'}<MergerPanel />{:else}<OperatingPanel />{/if}
+      </div>
+    </section>
+  {/if}
+
+  {#if active}
+    <!-- mobile-only scrim behind the modal -->
     <button class="scrim" aria-label="Close panel" onclick={() => (active = null)} transition:fade={{ duration: 120 }}></button>
   {/if}
 
   <!-- the toolbar + panel shell: tabs merge into the open panel. Mobile: a
        horizontal bar at the top that the modal hangs from. Desktop: a vertical
        rail on the panel's left edge, the whole shell docked to the right. -->
-  <div class="shell" class:open={!!active} class:sheet={!!active && sheet}>
+  <div class="shell" class:open={!!active}>
     <nav class="dock" aria-label="Board sections">
       {#each tabs as t, i (t.id)}
         <button
@@ -802,29 +798,43 @@
     overscroll-behavior: contain;
   }
 
-  /* mobile bottom sheet (operating/merger): the panel takes the lower half so
-     the map - and the operating company - stay visible and interactive. */
+  /* the always-on operation panel (OR/MR) */
+  .oppanel {
+    position: absolute;
+    z-index: 13;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--line);
+    background: var(--bg);
+    overflow: hidden;
+  }
+  .opbody {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    padding: 0.7rem 0.8rem 1rem;
+    overscroll-behavior: contain;
+  }
+  .opbody.locked {
+    opacity: 0.5;
+    pointer-events: none;
+  }
   @media (max-width: 919px) {
-    .shell.sheet {
-      top: auto;
-      bottom: 0;
+    /* mobile: a fixed bottom sheet; the map stays live in the top half */
+    .oppanel {
       left: 0;
       right: 0;
-      max-height: 52%;
-      height: 52%;
-    }
-    .shell.sheet .dock {
+      bottom: 0;
+      height: 50%;
       border-radius: 14px 14px 0 0;
       border-bottom: none;
     }
-    .shell.sheet .panelhost {
-      border-radius: 0;
-      border-left: none;
-      border-right: none;
-      border-bottom: none;
+    /* lift the map controls and the status pill above the sheet */
+    .board-root.opdock :global(.wrap.fill .controls) {
+      bottom: calc(50% + 14px);
     }
-    .statusbar.sheeted {
-      display: none; /* the Game panel shows the same status */
+    .board-root.opdock .statusbar {
+      bottom: calc(50% + 10px);
     }
     /* perf: backdrop blur is expensive on phones - use solid surfaces instead */
     .dock,
@@ -833,6 +843,21 @@
     .roomchip {
       backdrop-filter: none;
       background: var(--bg);
+    }
+  }
+  @media (min-width: 920px) {
+    /* desktop: a floating panel along the bottom-centre, clear of the dock */
+    .oppanel {
+      left: 50%;
+      transform: translateX(-50%);
+      bottom: 0;
+      width: min(560px, calc(100vw - 700px));
+      min-width: 380px;
+      max-height: 48vh;
+      border-radius: 14px 14px 0 0;
+      border-bottom: none;
+      background: color-mix(in srgb, var(--bg) 94%, transparent);
+      backdrop-filter: blur(10px);
     }
   }
 
