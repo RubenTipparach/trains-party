@@ -48,7 +48,7 @@ export { corpRoutes, routeRevenue, routeThroughStops, TRAIN_ROUTE_COLORS } from 
 export type { Route } from './routes';
 export { hexesFor } from './board';
 export { legalPlacements, placementCoords, isLegalPlacement, generateTriHexPool, BUILD_CENTER } from './triHex';
-export type { Placement, TriHex, TriShape } from './triHex';
+export type { Placement, TriHex } from './triHex';
 export { mapBuildActivePlayer, pickBuildPlacement } from './mapbuild';
 
 /** Apply one action, returning the next state. Pure: the input is not mutated. */

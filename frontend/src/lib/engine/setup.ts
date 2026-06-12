@@ -144,7 +144,7 @@ export function initialState(
       const pool = generateTriHexPool(opts.seed, n, (cfg.minors ?? []).length);
       map = {};
       const first = pool.shift()!;
-      placementCoords(BUILD_CENTER, 'A').forEach((coord, i) => {
+      placementCoords(BUILD_CENTER, 0).forEach((coord, i) => {
         map![coord] = { coord, ...first.cells[i] };
       });
       for (const c of corporations) if (c.kind === 'minor') c.coordinates = '';

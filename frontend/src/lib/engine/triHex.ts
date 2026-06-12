@@ -21,30 +21,15 @@ const EDGE: ReadonlyArray<readonly [number, number]> = [
   [1, 1]
 ];
 
-/** The two triangle orientations, as [dCol,dRow] offsets from the anchor (top) hex. */
-export const SHAPES: Record<'A' | 'B', ReadonlyArray<readonly [number, number]>> = {
-  A: [
-    [0, 0],
-    [0, 2],
-    [1, 1]
-  ],
-  B: [
-    [0, 0],
-    [0, 2],
-    [-1, 1]
-  ]
-};
-export type TriShape = keyof typeof SHAPES;
-
-/** A tri-hex tile: three hex contents (coord assigned on placement). */
+/** A tri-hex tile: three hex contents (coords assigned on placement). */
 export interface TriHex {
   cells: Omit<HexDef, 'coord'>[];
 }
 
-/** A concrete legal placement: an anchor + orientation and the three coords it covers. */
+/** A concrete legal placement: an anchor (pivot hex) + rotation (0..5) + its coords. */
 export interface Placement {
   anchor: string;
-  shape: TriShape;
+  rotation: number;
   coords: string[];
 }
 
@@ -58,11 +43,19 @@ export function parseCoord(coord: string): { col: number; row: number } {
 }
 export const fmtCoord = (col: number, row: number) => String.fromCharCode(65 + col) + row;
 const onGrid = (col: number, row: number) => col >= 0 && col < 26 && row >= 1;
+const norm6 = (r: number) => ((r % 6) + 6) % 6;
 
-/** The three coords a tile would cover at `anchor` in orientation `shape`. */
-export function placementCoords(anchor: string, shape: TriShape): string[] {
+/**
+ * The three coords a tri-hex covers at `anchor` rotated `rotation` 60-degree steps:
+ * the anchor (pivot) hex plus the two adjacent hexes at edges r and r+1. Rotating
+ * therefore pivots the whole tile around the anchor through 6 orientations.
+ */
+export function placementCoords(anchor: string, rotation: number): string[] {
   const { col, row } = parseCoord(anchor);
-  return SHAPES[shape].map(([dc, dr]) => fmtCoord(col + dc, row + dr));
+  const r = norm6(rotation);
+  const a = EDGE[r];
+  const b = EDGE[(r + 1) % 6];
+  return [fmtCoord(col, row), fmtCoord(col + a[0], row + a[1]), fmtCoord(col + b[0], row + b[1])];
 }
 
 const neighbours = (coord: string): string[] => {
@@ -73,23 +66,32 @@ const neighbours = (coord: string): string[] => {
 export const touchesMap = (coord: string, map: Record<string, HexDef>) =>
   neighbours(coord).some((n) => map[n]);
 
-/** Whether laying a tile at (anchor, shape) is legal against `map`. */
-export function isLegalPlacement(map: Record<string, HexDef>, anchor: string, shape: TriShape): boolean {
-  const coords = placementCoords(anchor, shape);
+/** Number of edges a placement's hexes share with already-placed (existing) hexes. */
+function sharedEdges(coords: string[], map: Record<string, HexDef>): number {
+  let n = 0;
+  for (const c of coords) {
+    const { col, row } = parseCoord(c);
+    for (const [dc, dr] of EDGE) if (map[fmtCoord(col + dc, row + dr)]) n++;
+  }
+  return n;
+}
+
+/**
+ * Whether laying a tile at (anchor, rotation) is legal: on-grid, no overlap, and
+ * (rulebook) sharing AT LEAST THREE edges with already-placed map tiles.
+ */
+export function isLegalPlacement(map: Record<string, HexDef>, anchor: string, rotation: number): boolean {
+  const coords = placementCoords(anchor, rotation);
   if (coords.some((c) => !onGrid(parseCoord(c).col, parseCoord(c).row))) return false;
   if (coords.some((c) => map[c])) return false; // no overlap
   if (Object.keys(map).length === 0) return true; // first tile
-  return coords.some((c) => touchesMap(c, map)); // must connect
+  return sharedEdges(coords, map) >= 3; // rulebook: >= 3 shared edges
 }
 
 /** All legal placements for the next tile against the current map. */
 export function legalPlacements(map: Record<string, HexDef>): Placement[] {
   if (Object.keys(map).length === 0) {
-    return (['A', 'B'] as TriShape[]).map((shape) => ({
-      anchor: BUILD_CENTER,
-      shape,
-      coords: placementCoords(BUILD_CENTER, shape)
-    }));
+    return [{ anchor: BUILD_CENTER, rotation: 0, coords: placementCoords(BUILD_CENTER, 0) }];
   }
   const cols = Object.keys(map).map((k) => parseCoord(k).col);
   const rows = Object.keys(map).map((k) => parseCoord(k).row);
@@ -104,13 +106,13 @@ export function legalPlacements(map: Record<string, HexDef>): Placement[] {
       if ((col + row) % 2 !== 0) continue;
       const anchor = fmtCoord(col, row);
       if (map[anchor]) continue;
-      for (const shape of ['A', 'B'] as TriShape[]) {
-        if (!isLegalPlacement(map, anchor, shape)) continue;
-        const coords = placementCoords(anchor, shape);
+      for (let rotation = 0; rotation < 6; rotation++) {
+        if (!isLegalPlacement(map, anchor, rotation)) continue;
+        const coords = placementCoords(anchor, rotation);
         const key = [...coords].sort().join('|');
         if (seen.has(key)) continue;
         seen.add(key);
-        out.push({ anchor, shape, coords });
+        out.push({ anchor, rotation, coords });
       }
     }
   }

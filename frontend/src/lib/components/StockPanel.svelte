@@ -7,11 +7,12 @@
     playerLiquidity,
     exchangeOptions,
     currencyFor,
-    configFor,
-    parForBid
+    configFor
   } from '$lib/engine';
   import { COMPANIES, PAR_PRICES } from '$lib/data/g1889';
   import type { CorporationState, PlayerState } from '$lib/engine';
+  import CompanyLogo from './CompanyLogo.svelte';
+  import MinorMatrix from './MinorMatrix.svelte';
   import PrivateChip from './PrivateChip.svelte';
   import MoneyValue from './MoneyValue.svelte';
 
@@ -29,24 +30,11 @@
   const exchanges = $derived(game.canAct && !isRola ? exchangeOptions(game.state, me) : []);
   const acted = $derived(game.state.stock?.acted ?? false);
 
-  // RoLA launch selection: a minor + its par space (start price) + the bid (treasury).
-  let launchSel = $state<{ corp: string; bid: number } | null>(null);
-  const launchInfo = (sym: string) => rsl?.launch.find((l) => l.corp === sym) ?? null;
-  // Price is one-half the bid, rounded down within the phase band (rulebook p.10).
-  const launchPrice = (bid: number) => parForBid(game.state, bid);
+  // RoLA minor launching now lives in <MinorMatrix />; this panel handles buy/sell.
   const canBuyIpo = (sym: string) => (isRola ? rsl!.buyIpo : sl!.buyIpo).includes(sym);
   const canBuyPool = (sym: string) => (isRola ? rsl!.buyPool : sl!.buyPool).includes(sym);
   const canSellSym = (sym: string) => (isRola ? rsl!.sell : sl!.sell).includes(sym);
   const canPar = (sym: string) => !isRola && !!sl?.par.includes(sym);
-
-  function pickLaunch(corp: string, minBid: number) {
-    launchSel = { corp, bid: launchSel?.corp === corp ? launchSel.bid : minBid };
-  }
-  function doLaunch(corp: string) {
-    if (!launchSel || launchSel.corp !== corp) return;
-    game.act({ type: 'launch', player: me, corp, bid: launchSel.bid });
-    if (!game.error) launchSel = null;
-  }
 
   // Buy a share, then end the turn in one click (the common stock-round move).
   function buyAndDone(corp: string, from: 'ipo' | 'pool') {
@@ -146,11 +134,16 @@
     </div>
   {/if}
 
-  <!-- corporation cards -->
+  <!-- RoLA: the staggered minor matrix (launch the bottom of each column) -->
+  {#if isRola}<MinorMatrix />{/if}
+
+  <!-- corporation cards (RoLA: only companies already in play; unlaunched minors
+       live in the matrix above) -->
   <div class="corps">
-    {#each game.state.corporations as c (c.sym)}
+    {#each isRola ? game.state.corporations.filter((c) => c.parPrice !== null) : game.state.corporations as c (c.sym)}
       <div class="corp" style="--c:{c.color}">
         <div class="chead" style="background:{c.color}">
+          <CompanyLogo sym={c.sym} color={c.color} size={22} />
           <span class="csym">{c.sym}</span>
           <span class="cname">{c.name}</span>
         </div>
@@ -186,29 +179,6 @@
                   {CURRENCY}{price}
                 </button>
               {/each}
-            </div>
-          {/if}
-
-          {#if game.canAct && isRola && launchInfo(c.sym)}
-            {@const info = launchInfo(c.sym)!}
-            <div class="parrow">
-              {#if launchSel?.corp === c.sym}
-                <label class="bidwrap">bid
-                  <input class="bidin" type="number" min={info.minBid} step="5" bind:value={launchSel.bid} />
-                </label>
-                <span class="parlabel">→ price {CURRENCY}{launchPrice(launchSel.bid)} · treasury {CURRENCY}{launchSel.bid}</span>
-                <button
-                  class="combo"
-                  disabled={playerCash(me) < launchSel.bid || launchSel.bid < info.minBid || launchSel.bid % 5 !== 0}
-                  onclick={() => doLaunch(c.sym)}
-                >
-                  Launch
-                </button>
-              {:else}
-                <button class="parbtn" onclick={() => pickLaunch(c.sym, info.minBid)}>
-                  Launch (bid ≥ {CURRENCY}{info.minBid})
-                </button>
-              {/if}
             </div>
           {/if}
 
@@ -382,22 +352,6 @@
   .parbtn:disabled {
     opacity: 0.35;
     cursor: not-allowed;
-  }
-  .bidwrap {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
-    font-size: 0.72rem;
-    color: var(--muted);
-  }
-  .bidin {
-    width: 4.4rem;
-    background: var(--bg);
-    color: var(--ink);
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    padding: 0.15rem 0.35rem;
-    font: 600 0.74rem ui-sans-serif, sans-serif;
   }
   .combo:disabled {
     opacity: 0.4;

@@ -69,17 +69,31 @@ describe('RoLA Manual map-build round (Stage 4)', () => {
     const s = initialState(SEATS, 'rola', undefined, { seed: 7, mapMode: 'manual' });
     const active = s.mapBuild!.order[0];
     // overlap with the centre seed tile
-    expect(() => apply(s, { type: 'place_tri', player: active, anchor: 'J11', shape: 'A' })).toThrow();
+    expect(() => apply(s, { type: 'place_tri', player: active, anchor: 'J11', rotation: 0 })).toThrow();
     // far-away, unconnected
-    expect(() => apply(s, { type: 'place_tri', player: active, anchor: 'A1', shape: 'A' })).toThrow();
+    expect(() => apply(s, { type: 'place_tri', player: active, anchor: 'A1', rotation: 0 })).toThrow();
     // a legal placement, but by the wrong player
     const legal = legalPlacements(s.map!)[0];
     const other = s.players.find((p) => p.id !== active)!.id;
-    expect(() => apply(s, { type: 'place_tri', player: other, anchor: legal.anchor, shape: legal.shape })).toThrow();
+    expect(() => apply(s, { type: 'place_tri', player: other, anchor: legal.anchor, rotation: legal.rotation })).toThrow();
     // ... is fine for the active player
-    const next = apply(s, { type: 'place_tri', player: active, anchor: legal.anchor, shape: legal.shape });
+    const next = apply(s, { type: 'place_tri', player: active, anchor: legal.anchor, rotation: legal.rotation });
     expect(Object.keys(next.map!).length).toBe(6);
     expect(next.mapBuild!.turn).toBe(1);
+  });
+
+  it('only offers placements sharing at least 3 edges (rulebook map-building rule)', () => {
+    const s = initialState(SEATS, 'rola', undefined, { seed: 7, mapMode: 'manual' });
+    const map = s.map!;
+    const sharedEdges = (coords: string[]) =>
+      coords.reduce((n, c) => {
+        const col = c.charCodeAt(0) - 65;
+        const row = parseInt(c.slice(1), 10);
+        return n + EDGE.filter(([dc, dr]) => map[String.fromCharCode(65 + col + dc) + (row + dr)]).length;
+      }, 0);
+    const offered = legalPlacements(map);
+    expect(offered.length).toBeGreaterThan(0);
+    for (const p of offered) expect(sharedEdges(p.coords)).toBeGreaterThanOrEqual(3);
   });
 
   it('is deterministic for a fixed seed + bot policy', () => {

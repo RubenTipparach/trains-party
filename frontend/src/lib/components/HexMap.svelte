@@ -1,12 +1,14 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { tweened } from 'svelte/motion';
+  import { cubicOut } from 'svelte/easing';
   import type { HexDef, PathPart, TileColor } from '$lib/data/types';
   import { HEX_SIZE, APOTHEM, hexCenter, hexPolygon, edgeMidpoint } from '$lib/hexgeo';
   import { mapView } from '$lib/config/mapView';
   import { game } from '$lib/game/sandbox.svelte';
   import { anim } from '$lib/game/anim.svelte';
   import { routing } from '$lib/game/routing.svelte';
-  import { TILES, rotatePaths, trackLays, tokenPlays, corpRoutes, routeThroughStops, tileSupply, exhaustedTilesOnHex, configFor, legalPlacements } from '$lib/engine';
+  import { TILES, rotatePaths, trackLays, tokenPlays, corpRoutes, routeThroughStops, tileSupply, exhaustedTilesOnHex, configFor, placementCoords, isLegalPlacement } from '$lib/engine';
   import TileGraphic from './TileGraphic.svelte';
 
   // The active board: a procedurally-built RoLA runtime map (state.map), or the
@@ -14,17 +16,100 @@
   const activeMap = $derived(game.state.map ?? configFor(game.title).hexByCoord);
   const HEX_LIST = $derived(Object.values(activeMap));
 
-  // RoLA Manual map-build round: the active human places tri-hex tiles by clicking
-  // a ghost. `buildShape` flips between the two triangle orientations.
+  // Animate tiles added to the map (by you, other players, or bots): flag newly
+  // appeared hexes so they get a brief "land" entrance.
+  let recentlyPlaced = $state(new Set<string>());
+  let knownHexes = new Set<string>();
+  $effect(() => {
+    const keys = Object.keys(activeMap);
+    if (knownHexes.size === 0) {
+      knownHexes = new Set(keys);
+      return;
+    }
+    const added = keys.filter((k) => !knownHexes.has(k));
+    if (added.length) {
+      knownHexes = new Set(keys);
+      const mark = new Set(added);
+      recentlyPlaced = mark;
+      setTimeout(() => {
+        if (recentlyPlaced === mark) recentlyPlaced = new Set();
+      }, 650);
+    }
+  });
+
+  // RoLA Manual map-build: click anywhere on the grid to position the next tile;
+  // a green outline = legal, red = illegal. When green, confirm to lay it.
   const building = $derived(game.state.round === 'mapbuild');
-  let buildShape = $state<'A' | 'B'>('A');
   const canBuild = $derived(building && !!game.active && !game.isBot(game.active) && !game.reviewing);
-  const ghosts = $derived(canBuild ? legalPlacements(activeMap).filter((g) => g.shape === buildShape) : []);
-  const tilesLeft = $derived(game.state.mapBuild?.pool.length ?? 0);
-  const buildName = $derived(game.state.players.find((p) => p.id === game.active)?.name ?? '');
-  function placeTri(anchor: string, shape: 'A' | 'B') {
-    if (game.active) game.act({ type: 'place_tri', player: game.active, anchor, shape });
+  // The next tile's three cells (so the preview shows what is actually being placed).
+  const nextCells = $derived(game.state.mapBuild?.pool[0]?.cells ?? null);
+
+  let selectedAnchor = $state<string | null>(null);
+  let hoveredHex = $state<string | null>(null); // hex under the cursor (build target highlight)
+  let spin = $state(0); // cumulative 60-degree steps, so rotation animates smoothly
+  const selectedRotation = $derived(((spin % 6) + 6) % 6);
+  const selectedLegal = $derived(
+    !!selectedAnchor && isLegalPlacement(activeMap, selectedAnchor, selectedRotation)
+  );
+  // Tweened spin angle (degrees) so the tri-hex rotates smoothly to each orientation.
+  const spinAngle = tweened(0, { duration: 240, easing: cubicOut });
+  // Tweened slide offset (SVG units): the tile glides in from the side when it
+  // spawns and slides to the new spot when you move it (< 0.5s, friendly).
+  const slide = tweened({ x: 0, y: 0 }, { duration: 150, easing: cubicOut });
+  /** Nearest valid (even-parity) hex to an SVG point - lets you click the open grid. */
+  function hexAt(x: number, y: number): string {
+    const colF = x / (1.5 * HEX_SIZE);
+    const rowF = y / APOTHEM + 1;
+    let best = '';
+    let bestD = Infinity;
+    for (let col = Math.floor(colF) - 1; col <= Math.ceil(colF) + 1; col++) {
+      if (col < 0) continue;
+      for (let row = Math.floor(rowF) - 2; row <= Math.ceil(rowF) + 2; row++) {
+        if (row < 1 || (col + row) % 2 !== 0) continue;
+        const d = (col * 1.5 * HEX_SIZE - x) ** 2 + ((row - 1) * APOTHEM - y) ** 2;
+        if (d < bestD) {
+          bestD = d;
+          best = String.fromCharCode(65 + col) + row;
+        }
+      }
+    }
+    return best;
   }
+  function selectAnchor(anchor: string) {
+    const to = hexCenter(anchor);
+    // Glide from the previous spot, or in from the left when a tile first spawns.
+    const from = selectedAnchor ? hexCenter(selectedAnchor) : { x: to.x - view.w * 0.55, y: to.y };
+    selectedAnchor = anchor;
+    // Keep the current orientation - only the rotate button changes it (spinAngle
+    // already tracks `spin`, so moving never re-rotates the tile).
+    slide.set({ x: from.x - to.x, y: from.y - to.y }, { duration: 0 });
+    slide.set({ x: 0, y: 0 }); // animate to the target
+  }
+  function rotateSel() {
+    if (!selectedAnchor) return;
+    spin += 1; // next 60-degree orientation
+    spinAngle.set(spin * 60);
+  }
+  function placeTri(anchor: string, rotation: number) {
+    if (game.active) game.act({ type: 'place_tri', player: game.active, anchor, rotation });
+    selectedAnchor = null;
+  }
+  const confirmBuild = () => {
+    if (selectedAnchor && selectedLegal) placeTri(selectedAnchor, selectedRotation);
+  };
+  const cancelBuild = () => (selectedAnchor = null);
+  // Screen position of the selected anchor (for the floating rotate/place controls).
+  let buildPos = $derived.by(() => {
+    void view;
+    if (!selectedAnchor || !svgEl || !wrap) return { x: 0, y: 0 };
+    const c = hexCenter(selectedAnchor);
+    const r = svgEl.getBoundingClientRect();
+    const w = wrap.getBoundingClientRect();
+    return {
+      x: ((c.x - view.x) / view.w) * r.width + (r.left - w.left),
+      y: ((c.y - view.y) / view.h) * r.height + (r.top - w.top)
+    };
+  });
 
   // Optional: when in the operating-round track step, hexes that can receive a
   // tile are highlighted and clickable. In the token step, tokenable cities are
@@ -535,10 +620,30 @@
   let svgEl: SVGSVGElement;
   let view = $state({ x: 0, y: 0, w: 100, h: 100 });
   let fittedOnce = false;
-  // Fit the viewBox to the map on first render, and keep refitting while the map
-  // is being built (it grows tile by tile) so the whole board stays in frame.
+  let buildFitted = false;
+  // Map building: frame ~11 hexes (a 5-tile radius). The farthest-out zoom is fixed
+  // at that frame and only doubles once the map grows past 11 hexes wide; max
+  // zoom-IN matches the 1889 game (width * minZoomFraction).
+  const BUILD_VIEW = 17 * HEX_SIZE;
+  // Wide, short frame while building so the embedded map doesn't get tall.
+  const BUILD_ASPECT_W = 16;
+  const BUILD_ASPECT_H = 9;
+  const buildWide = $derived(xs.length > 1 && Math.max(...xs) - Math.min(...xs) > 10 * 1.5 * HEX_SIZE);
+  const buildFar = $derived(buildWide ? BUILD_VIEW * 2 : BUILD_VIEW);
+  const buildViewH = $derived((buildFar * BUILD_ASPECT_H) / BUILD_ASPECT_W);
+  // Lock the container shape while building (matching the build viewBox) so the
+  // map's height - and the camera - stay put as the map grows.
+  const wrapAspect = $derived(building ? `${BUILD_ASPECT_W} / ${BUILD_ASPECT_H}` : `${width} / ${height}`);
   $effect(() => {
-    if (!fittedOnce || building) {
+    if (building) {
+      // Fit once when building starts, then leave the zoom under the player's control.
+      if (!buildFitted) {
+        const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+        const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+        view = { x: cx - buildFar / 2, y: cy - buildViewH / 2, w: buildFar, h: buildViewH };
+        buildFitted = true;
+      }
+    } else if (!fittedOnce) {
       view = { x: minX, y: minY, w: width, h: height };
       fittedOnce = true;
     }
@@ -549,8 +654,8 @@
   // On a quarter turn the landscape map would overflow the frame, so shrink it to fit.
   const onQuarterTurn = $derived(((rotation % 180) + 180) % 180 === 90);
   const fitScale = $derived(onQuarterTurn ? Math.min(width / height, height / width) : 1);
-  const MIN_W = $derived(width * mapView.minZoomFraction); // max zoom in
-  const MAX_W = $derived(width * mapView.maxZoomFraction); // max zoom out
+  const MIN_W = $derived(width * mapView.minZoomFraction); // max zoom in - matches 1889
+  const MAX_W = $derived(building ? buildFar * 1.8 : width * mapView.maxZoomFraction); // farthest out (with zoom-out wiggle room)
   const pointers = new Map<number, { x: number; y: number }>();
   let moved = false;
   let viewRaf = 0; // in-flight animated-view frame
@@ -560,7 +665,9 @@
   // fan of options (which sits outside the chosen hex) stays reachable.
   function clamped(v: { x: number; y: number; w: number; h: number }) {
     let { x, y, w, h } = v;
-    const m = (layHex ? mapView.layFanMargin : mapView.edgeMargin) * HEX_SIZE;
+    // While building, the view is larger than the placed map; a generous margin
+    // lets you pan around the build area instead of snapping back to centre.
+    const m = building ? buildFar : (layHex ? mapView.layFanMargin : mapView.edgeMargin) * HEX_SIZE;
     if (w >= width + 2 * m) x = minX - (w - width) / 2;
     else x = Math.min(Math.max(x, minX - m), minX + width - w + m);
     if (h >= height + 2 * m) y = minY - (h - height) / 2;
@@ -658,6 +765,11 @@
     if (pointers.size === 1) dragging = true;
   }
   function onMove(e: PointerEvent) {
+    // Map building: highlight the hex under the cursor (where a click would place).
+    if (canBuild && !dragging) {
+      const sp = clientToSvg(e.clientX, e.clientY);
+      hoveredHex = hexAt(sp.x, sp.y);
+    }
     if (!pointers.has(e.pointerId)) return;
     const prev = pointers.get(e.pointerId)!;
     if (pointers.size === 2) {
@@ -691,6 +803,12 @@
     pointers.delete(e.pointerId);
     if (pointers.size === 0) dragging = false;
     if (!wasDrag) {
+      // Map building: a tap anywhere on the grid positions the next tile.
+      if (canBuild) {
+        const sp = clientToSvg(e.clientX, e.clientY);
+        selectAnchor(hexAt(sp.x, sp.y));
+        return;
+      }
       const el = (document.elementFromPoint(e.clientX, e.clientY) as Element | null)?.closest('g.hex') as
         | SVGGraphicsElement
         | null;
@@ -770,7 +888,7 @@
   }
 </script>
 
-<div class="wrap" bind:this={wrap} style="aspect-ratio: {width} / {height}">
+<div class="wrap" bind:this={wrap} style="aspect-ratio: {wrapAspect}">
   <div class="sea">
     <svg
       class="map"
@@ -784,6 +902,7 @@
       onpointermove={onMove}
       onpointerup={onUp}
       onpointercancel={onUp}
+      onpointerleave={() => (hoveredHex = null)}
     >
       <defs>
         <clipPath id="hexclip"><polygon points={poly} /></clipPath>
@@ -799,12 +918,13 @@
         </pattern>
       </defs>
 
-      <!-- animated water (enlarged so it stays visible while panning/zooming) -->
-      <rect x={minX - width} y={minY - height} width={width * 3} height={height * 3} fill="url(#ripples)" />
+      <!-- animated water: covers the whole visible viewBox (3x, centred) at any zoom -->
+      <rect x={view.x - view.w} y={view.y - view.h} width={view.w * 3} height={view.h * 3} fill="url(#ripples)" />
 
       {#each placed as h (h.coord)}
         <g
           class="hex"
+          class:placing={recentlyPlaced.has(h.coord)}
           data-coord={h.coord}
           data-name={h.name ?? ''}
           transform="translate({h.cx} {h.cy})"
@@ -919,30 +1039,42 @@
         </g>
       {/each}
 
-      {#if ghosts.length}
-        {#each ghosts as g (g.anchor + g.shape)}
-          <g
-            class="ghost"
-            role="button"
-            tabindex="-1"
-            aria-label="place tile at {g.anchor}"
-            onclick={(e) => {
-              e.stopPropagation();
-              placeTri(g.anchor, g.shape);
-            }}
-            onkeydown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                placeTri(g.anchor, g.shape);
-              }
-            }}
-          >
-            {#each g.coords as c (c)}
-              {@const ctr = hexCenter(c)}
-              <polygon points={poly} transform="translate({ctr.x} {ctr.y})" class="ghosthex" />
-            {/each}
-          </g>
-        {/each}
+      <!-- map-build placement: show the actual next tile, green at valid slots,
+           red where it cannot go (occupied / off the grid). -->
+      {#snippet cellMarks(cell: Omit<HexDef, 'coord'> | undefined)}
+        {#if cell?.terrain?.includes('water')}
+          <polygon points={poly} fill="#2f6f96" opacity="0.3" />
+        {/if}
+        {#if cell?.terrain?.includes('mountain')}
+          <path d="M -15 13 L -5 -6 L 3 7 L 13 -10 L 19 13 Z" fill="#7d6a47" opacity="0.85" />
+        {/if}
+        {#if cell?.cities?.length}
+          <circle r="18" fill="#f3eede" stroke="#3a3326" stroke-width="2.5" />
+        {:else if cell?.towns?.length}
+          <circle r="8" fill="#3a3326" />
+        {/if}
+      {/snippet}
+
+      <!-- highlight the hex under the cursor so it's clear where a tile will land -->
+      {#if canBuild && hoveredHex && hoveredHex !== selectedAnchor}
+        {@const hc = hexCenter(hoveredHex)}
+        <polygon class="hoverhex" points={poly} transform="translate({hc.x} {hc.y})" />
+      {/if}
+
+      <!-- outline of the tile at the clicked slot: green if legal, red if not. The
+           base (rotation 0) layout is spun by the tweened angle around the anchor so
+           rotation animates through the six 60-degree orientations. -->
+      {#if canBuild && selectedAnchor && nextCells}
+        {@const piv = hexCenter(selectedAnchor)}
+        <g class="tilepreview" transform="translate({$slide.x} {$slide.y}) rotate({$spinAngle} {piv.x} {piv.y})">
+          {#each placementCoords(selectedAnchor, 0) as c, i (i)}
+            {@const ctr = hexCenter(c)}
+            <g transform="translate({ctr.x} {ctr.y})">
+              <polygon points={poly} class={selectedLegal ? 'okline' : 'badline'} />
+              {@render cellMarks(nextCells[i])}
+            </g>
+          {/each}
+        </g>
       {/if}
 
       {#if tip}
@@ -1100,18 +1232,12 @@
     </div>
   {/if}
 
-  {#if building}
-    <div class="maphud">
-      <span class="mhtitle">Building the map</span>
-      <span class="mhstat">{tilesLeft} tile{tilesLeft === 1 ? '' : 's'} left</span>
-      {#if canBuild}
-        <span class="mhturn">Your turn — click a ghost to place</span>
-        <button type="button" class="mhflip" onclick={() => (buildShape = buildShape === 'A' ? 'B' : 'A')}>
-          Flip orientation ({buildShape})
-        </button>
-      {:else}
-        <span class="mhturn">{buildName ? `${buildName} placing…` : 'finishing…'}</span>
-      {/if}
+  {#if canBuild && selectedAnchor}
+    <!-- preview controls: icon-only rotate, green check to place, x to cancel -->
+    <div class="layctl buildctl" style="left:{buildPos.x}px; top:{buildPos.y}px">
+      <button class="rot" onclick={rotateSel} title="Rotate 60°" aria-label="Rotate">⟳</button>
+      <button class="ok" onclick={confirmBuild} title="Place tile" aria-label="Place" disabled={!selectedLegal}>✓</button>
+      <button class="cancel" onclick={cancelBuild} title="Cancel" aria-label="Cancel">✕</button>
     </div>
   {/if}
 
@@ -1223,6 +1349,31 @@
   .tile {
     transition: fill 130ms ease;
   }
+  /* a tile someone just laid lands with a quick fade + pop */
+  .hex.placing {
+    animation: tileland 0.45s ease both;
+  }
+  .hex.placing .tile {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: tilepop 0.5s cubic-bezier(0.34, 1.5, 0.5, 1) both;
+  }
+  @keyframes tileland {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes tilepop {
+    from {
+      transform: scale(0.3);
+    }
+    to {
+      transform: scale(1);
+    }
+  }
   .selring {
     fill: none;
     stroke: #15252f;
@@ -1249,60 +1400,27 @@
     stroke-width: 3;
     pointer-events: none;
   }
-  .ghost {
-    cursor: pointer;
+  /* tile placement outline: green = legal, red = illegal */
+  .tilepreview {
+    pointer-events: none;
   }
-  .ghosthex {
-    fill: rgba(120, 200, 190, 0.14);
-    stroke: #2bb6a6;
-    stroke-width: 1.5;
-    stroke-dasharray: 4 3;
-    pointer-events: all;
-    transition: fill 0.12s ease;
-  }
-  .ghost:hover .ghosthex,
-  .ghost:focus-visible .ghosthex {
-    fill: rgba(120, 200, 190, 0.42);
+  /* hex under the cursor while building - shows where a tile will land */
+  .hoverhex {
+    fill: rgba(255, 255, 255, 0.16);
+    stroke: #ffffff;
     stroke-width: 2.5;
-    stroke-dasharray: none;
+    pointer-events: none;
   }
-  .maphud {
-    position: absolute;
-    top: 10px;
-    left: 50%;
-    transform: translateX(-50%);
-    display: flex;
-    gap: 10px;
-    align-items: center;
-    padding: 7px 12px;
-    background: rgba(20, 28, 30, 0.86);
-    color: #eef3f2;
-    border: 1px solid rgba(120, 200, 190, 0.5);
-    border-radius: 999px;
-    font-size: 13px;
-    z-index: 6;
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+  .okline {
+    fill: rgba(74, 195, 110, 0.2);
+    stroke: #2fae5e;
+    stroke-width: 3.5;
   }
-  .mhtitle {
-    font-weight: 700;
-  }
-  .mhstat {
-    opacity: 0.85;
-  }
-  .mhturn {
-    color: #8fe0d3;
-  }
-  .mhflip {
-    border: 1px solid rgba(120, 200, 190, 0.6);
-    background: rgba(120, 200, 190, 0.16);
-    color: #eef3f2;
-    border-radius: 999px;
-    padding: 3px 10px;
-    cursor: pointer;
-    font-size: 12px;
-  }
-  .mhflip:hover {
-    background: rgba(120, 200, 190, 0.3);
+  .badline {
+    fill: rgba(224, 101, 92, 0.16);
+    stroke: #e0655c;
+    stroke-width: 3.5;
+    stroke-dasharray: 6 4;
   }
   .previewtile {
     pointer-events: none;
@@ -1380,6 +1498,38 @@
   .layctl button:disabled {
     opacity: 0.4;
     cursor: not-allowed;
+  }
+  /* map-build controls: friendly round icon buttons */
+  .buildctl {
+    gap: 0.4rem;
+  }
+  .buildctl button {
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border-radius: 50%;
+    font-size: 1.3rem;
+    line-height: 1;
+    display: grid;
+    place-items: center;
+    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.35);
+    transition: transform 0.12s ease, background 0.12s ease;
+  }
+  .buildctl button:hover:not(:disabled) {
+    transform: translateY(-2px);
+  }
+  .buildctl .ok {
+    background: #3fb56a;
+    color: #fff;
+    border-color: #2f8d52;
+    font-size: 1.4rem;
+  }
+  .buildctl .ok:hover:not(:disabled) {
+    background: #49c878;
+  }
+  .buildctl .cancel {
+    color: #f0b3ad;
+    font-size: 1.05rem;
   }
   .flyer {
     pointer-events: none;

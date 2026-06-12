@@ -186,7 +186,7 @@ export type GameAction =
   | { type: 'sell'; player: string; corp: string; count: number }
   | { type: 'lay_tile'; player: string; corp: string; hex: string; tile: string; rotation: number }
   | { type: 'place_token'; player: string; corp: string; hex: string }
-  | { type: 'place_tri'; player: string; anchor: string; shape: 'A' | 'B' }
+  | { type: 'place_tri'; player: string; anchor: string; rotation: number }
   // Run trains. `routes` (optional) is the player's chosen stops per train
   // (ordered revenue-centre hexes); when omitted the engine runs the best routes
   // it can find. `revenue` is advisory only - the engine recomputes it.
