@@ -22,7 +22,7 @@
   let recentlyPlaced = $state(new Set<string>());
   let knownHexes = new Set<string>();
   $effect(() => {
-    const keys = Object.keys(activeMap);
+    const keys = visiblePlaced.map((p) => p.coord);
     if (knownHexes.size === 0) {
       knownHexes = new Set(keys);
       return;
@@ -604,6 +604,17 @@
     })
   );
 
+  // Intro: a freshly auto-built RoLA map assembles tile by tile (skippable).
+  // Bounds/zoom use the FULL map so the camera holds still while tiles land.
+  let introN = $state(Number.POSITIVE_INFINITY);
+  let introTimer = 0;
+  const introActive = $derived(introN < placed.length);
+  const visiblePlaced = $derived(introN >= placed.length ? placed : placed.slice(0, introN));
+  function skipIntro() {
+    clearInterval(introTimer);
+    introN = Number.POSITIVE_INFINITY;
+  }
+
   const pad = HEX_SIZE + 28;
   const xs = $derived(placed.map((p) => p.cx));
   const ys = $derived(placed.map((p) => p.cy));
@@ -831,6 +842,24 @@
   // once the view is zoomed close enough that they are readable.
   const showCoords = $derived(view.w <= mapView.coordZoomHexes * 1.5 * HEX_SIZE);
 
+  onMount(() => {
+    if (
+      fill &&
+      game.state.map &&
+      game.state.round !== 'mapbuild' &&
+      game.actions.length === 0 &&
+      anim.enabled &&
+      placed.length > 12
+    ) {
+      introN = 0;
+      introTimer = window.setInterval(() => {
+        introN += 3;
+        if (introN >= placed.length) clearInterval(introTimer);
+      }, 90);
+    }
+    return () => clearInterval(introTimer);
+  });
+
   function onDown(e: PointerEvent) {
     stopViewAnim();
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
@@ -1004,7 +1033,7 @@
 
       <!-- everything on the board rotates as a group around the board centre -->
       <g transform="rotate({$rotAnim} {rotPivot.x} {rotPivot.y})">
-      {#each placed as h (h.coord)}
+      {#each visiblePlaced as h (h.coord)}
         <g
           class="hex"
           class:placing={recentlyPlaced.has(h.coord)}
@@ -1345,6 +1374,10 @@
     </div>
   {/if}
 
+  {#if introActive}
+    <button class="introskip" onclick={skipIntro}>Building the map… Skip ⏭</button>
+  {/if}
+
   <div class="controls">
     <button type="button" aria-label="Zoom in" onclick={() => zoomCenter(1 / mapView.zoomButtonFactor)}>+</button>
     <button type="button" aria-label="Zoom out" onclick={() => zoomCenter(mapView.zoomButtonFactor)}>−</button>
@@ -1435,6 +1468,20 @@
   }
   .map.grabbing {
     cursor: grabbing;
+  }
+  .introskip {
+    position: absolute;
+    left: 50%;
+    bottom: 70px;
+    transform: translateX(-50%);
+    z-index: 6;
+    padding: 0.45rem 0.9rem;
+    border-radius: 999px;
+    border: 1px solid #c9971f;
+    background: #f5c542;
+    color: #1b1b1b;
+    font: 700 0.82rem ui-sans-serif, sans-serif;
+    cursor: pointer;
   }
   .homeres {
     opacity: 0.38;
