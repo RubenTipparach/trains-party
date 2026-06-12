@@ -276,10 +276,37 @@ export function legalLays(s: GameState, corp: CorporationState): TileLay[] {
 
   const out: TileLay[] = [];
   const seen = new Set<string>();
+  const waterRule = !!configFor(s.title).waterBlocksTrack;
+  const bridging = !!rolaAbility(s.title, corp, 'bridge_tiles');
+  const isWater = (h: string) => (hexes[h]?.terrain ?? []).includes('water') && !hexes[h]?.cities?.length;
   for (const hex of candidates) {
     const base = hexes[hex];
     if (!base) continue;
     if (blocked.has(hex)) continue; // a player-owned private blocks building here
+    // RoLA water hexes take no normal track; the Bridging Company may instead
+    // lay one of its blue bridge tiles there (bridges never upgrade).
+    if (waterRule && isWater(hex)) {
+      if (!bridging || s.tiles[hex]) continue;
+      for (const tile of candidateTiles(s, hex, 'blue')) {
+        const def = TILES[tile];
+        for (let r = 0; r < 6; r++) {
+          const rp = rotatePaths(def, r);
+          const tileEdges = [...edgesTouched(rp)];
+          if (tileEdges.some((e) => neighbor(hexes, hex, e) === null)) continue;
+          let ok = false;
+          for (const e of tileEdges) {
+            const n = neighbor(hexes, hex, e);
+            if (n && net.has(n) && edgesTouched(hexTrack(s, n)).has(opposite(e))) ok = true;
+          }
+          if (!ok) continue;
+          const key = `${hex}:${tile}:${tileEdges.slice().sort((a, b) => a - b).join('')}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          out.push({ hex, tile, rotation: r, cost: 0, upgrade: false });
+        }
+      }
+      continue;
+    }
     const cur = tileInfo(s, hex);
     const nextColor = COLORS[colorIdx(cur.color) + 1];
     if (!nextColor || !allowed.includes(nextColor)) continue; // phase gate / gray-red end
@@ -292,8 +319,16 @@ export function legalLays(s: GameState, corp: CorporationState): TileLay[] {
       for (let r = 0; r < 6; r++) {
         const rp = rotatePaths(def, r);
         const tileEdges = [...edgesTouched(rp)];
-        // No track may point into the sea.
-        if (tileEdges.some((e) => neighbor(hexes, hex, e) === null)) continue;
+        // No track may point into the sea (or, in RoLA, into a water hex -
+        // except every lay by the Bridging Company).
+        if (
+          tileEdges.some((e) => {
+            const n = neighbor(hexes, hex, e);
+            if (n === null) return true;
+            return waterRule && !bridging && isWater(n) && !s.tiles[n];
+          })
+        )
+          continue;
         // Preserve every existing connection (old paths subset of new).
         const newKeys = new Set(rp.map(pathKey));
         if (!curKeys.every((k) => newKeys.has(k))) continue;

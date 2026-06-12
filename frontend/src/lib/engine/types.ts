@@ -195,6 +195,8 @@ export interface GameState {
   cycle?: number;
   /** Merger round state (RoLA), when one is in progress. */
   merger?: MergerState | null;
+  /** Suburb tokens on the board: hex -> owning company sym (Suburban). */
+  suburbs?: Record<string, string>;
   /** Trains discarded to the bank pool (over-limit), buyable at printed price. */
   trainPool?: string[];
   log: string[];
@@ -211,11 +213,13 @@ export type GameAction =
   | { type: 'bid'; player: string; company: string; price: number }
   | { type: 'par'; player: string; corp: string; price: number }
   // RoLA: launch a minor at `price` (a par space) paying `bid` into its treasury.
-  | { type: 'launch'; player: string; corp: string; bid: number; price?: number }
+  | { type: 'launch'; player: string; corp: string; bid: number; price?: number; home?: string }
   | { type: 'buy'; player: string; corp: string; from: 'ipo' | 'pool' }
   | { type: 'sell'; player: string; corp: string; count: number }
   | { type: 'lay_tile'; player: string; corp: string; hex: string; tile: string; rotation: number }
   | { type: 'place_token'; player: string; corp: string; hex: string }
+  // Suburban: place a suburb token on a reachable basic city (+bonus per run).
+  | { type: 'place_suburb'; player: string; corp: string; hex: string }
   | { type: 'place_tri'; player: string; anchor: string; rotation: number }
   // Run trains. `routes` (optional) is the player's chosen stops per train
   // (ordered revenue-centre hexes); when omitted the engine runs the best routes

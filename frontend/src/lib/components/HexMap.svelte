@@ -574,6 +574,20 @@
   }
 
   const HOME = $derived(new Map(game.state.corporations.map((c) => [c.coordinates, c])));
+  // Reserved home spots: companies that exist but have not placed their home
+  // token yet - shown as a faded token so launches are visible at a glance.
+  const homeReserved = $derived.by(() => {
+    const m = new Map<string, { sym: string; color: string }>();
+    for (const c of game.state.corporations) {
+      if (!c.coordinates || c.dissolved || c.tokenHexes.length) continue;
+      m.set(c.coordinates, { sym: c.sym, color: c.color });
+    }
+    return m;
+  });
+  const suburbAt = (coord: string) => {
+    const sym = game.state.suburbs?.[coord];
+    return sym ? game.state.corporations.find((c) => c.sym === sym) : undefined;
+  };
   // Station tokens actually present on a hex (from live game state).
   function tokensOn(coord: string) {
     return game.state.corporations
@@ -1102,6 +1116,23 @@
               {/each}
             {/if}
 
+            {#if homeReserved.has(h.coord) && tokensOn(h.coord).length === 0}
+              {@const hr = homeReserved.get(h.coord)!}
+              <g class="homeres">
+                <circle r="9" fill={hr.color} stroke="#fff" stroke-width="1.5" />
+                <text class="tok" y="3" text-anchor="middle">{hr.sym}</text>
+              </g>
+            {/if}
+            {#if suburbAt(h.coord)}
+              {@const su = suburbAt(h.coord)!}
+              <g transform="translate(0 {-APOTHEM + 20})">
+                <rect x="-7" y="-5" width="14" height="10" rx="2" fill={su.color} stroke="#fff" stroke-width="1.2" />
+                <text class="tok" y="3" text-anchor="middle">S</text>
+              </g>
+            {/if}
+            {#if h.upgradeCost && !laid(h.coord)}
+              <text class="costlbl" y={-APOTHEM + 12} text-anchor="middle">{h.upgradeCost}</text>
+            {/if}
             {#each tokensOn(h.coord) as t, ti (t.sym)}
               <g transform="translate({ti * 11 - (tokensOn(h.coord).length - 1) * 5.5} 0)">
                 <circle r="9" fill={t.color} stroke="#fff" stroke-width="1.5" />
@@ -1398,6 +1429,16 @@
   }
   .map.grabbing {
     cursor: grabbing;
+  }
+  .homeres {
+    opacity: 0.38;
+  }
+  .costlbl {
+    font: 700 7px ui-sans-serif, sans-serif;
+    fill: #6d3f12;
+    paint-order: stroke;
+    stroke: rgba(243, 238, 222, 0.8);
+    stroke-width: 1.6;
   }
   /* per-hex coordinate, printed on the tile's bottom edge at close zoom */
   .coordlbl {

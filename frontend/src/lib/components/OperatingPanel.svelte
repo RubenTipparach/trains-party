@@ -9,7 +9,8 @@
     corporationsCanBuyPrivates,
     specialLayOptions,
     exchangeOptions,
-    configFor
+    configFor,
+    suburbOptions
   } from '$lib/engine';
   import { TRAINS, MARKET, CURRENCY, COMPANIES } from '$lib/data/g1889';
   import type { CorporationState } from '$lib/engine';
@@ -222,6 +223,16 @@
                     <button class="small ghost" onclick={() => specialLay(sp.company, hex, tile)}>{sp.company}: tile {tile} on {hex}</button>
                   {/each}
                 {/each}
+              {/each}
+            </div>
+          {/if}
+
+          {#if game.canAct && (v.step === 'leadoff' || v.step === 'track' || v.step === 'token') && suburbOptions(game.state, c).length}
+            <div class="act">
+              {#each suburbOptions(game.state, c).slice(0, 6) as hx (hx)}
+                <button class="ghost small" onclick={() => game.act({ type: 'place_suburb', player: c.president!, corp: c.sym, hex: hx })}>
+                  Suburb token on {hx} (+10/run)
+                </button>
               {/each}
             </div>
           {/if}

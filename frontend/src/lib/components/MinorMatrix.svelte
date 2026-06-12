@@ -3,7 +3,7 @@
   // up, but only the bottom of each column is launchable (rulebook p.7). Launching
   // the bottom reveals the next one up the column.
   import { game } from '$lib/game/sandbox.svelte';
-  import { parForBid, rolaStockLegalActions, currencyFor } from '$lib/engine';
+  import { parForBid, rolaStockLegalActions, currencyFor, adaptiveHomes, configFor } from '$lib/engine';
   import CompanyLogo from './CompanyLogo.svelte';
 
   const CURRENCY = $derived(currencyFor(game.title));
@@ -20,9 +20,23 @@
   function open(sym: string) {
     sel = { sym, bid: sel?.sym === sym ? sel.bid : minBid(sym) };
   }
+  // Adaptive chooses an empty basic-city home as it launches.
+  const homes = $derived(adaptiveHomes(game.state));
+  let homeSel = $state('');
+  $effect(() => {
+    if (!homeSel || !homes.includes(homeSel)) homeSel = homes[0] ?? '';
+  });
+  const isAdaptive = (sym: string) =>
+    configFor(game.title).minors?.find((m) => m.sym === sym)?.ability?.type === 'choose_home';
   function launch(sym: string) {
     if (!sel || sel.sym !== sym) return;
-    game.act({ type: 'launch', player: me, corp: sym, bid: sel.bid });
+    game.act({
+      type: 'launch',
+      player: me,
+      corp: sym,
+      bid: sel.bid,
+      ...(isAdaptive(sym) ? { home: homeSel } : {})
+    });
     if (!game.error) sel = null;
   }
   // For a column: the unlaunched minors, available first (bottom), upcoming above.
@@ -63,7 +77,18 @@
                   <div class="launch">
                     <label>bid <input type="number" min={minBid(sym)} step="5" bind:value={sel.bid} /></label>
                     <span class="derv">price {CURRENCY}{price(sel.bid)} · treasury {CURRENCY}{sel.bid}</span>
-                    <button class="go" disabled={sel.bid < minBid(sym) || sel.bid % 5 !== 0} onclick={() => launch(sym)}>
+                    {#if isAdaptive(sym)}
+                      <label>home
+                        <select bind:value={homeSel}>
+                          {#each homes as h (h)}<option value={h}>{h}</option>{/each}
+                        </select>
+                      </label>
+                    {/if}
+                    <button
+                      class="go"
+                      disabled={sel.bid < minBid(sym) || sel.bid % 5 !== 0 || (isAdaptive(sym) && !homeSel)}
+                      onclick={() => launch(sym)}
+                    >
                       Launch
                     </button>
                   </div>

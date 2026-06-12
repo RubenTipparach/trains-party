@@ -9,7 +9,8 @@
  * refinements; for now any unlaunched minor is launchable by the active player.
  */
 
-import { configFor } from './registry';
+import { configFor, rolaAbility } from './registry';
+import { hexesFor } from './board';
 import { currentPrice } from './stock';
 import { launchMinor, sellPriceMove, soldOutMove, parForBid, MIN_LAUNCH_BID } from './rolaStock';
 import { startOperatingRound } from './operating';
@@ -57,11 +58,19 @@ function endTurn(s: GameState): void {
   st.bought = false;
 }
 
-function doLaunch(s: GameState, id: string, sym: string, bid: number): void {
+function doLaunch(s: GameState, id: string, sym: string, bid: number, home?: string): void {
   const st = s.stock!;
   if (st.bought) throw new GameError('only one launch/buy per turn');
   const c = corp(s, sym);
   if (!availableMinors(s).includes(sym)) throw new GameError(`${sym} is not at the bottom of its matrix column`);
+  // Adaptive: chooses any empty basic-city home as it launches.
+  if (rolaAbility(s.title, c, 'choose_home')) {
+    if (!home || !adaptiveHomes(s).includes(home)) {
+      throw new GameError(`${sym} must choose an empty basic-city home to launch`);
+    }
+    c.coordinates = home;
+    s.log.push(`${sym} establishes its home at ${home}`);
+  }
   launchMinor(s, c, id, bid); // validates kind/bid/affordability, derives par, sets treasury + 40% cert
   st.bought = true;
   st.acted = true;
@@ -173,7 +182,7 @@ export function applyRolaStock(s: GameState, action: GameAction): void {
 
   switch (action.type) {
     case 'launch':
-      doLaunch(s, action.player, action.corp, action.bid);
+      doLaunch(s, action.player, action.corp, action.bid, action.home);
       break;
     case 'buy':
       doBuy(s, action.player, action.corp, action.from);
@@ -253,4 +262,20 @@ export function rolaStockLegalActions(s: GameState): RolaStockLegal {
     if (maxRolaSell(s, id, c.sym) > 0) sell.push(c.sym);
   }
   return { player: id, canPass: true, launch, buyIpo, buyPool, sell };
+}
+
+/** Empty basic-city spots an Adaptive launch may choose as its home. */
+export function adaptiveHomes(s: GameState): string[] {
+  const hexes = hexesFor(s);
+  const taken = new Set(s.corporations.filter((c) => !c.dissolved).map((c) => c.coordinates));
+  return Object.entries(hexes)
+    .filter(
+      ([coord, h]) =>
+        (h.cities?.length ?? 0) > 0 &&
+        !h.label &&
+        !taken.has(coord) &&
+        !s.corporations.some((c) => c.tokenHexes.includes(coord))
+    )
+    .map(([coord]) => coord)
+    .sort();
 }

@@ -73,7 +73,12 @@ function offboardRevenue(s: GameState, revenue: Record<string, number>, diesel: 
  * Revenue of a hex's centre for the current phase (0 if it is not a stop).
  * `diesel` selects the diesel offboard tier (set when a D-train runs the route).
  */
-function centreRevenue(s: GameState, hex: string, diesel = false): number {
+function centreRevenue(s: GameState, hex: string, diesel = false, corp?: CorporationState): number {
+  // Suburban: +bonus for each of the running company's trains through a suburb.
+  const suburb = corp && s.suburbs?.[hex] === corp.sym ? 10 : 0;
+  return baseCentreRevenue(s, hex, diesel) + suburb;
+}
+function baseCentreRevenue(s: GameState, hex: string, diesel = false): number {
   const laid = s.tiles?.[hex];
   if (laid) {
     const def = TILES[laid.id];
@@ -223,7 +228,7 @@ function bestRouteFrom(
       const segs2 = withAdd(segs, sid);
       if (other === 'c') {
         // reached a centre: it becomes a stop
-        const rev = centreRevenue(s, hex, diesel);
+        const rev = centreRevenue(s, hex, diesel, corp);
         if (rev <= 0 && !hasCentre(s, hex)) continue;
         walk(hex, [...stops, hex], revenue + rev, segs2, links);
         // Overnight: may instead skip a blocked city entirely (no stop, no
@@ -246,7 +251,7 @@ function bestRouteFrom(
     }
   }
 
-  walk(start, [start], centreRevenue(s, start, diesel), new Set(), new Set());
+  walk(start, [start], centreRevenue(s, start, diesel, corp), new Set(), new Set());
   return best;
 }
 
@@ -291,7 +296,7 @@ export function corpRoutes(s: GameState, corp: CorporationState): { routes: Rout
       // single stop inside a hub city (no track used; any number per city).
       let best: Route | null = null;
       for (const hub of tokenCities) {
-        const rev = centreRevenue(s, hub, diesel);
+        const rev = centreRevenue(s, hub, diesel, corp);
         if (rev > 0 && (!best || rev > best.revenue)) best = { hexes: [hub], revenue: rev, segs: [] };
       }
       if (best) {
@@ -343,7 +348,7 @@ export function routeThroughStops(
   if (stops.length === 1) {
     if (!configFor(s.title).localRoutes) return null;
     if (!corp?.tokenHexes.includes(stops[0])) return null; // local runs stay in a hub city
-    const rev = centreRevenue(s, stops[0], diesel);
+    const rev = centreRevenue(s, stops[0], diesel, corp);
     return rev > 0 ? { route: { hexes: [...stops], revenue: rev, segs: [] }, segs: new Set<string>(), links: new Set<string>() } : null;
   }
   if (stops.length < 2 || stops.length > maxStops) return null;
@@ -409,7 +414,7 @@ export function routeThroughStops(
 
   const segs = new Set<string>();
   const links = new Set<string>();
-  let revenue = centreRevenue(s, stops[0], diesel);
+  let revenue = centreRevenue(s, stops[0], diesel, corp);
   for (let i = 0; i < stops.length - 1; i++) {
     const link = connect(stops[i], stops[i + 1], segs, links);
     if (!link) return null;

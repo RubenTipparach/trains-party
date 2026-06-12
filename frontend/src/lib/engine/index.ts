@@ -52,6 +52,8 @@ export { legalPlacements, placementCoords, isLegalPlacement, generateTriHexPool,
 export type { Placement, TriHex } from './triHex';
 export { mapBuildActivePlayer, pickBuildPlacement } from './mapbuild';
 export { mergePartners, availableMajors } from './rolaMerger';
+export { adaptiveHomes } from './rolaRound';
+export { suburbOptions } from './operating';
 export { mergerActivePlayer };
 
 /** Apply one action, returning the next state. Pure: the input is not mutated. */

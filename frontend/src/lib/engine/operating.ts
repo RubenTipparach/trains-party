@@ -17,6 +17,8 @@ import { playerValue } from './metrics';
 import { sellSharesToPool, currentPrice, canSell, maxSellCount, stampPrice } from './stock';
 import { applyDividend, issueShare, redeemShare } from './rolaStock';
 import { maybeStartMergerRound } from './rolaMerger';
+import { network } from './track';
+import { hexesFor as hexesOf } from './board';
 import { hexesFor } from './board';
 
 function corp(s: GameState, sym: string): CorporationState {
@@ -658,6 +660,16 @@ export function applyOperating(s: GameState, action: GameAction): void {
         doBuyTrain(s, c, action.train, action.tradeIn);
       }
       break;
+    case 'place_suburb': {
+      if (s.or.step === 'run' || s.or.step === 'trains') {
+        throw new GameError('suburb tokens go down before running');
+      }
+      const opts = suburbOptions(s, c);
+      if (!opts.includes(action.hex)) throw new GameError(`cannot place a suburb token on ${action.hex}`);
+      (s.suburbs ??= {})[action.hex] = c.sym;
+      s.log.push(`${c.sym} places a suburb token on ${action.hex}`);
+      break;
+    }
     case 'issue':
     case 'redeem': {
       if (!configFor(s.title).issueRedeem) throw new GameError('issuing is not part of this game');
@@ -823,4 +835,23 @@ function emergencyView(s: GameState, c: CorporationState): OperatingView['emerge
     canAfford: presidentCash >= shortfall,
     canDeclareBankruptcy: presidentCash < shortfall && sellable.length === 0
   };
+}
+
+/** Suburban: basic cities the company can reach that may take a suburb token
+ * (no own hub there, one suburb per tile, and the company has tokens left). */
+export function suburbOptions(s: GameState, c: CorporationState): string[] {
+  const ab = rolaAbility(s.title, c, 'suburb_tokens') as { count?: number } | null;
+  if (!ab) return [];
+  const placed = Object.values(s.suburbs ?? {}).filter((sym) => sym === c.sym).length;
+  if (placed >= (ab.count ?? 2)) return [];
+  const hexes = hexesOf(s);
+  const out: string[] = [];
+  for (const hex of network(s, c)) {
+    const h = hexes[hex];
+    if (!h || !(h.cities?.length ?? 0) || h.label) continue;
+    if (c.tokenHexes.includes(hex)) continue;
+    if (s.suburbs?.[hex]) continue;
+    out.push(hex);
+  }
+  return out.sort();
 }

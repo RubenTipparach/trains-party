@@ -236,6 +236,8 @@ export interface GameConfig {
   localRoutes?: boolean;
   /** The president may top up face-value train purchases from personal cash. */
   presidentMayFund?: boolean;
+  /** Track may not run into water-hex edges (RoLA; Bridging excepted). */
+  waterBlocksTrack?: boolean;
   /** RoLA minor companies (launch, operate, merge). */
   minors?: MinorDef[];
   /** RoLA major corporations (formed by merger). */

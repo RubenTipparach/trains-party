@@ -5,7 +5,7 @@
   import OperatingPanel from './OperatingPanel.svelte';
   import MergerPanel from './MergerPanel.svelte';
   import { PHASES } from '$lib/data/g1889';
-  import { currencyFor } from '$lib/engine';
+  import { currencyFor, configFor } from '$lib/engine';
   const CURRENCY = $derived(currencyFor(game.title));
 
   const SEAT = ['#f5c542', '#3fb6a8', '#e0655c', '#9b8cf0', '#7cc36b', '#e8923a'];
@@ -37,6 +37,17 @@
             : 'Operating Round'
   );
   const orCount = $derived(PHASES.find((p) => p.name === game.state.phase)?.operatingRounds ?? 1);
+  // RoLA cycle tracker: SR -> OR1 -> OR2 -> MR, repeated for a fixed cycle count.
+  const totalCycles = $derived(configFor(game.title).cyclesByPlayers?.[game.state.players.length] ?? 0);
+  const isCycleGame = $derived(totalCycles > 0);
+  // Position within the current cycle: 0=SR, 1=OR1, 2=OR2, 3=MR (and 4=done).
+  const cyclePos = $derived.by(() => {
+    const s = game.state;
+    if (s.round === 'stock') return 0;
+    if (s.round === 'operating') return s.or?.orNumber ?? 1;
+    if (s.round === 'merger') return 3;
+    return -1; // auction / mapbuild: the cycle has not started
+  });
   // The OR set that follows the current stock round is "OR <srCount>"; while
   // operating, use the live orSet. (orSet only updates when the OR starts.)
   const orSetNum = $derived(game.state.round === 'operating' ? game.state.orSet : game.state.srCount);
@@ -49,19 +60,33 @@
 </script>
 
 <div class="game">
-  <!-- round / phase tracker -->
-  <div class="tracker">
-    <div class="track-pill" class:on={game.state.round === 'auction'} style="--c:#1b1b1b">ISR</div>
-    <span class="arrow">→</span>
-    <div class="track-pill sr" class:on={game.state.round === 'stock'}>SR {Math.max(1, game.state.srCount)}</div>
-    <span class="arrow">→</span>
-    {#each Array(orCount) as _, i}
-      <div class="track-pill or" class:on={game.state.round === 'operating' && game.state.or?.orNumber === i + 1}>
-        OR {Math.max(1, orSetNum)}.{i + 1}
-      </div>
-    {/each}
-    <span class="phase">Phase {game.state.phase}</span>
-  </div>
+  <!-- round / phase tracker (RoLA shows the rulebook cycle: SR / OR1 / OR2 / MR) -->
+  {#if isCycleGame}
+    <div class="tracker">
+      <span class="cyc">Cycle {Math.min(game.state.cycle ?? 1, totalCycles)}/{totalCycles}</span>
+      <div class="track-pill sr" class:on={cyclePos === 0} class:done={cyclePos > 0}>SR</div>
+      <span class="arrow">→</span>
+      <div class="track-pill or" class:on={cyclePos === 1} class:done={cyclePos > 1}>OR1</div>
+      <span class="arrow">→</span>
+      <div class="track-pill or" class:on={cyclePos === 2} class:done={cyclePos > 2}>OR2</div>
+      <span class="arrow">→</span>
+      <div class="track-pill mr" class:on={cyclePos === 3}>MR</div>
+      <span class="phase">Phase {game.state.phase}</span>
+    </div>
+  {:else}
+    <div class="tracker">
+      <div class="track-pill" class:on={game.state.round === 'auction'} style="--c:#1b1b1b">ISR</div>
+      <span class="arrow">→</span>
+      <div class="track-pill sr" class:on={game.state.round === 'stock'}>SR {Math.max(1, game.state.srCount)}</div>
+      <span class="arrow">→</span>
+      {#each Array(orCount) as _, i}
+        <div class="track-pill or" class:on={game.state.round === 'operating' && game.state.or?.orNumber === i + 1}>
+          OR {Math.max(1, orSetNum)}.{i + 1}
+        </div>
+      {/each}
+      <span class="phase">Phase {game.state.phase}</span>
+    </div>
+  {/if}
 
   <!-- status (tints to the active player's seat colour when it's your turn) -->
   <div class="status" class:myturn={game.canAct} style="--p:{seatColor(game.active ?? '')}">
@@ -233,6 +258,20 @@
   }
   .track-pill.or {
     --c: #b5784a;
+  }
+  .track-pill.mr {
+    --c: #9b6fb0;
+  }
+  .track-pill.done {
+    opacity: 0.85;
+    text-decoration: line-through;
+  }
+  .cyc {
+    font: 700 0.74rem ui-monospace, monospace;
+    color: var(--rail);
+    border: 1px solid var(--rail-deep);
+    border-radius: 999px;
+    padding: 0.2rem 0.55rem;
   }
   .track-pill.on {
     opacity: 1;

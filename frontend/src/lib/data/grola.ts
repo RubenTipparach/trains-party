@@ -260,6 +260,7 @@ export const configRola: GameConfig = {
   exportTrains: true, // rulebook: export the top train before each new SR
   localRoutes: true, // rulebook: single-stop local runs inside a hub city
   presidentMayFund: true, // house option: top up train buys from personal cash
+  waterBlocksTrack: true, // rulebook: no track into water edges (Bridging may)
   phases: PHASES,
   trains: TRAINS,
   corporations: [], // RoLA uses minors/majors, not 1889-style corporations

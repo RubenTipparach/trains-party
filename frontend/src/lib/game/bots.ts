@@ -15,6 +15,7 @@ import {
   configFor,
   pickBuildPlacement,
   mergerActivePlayer,
+  adaptiveHomes,
   type GameAction,
   type GameState
 } from '$lib/engine';
@@ -93,15 +94,22 @@ function botRolaStock(s: GameState, level: BotLevel): GameAction {
   const myMinors = s.corporations.filter((c) => c.kind === 'minor' && c.president === me && c.floated);
 
   if (myMinors.length === 0 && sl.launch.length) {
-    const opt = sl.launch[0];
-    // Easy bots open at the minimum; normal bots bid a little above it (more
-    // treasury for the launch) without going aggressive: up to 150, capped at
-    // roughly 40% of their cash, in legal increments of 5.
-    const p = s.players.find((x) => x.id === me)!;
-    const eager = level === 'normal' ? Math.min(150, Math.floor((p.cash * 0.4) / 5) * 5) : opt.minBid;
-    const bid = Math.max(opt.minBid, eager);
-    if (p.cash >= bid) return { type: 'launch', player: me, corp: opt.corp, bid };
-    if (p.cash >= opt.minBid) return { type: 'launch', player: me, corp: opt.corp, bid: opt.minBid };
+    // Adaptive needs an open basic-city home; skip it when none is available.
+    const home = adaptiveHomes(s)[0];
+    const isAd = (sym: string) =>
+      configFor(s.title).minors?.find((m) => m.sym === sym)?.ability?.type === 'choose_home';
+    const opt = sl.launch.find((o) => !isAd(o.corp) || !!home);
+    if (opt) {
+      // Easy bots open at the minimum; normal bots bid a little above it (more
+      // treasury for the launch) without going aggressive: up to 150, capped at
+      // roughly 40% of their cash, in legal increments of 5.
+      const p = s.players.find((x) => x.id === me)!;
+      const eager = level === 'normal' ? Math.min(150, Math.floor((p.cash * 0.4) / 5) * 5) : opt.minBid;
+      const bid = Math.max(opt.minBid, eager);
+      const withHome = isAd(opt.corp) ? { home } : {};
+      if (p.cash >= bid) return { type: 'launch', player: me, corp: opt.corp, bid, ...withHome };
+      if (p.cash >= opt.minBid) return { type: 'launch', player: me, corp: opt.corp, bid: opt.minBid, ...withHome };
+    }
   }
   if (level === 'normal') {
     if (sl.buyIpo.length) return { type: 'buy', player: me, corp: sl.buyIpo[0], from: 'ipo' };
