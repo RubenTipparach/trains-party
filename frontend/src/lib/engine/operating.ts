@@ -135,6 +135,22 @@ function finishOperatingSet(s: GameState): void {
     endGame(s);
     return;
   }
+  // Fixed-cycle titles (RoLA): a cycle = SR + the ORs (+ the merger round when
+  // it lands). After the final cycle the game ends; otherwise export the top
+  // train (which may rust trains / advance the phase) and start the next SR.
+  const cfg = configFor(s.title);
+  const cycles = cfg.cyclesByPlayers?.[s.players.length];
+  if (cycles) {
+    const cur = s.cycle ?? 1;
+    if (cur >= cycles) {
+      s.log.push(`Cycle ${cur} was the last; the game ends.`);
+      endGame(s);
+      return;
+    }
+    if (cfg.exportTrains) exportTopTrain(s);
+    s.cycle = cur + 1;
+    s.log.push(`Cycle ${s.cycle} of ${cycles} begins`);
+  }
   s.round = 'stock';
   s.srCount += 1;
   s.stock = { acted: false, bought: false, passes: 0, soldThisRound: {} };
@@ -239,6 +255,23 @@ function doRun(s: GameState, c: CorporationState, revenue: number, mode: 'pay' |
   s.or!.step = 'trains';
 }
 
+/** RoLA: before each new SR the top of the train stack is exported out of the
+ * game. Exporting a 2 takes ALL remaining 2s; a first-of-type export rusts and
+ * advances the phase exactly as a purchase would. */
+function exportTopTrain(s: GameState): void {
+  const d = s.depot.find((x) => x.remaining !== 0);
+  if (!d) return;
+  if (d.remaining < 0) return; // unlimited pile (∞): nothing meaningful to export
+  if (d.name === '2') {
+    s.log.push(`The remaining ${d.remaining} 2-train(s) are exported`);
+    d.remaining = 0;
+  } else {
+    d.remaining -= 1;
+    s.log.push(`A ${d.name}-train is exported`);
+  }
+  advancePhaseAndRust(s, d.name);
+}
+
 function advancePhaseAndRust(s: GameState, train: string): void {
   const cfg = configFor(s.title);
   const phaseIdx = cfg.phases.findIndex((p) => p.name === s.phase);
@@ -273,25 +306,47 @@ function advancePhaseAndRust(s: GameState, train: string): void {
       s.log.push('Private companies close');
     }
   }
-  // Rust: any train that rusts when this train is bought.
-  const rusts = cfg.trains.filter((t) => t.rustsOn === train).map((t) => t.name);
+  // Rust: any train that rusts when this train (or its rust-group alias, e.g.
+  // RoLA's ∞ standing in for the 7) is bought or exported.
+  const group = def?.rustGroup;
+  const rusts = cfg.trains
+    .filter((t) => t.rustsOn === train || (group && t.rustsOn === group))
+    .map((t) => t.name);
   if (rusts.length) {
     for (const co of s.corporations) co.trains = co.trains.filter((t) => !rusts.includes(t));
+    s.trainPool = (s.trainPool ?? []).filter((t) => !rusts.includes(t));
     s.log.push(`${rusts.join(', ')}-trains rust`);
+  }
+  // New (lower) train limits apply immediately: over-limit companies discard a
+  // train to the bank pool (auto-pick the oldest; it stays buyable at price).
+  for (const co of s.corporations) {
+    while (co.trains.length > trainLimit(s, co)) {
+      const oldest = [...co.trains].sort(
+        (a, b) =>
+          cfg.trains.findIndex((t) => t.name === a) - cfg.trains.findIndex((t) => t.name === b)
+      )[0];
+      co.trains.splice(co.trains.indexOf(oldest), 1);
+      (s.trainPool ??= []).push(oldest);
+      s.log.push(`${co.sym} is over the train limit and discards a ${oldest}-train to the pool`);
+    }
   }
 }
 
 function doBuyTrain(s: GameState, c: CorporationState, train: string, tradeIn?: string): void {
+  const fromPool = (s.trainPool ?? []).includes(train);
   const d = s.depot.find((x) => x.name === train);
-  if (!d) throw new GameError(`no such train ${train}`);
-  if (d.remaining === 0) throw new GameError(`no ${train}-trains left in the bank`);
+  if (!d && !fromPool) throw new GameError(`no such train ${train}`);
+  if (!fromPool && d!.remaining === 0) throw new GameError(`no ${train}-trains left in the bank`);
   const def = configFor(s.title).trains.find((t) => t.name === train)!;
-  // Depot trains are bought cheapest-first, except a train flagged available_on
-  // the current phase (the diesel) may be bought directly once that phase is in.
-  const cheapest = s.depot.find((x) => x.remaining !== 0)!;
-  const availableNow = !!def.availableOn && phaseReached(s, def.availableOn);
-  if (cheapest.name !== train && !availableNow) {
-    throw new GameError(`must buy the ${cheapest.name}-train next from the depot`);
+  // Depot trains are bought cheapest-first (top of the stack), except a train
+  // flagged available_on the current phase (the diesel/∞) once that phase is in.
+  // Pool trains (discards) are bought at printed price in any order.
+  if (!fromPool) {
+    const cheapest = s.depot.find((x) => x.remaining !== 0)!;
+    const availableNow = !!def.availableOn && phaseReached(s, def.availableOn);
+    if (cheapest.name !== train && !availableNow) {
+      throw new GameError(`must buy the ${cheapest.name}-train next from the depot`);
+    }
   }
 
   // Diesel trade-in: swap an older train for part of the price.
@@ -333,17 +388,24 @@ function doBuyTrain(s: GameState, c: CorporationState, train: string, tradeIn?: 
   c.cash -= price;
   s.bank += price;
   c.trains.push(train);
-  if (d.remaining > 0) d.remaining -= 1;
-  s.log.push(`${c.sym} buys a ${train}-train for ${price}`);
-  advancePhaseAndRust(s, train);
+  if (fromPool) s.trainPool!.splice(s.trainPool!.indexOf(train), 1);
+  else if (d!.remaining > 0) d!.remaining -= 1;
+  s.log.push(`${c.sym} buys a ${train}-train for ${price}${fromPool ? ' (from the pool)' : ''}`);
+  if (!fromPool) advancePhaseAndRust(s, train);
 }
 
-/** Cheapest depot train still available (the only new train a corp may buy next). */
+/** Cheapest train a corp may buy next: top of the depot stack, or any cheaper
+ * discard sitting in the bank pool (forced purchases pick the lowest price). */
 function cheapestDepotTrain(s: GameState): { name: string; price: number } | null {
+  const cfg = configFor(s.title);
   const d = s.depot.find((x) => x.remaining !== 0);
-  if (!d) return null;
-  const def = configFor(s.title).trains.find((t) => t.name === d.name)!;
-  return { name: d.name, price: def.price };
+  let best: { name: string; price: number } | null = null;
+  if (d) best = { name: d.name, price: cfg.trains.find((t) => t.name === d.name)!.price };
+  for (const t of s.trainPool ?? []) {
+    const price = cfg.trains.find((x) => x.name === t)!.price;
+    if (!best || price < best.price) best = { name: t, price };
+  }
+  return best;
 }
 
 /** A corporation must own a train when it has none and could actually run a route. */

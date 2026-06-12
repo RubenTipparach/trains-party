@@ -76,7 +76,9 @@ describe('RoLA static data (Stage 2)', () => {
     expect(byName['3']).toMatchObject({ price: 200, num: 5, rustsOn: '6' });
     expect(byName['4']).toMatchObject({ price: 300, num: 4, rustsOn: '7' });
     expect(byName['5']).toMatchObject({ price: 450, num: 3 });
-    expect(byName['6']).toMatchObject({ price: 550, num: 2 });
+    // 6-trains: 3 cards, one only shipping with 4+ players (matches the 3's extra)
+    expect(byName['6']).toMatchObject({ price: 550, num: 3, extraForPlayers: 4 });
+    expect(byName['3']).toMatchObject({ extraForPlayers: 4 });
     expect(byName['7']).toMatchObject({ price: 750, num: 7 });
     expect(byName['∞']).toMatchObject({ price: 1000, availableOn: '7' });
     expect(byName['∞'].discount).toEqual({ '4': 200, '5': 200, '6': 200 });

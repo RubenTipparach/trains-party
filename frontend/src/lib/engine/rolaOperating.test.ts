@@ -84,6 +84,51 @@ describe('RoLA leadoff train + issue/redeem + two yellow lays', () => {
   });
 });
 
+describe('RoLA cycles + export-a-train', () => {
+  const finishOr1Turn = (s: GameState) => {
+    s = apply(s, { type: 'pass', player: 'p1' }); // leadoff
+    s = apply(s, { type: 'pass', player: 'p1' }); // track
+    s = apply(s, { type: 'pass', player: 'p1' }); // token
+    s = apply(s, { type: 'run', player: 'p1', corp: 'AG', revenue: 0, dividend: 'withhold' });
+    return apply(s, { type: 'pass', player: 'p1' }); // trains -> next
+  };
+  const finishOr2Turn = (s: GameState) => {
+    s = apply(s, { type: 'pass', player: 'p1' }); // track (no leadoff now)
+    s = apply(s, { type: 'pass', player: 'p1' }); // token
+    s = apply(s, { type: 'run', player: 'p1', corp: 'AG', revenue: 0, dividend: 'withhold' });
+    return apply(s, { type: 'pass', player: 'p1' });
+  };
+
+  it('exports the top train after the OR set (all 2s go together) and advances the cycle', () => {
+    let s = toOperating();
+    expect(s.cycle).toBe(1);
+    s = finishOr1Turn(s);
+    expect(s.or!.orNumber).toBe(2);
+    s = finishOr2Turn(s);
+    expect(s.round).toBe('stock');
+    expect(s.cycle).toBe(2);
+    expect(s.depot.find((d) => d.name === '2')!.remaining).toBe(0); // exported as a block
+  });
+
+  it('ends the game after the final cycle with cash + share value scoring', () => {
+    let s = toOperating();
+    s.cycle = 6; // 3 players -> Long game, 6 cycles
+    s = finishOr1Turn(s);
+    s = finishOr2Turn(s);
+    expect(s.finished).toBe(true);
+    expect(s.winner).toBeTruthy();
+  });
+
+  it('removes the player-count extra 3/6 trains below 4 players', () => {
+    const s3 = initialState(seats, 'rola');
+    expect(s3.depot.find((d) => d.name === '3')!.remaining).toBe(4);
+    expect(s3.depot.find((d) => d.name === '6')!.remaining).toBe(2);
+    const s4 = initialState([...seats, { id: 'p4', name: 'D' }], 'rola');
+    expect(s4.depot.find((d) => d.name === '3')!.remaining).toBe(5);
+    expect(s4.depot.find((d) => d.name === '6')!.remaining).toBe(3);
+  });
+});
+
 describe('RoLA operating round (Stage 4d)', () => {
   it('starts the OR with the launched minor and places its home token', () => {
     const s = toOperating();

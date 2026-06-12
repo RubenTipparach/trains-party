@@ -174,6 +174,10 @@ export interface GameState {
   /** RoLA minor matrix: columns of minor syms; only the bottom (first unlaunched)
    *  of each column is launchable, revealing the next up the column. */
   minorMatrix?: string[][];
+  /** Current cycle (1-based) when the title plays fixed cycles (RoLA). */
+  cycle?: number;
+  /** Trains discarded to the bank pool (over-limit), buyable at printed price. */
+  trainPool?: string[];
   log: string[];
   /** Set when the bank breaks; the current OR set finishes, then the game ends. */
   endTriggered: boolean;

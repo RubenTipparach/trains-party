@@ -3,6 +3,11 @@
 export type TileColor = 'white' | 'yellow' | 'green' | 'brown' | 'gray' | 'red' | 'blue';
 
 export interface TrainDef {
+  /** Rusts-trigger alias: this train counts as `rustGroup` for rust events
+   * (RoLA's ∞ shares the 7's pile, so the first ∞ also rusts the 4s). */
+  rustGroup?: string;
+  /** This roster includes one extra card only at or above this player count. */
+  extraForPlayers?: number;
   name: string;
   distance: number;
   price: number;

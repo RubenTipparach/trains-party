@@ -103,10 +103,10 @@ export const PHASES: PhaseDef[] = [
 
 export const TRAINS: TrainDef[] = [
   { name: '2', distance: 2, price: 100, num: 7, rustsOn: '4' },
-  { name: '3', distance: 3, price: 200, num: 5, rustsOn: '6' }, // +1 in the 5-player game
+  { name: '3', distance: 3, price: 200, num: 5, rustsOn: '6', extraForPlayers: 4 }, // 5th card only with 4+ players
   { name: '4', distance: 4, price: 300, num: 4, rustsOn: '7' },
   { name: '5', distance: 5, price: 450, num: 3 },
-  { name: '6', distance: 6, price: 550, num: 2 },
+  { name: '6', distance: 6, price: 550, num: 3, extraForPlayers: 4 }, // 3rd card only with 4+ players
   { name: '7', distance: 7, price: 750, num: 7 },
   {
     name: '∞',
@@ -114,6 +114,7 @@ export const TRAINS: TrainDef[] = [
     price: 1000,
     num: -1, // same 7-card pile as the 7 (flipped); see note above
     availableOn: '7',
+    rustGroup: '7', // the first ∞ rusts the 4s just like the first 7
     discount: { '4': 200, '5': 200, '6': 200 }
   }
 ];
