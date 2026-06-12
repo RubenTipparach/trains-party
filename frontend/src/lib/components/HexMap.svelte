@@ -558,13 +558,65 @@
     return { x: m.x * 0.58, y: m.y * 0.58 };
   }
 
-  const RIPPLES: Array<[number, number, string]> = [
-    [4, 6, '#9bd6d1'],
-    [24, 11, '#bdeae6'],
-    [14, 20, '#9bd6d1'],
-    [33, 23, 'rgba(255,255,255,.5)'],
-    [1, 16, 'rgba(255,255,255,.35)']
+  // Six-frame pixel-art water (40x28 tile, 2px pixels). Two wave crests drift,
+  // swell, and break into foam; sparkles blink between them. WATER_STATIC is
+  // drawn on every frame; each WATER_FRAMES entry is one animation frame of
+  // [x, y, w, h, colour] pixels, cycled by a discrete SMIL animation.
+  type Px = [number, number, number, number, string];
+  const W_LIGHT = '#9bd6d1';
+  const W_LIGHTER = '#bdeae6';
+  const W_FOAM = 'rgba(255,255,255,.55)';
+  const W_DEEP = '#5fb3ae';
+  const WATER_STATIC: Px[] = [
+    [30, 8, 6, 2, W_DEEP],
+    [8, 14, 6, 2, W_DEEP]
   ];
+  const WATER_FRAMES: Px[][] = [
+    [
+      [2, 6, 6, 2, W_LIGHT],
+      [22, 18, 6, 2, W_LIGHT],
+      [12, 24, 4, 2, W_LIGHTER]
+    ],
+    [
+      [2, 6, 8, 2, W_LIGHT],
+      [8, 4, 2, 2, W_FOAM],
+      [22, 18, 6, 2, W_LIGHT],
+      [12, 24, 4, 2, W_LIGHTER]
+    ],
+    [
+      [4, 6, 8, 2, W_LIGHTER],
+      [10, 4, 2, 2, W_FOAM],
+      [22, 18, 8, 2, W_LIGHT],
+      [14, 24, 4, 2, W_LIGHTER],
+      [34, 2, 2, 2, W_FOAM]
+    ],
+    [
+      [6, 6, 6, 2, W_LIGHT],
+      [24, 18, 8, 2, W_LIGHTER],
+      [30, 16, 2, 2, W_FOAM],
+      [14, 24, 4, 2, W_LIGHTER]
+    ],
+    [
+      [8, 6, 4, 2, W_LIGHT],
+      [26, 18, 6, 2, W_LIGHTER],
+      [16, 24, 4, 2, W_LIGHTER],
+      [6, 14, 2, 2, W_FOAM]
+    ],
+    [
+      [4, 6, 4, 2, W_LIGHTER],
+      [24, 18, 4, 2, W_LIGHT],
+      [14, 24, 4, 2, W_LIGHTER]
+    ]
+  ];
+  /** Discrete keyTimes/values that show frame `fi` for exactly its 1/n slot. */
+  function waterKey(fi: number): { keyTimes: string; values: string } {
+    const n = WATER_FRAMES.length;
+    const a = (fi / n).toFixed(4);
+    const b = ((fi + 1) / n).toFixed(4);
+    if (fi === 0) return { keyTimes: `0;${b};1`, values: '1;0;0' };
+    if (fi === n - 1) return { keyTimes: `0;${a};1`, values: '0;1;1' };
+    return { keyTimes: `0;${a};${b};1`, values: '0;1;0;0' };
+  }
 
   const HOME = $derived(new Map(game.state.corporations.map((c) => [c.coordinates, c])));
   // Station tokens actually present on a hex (from live game state).
@@ -585,10 +637,52 @@
   const pad = HEX_SIZE + 28;
   const xs = $derived(placed.map((p) => p.cx));
   const ys = $derived(placed.map((p) => p.cy));
-  const minX = $derived(Math.min(...xs) - pad);
-  const minY = $derived(Math.min(...ys) - pad);
-  const width = $derived(Math.max(...xs) - Math.min(...xs) + pad * 2);
-  const height = $derived(Math.max(...ys) - Math.min(...ys) + pad * 2);
+  // Raw extents of the placed tiles (plus breathing room).
+  const extMinX = $derived(Math.min(...xs) - pad);
+  const extMinY = $derived(Math.min(...ys) - pad);
+  const extMaxX = $derived(Math.max(...xs) + pad);
+  const extMaxY = $derived(Math.max(...ys) + pad);
+
+  // RoLA plays inside a fixed sea frame (the 1889 board size x rolaFrameScale),
+  // anchored on the starting tiles, so the zoom/pan bounds stay put instead of
+  // shifting as the map is built. The frame only grows (per axis) in the rare
+  // case that placed tiles actually pass its edge.
+  const SHIKOKU = (() => {
+    const pts = Object.keys(configFor('1889').hexByCoord).map(hexCenter);
+    const sx = pts.map((p) => p.x);
+    const sy = pts.map((p) => p.y);
+    return {
+      w: Math.max(...sx) - Math.min(...sx) + pad * 2,
+      h: Math.max(...sy) - Math.min(...sy) + pad * 2
+    };
+  })();
+  const framed = $derived(!!game.state.map); // procedurally-built runtime map (RoLA)
+  let frameAnchor = $state<{ x: number; y: number; code: string } | null>(null);
+  $effect(() => {
+    if (!framed || placed.length === 0) return;
+    if (frameAnchor && frameAnchor.code === game.code) return;
+    frameAnchor = {
+      x: (Math.min(...xs) + Math.max(...xs)) / 2,
+      y: (Math.min(...ys) + Math.max(...ys)) / 2,
+      code: game.code
+    };
+  });
+  const bounds = $derived.by(() => {
+    if (framed && frameAnchor && frameAnchor.code === game.code) {
+      const fw = SHIKOKU.w * mapView.rolaFrameScale;
+      const fh = SHIKOKU.h * mapView.rolaFrameScale;
+      const x0 = Math.min(frameAnchor.x - fw / 2, extMinX);
+      const y0 = Math.min(frameAnchor.y - fh / 2, extMinY);
+      const x1 = Math.max(frameAnchor.x + fw / 2, extMaxX);
+      const y1 = Math.max(frameAnchor.y + fh / 2, extMaxY);
+      return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+    }
+    return { x: extMinX, y: extMinY, w: extMaxX - extMinX, h: extMaxY - extMinY };
+  });
+  const minX = $derived(bounds.x);
+  const minY = $derived(bounds.y);
+  const width = $derived(bounds.w);
+  const height = $derived(bounds.h);
 
   const poly = hexPolygon(0, 0);
 
@@ -609,18 +703,11 @@
   let view = $state({ x: 0, y: 0, w: 100, h: 100 });
   let fittedOnce = false;
   let buildFitted = false;
-  // Map building: frame ~11 hexes (a 5-tile radius). The farthest-out zoom is fixed
-  // at that frame and only doubles once the map grows past 11 hexes wide; max
-  // zoom-IN matches the 1889 game (width * minZoomFraction).
+  // Map building starts framed at ~11 hexes around the seed tiles; the pan/zoom
+  // bounds are the fixed RoLA frame, so the camera never jumps as the map grows.
   const BUILD_VIEW = 17 * HEX_SIZE;
-  // Wide, short frame while building so the embedded map doesn't get tall.
   const BUILD_ASPECT_W = 16;
   const BUILD_ASPECT_H = 9;
-  const buildWide = $derived(xs.length > 1 && Math.max(...xs) - Math.min(...xs) > 10 * 1.5 * HEX_SIZE);
-  const buildFar = $derived(buildWide ? BUILD_VIEW * 2 : BUILD_VIEW);
-  const buildViewH = $derived((buildFar * BUILD_ASPECT_H) / BUILD_ASPECT_W);
-  // Lock the container shape while building (matching the build viewBox) so the
-  // map's height - and the camera - stay put as the map grows.
   const wrapAspect = $derived(building ? `${BUILD_ASPECT_W} / ${BUILD_ASPECT_H}` : `${width} / ${height}`);
   $effect(() => {
     if (building) {
@@ -628,11 +715,13 @@
       if (!buildFitted) {
         const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
         const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
-        view = { x: cx - buildFar / 2, y: cy - buildViewH / 2, w: buildFar, h: buildViewH };
+        const h = (BUILD_VIEW * BUILD_ASPECT_H) / BUILD_ASPECT_W;
+        view = { x: cx - BUILD_VIEW / 2, y: cy - h / 2, w: BUILD_VIEW, h };
         buildFitted = true;
       }
     } else if (!fittedOnce) {
-      view = { x: minX, y: minY, w: width, h: height };
+      // Fit the placed tiles (not the whole sea frame) so the board fills the view.
+      view = { x: extMinX, y: extMinY, w: extMaxX - extMinX, h: extMaxY - extMinY };
       fittedOnce = true;
     }
   });
@@ -642,8 +731,10 @@
   // On a quarter turn the landscape map would overflow the frame, so shrink it to fit.
   const onQuarterTurn = $derived(((rotation % 180) + 180) % 180 === 90);
   const fitScale = $derived(onQuarterTurn ? Math.min(width / height, height / width) : 1);
-  const MIN_W = $derived(width * mapView.minZoomFraction); // max zoom in - matches 1889
-  const MAX_W = $derived(building ? buildFar * 1.8 : width * mapView.maxZoomFraction); // farthest out (with zoom-out wiggle room)
+  // Max zoom-in is always relative to the 1889 board, so close-up hexes are the
+  // same size in every title regardless of how large the RoLA frame is.
+  const MIN_W = $derived((framed ? SHIKOKU.w : width) * mapView.minZoomFraction);
+  const MAX_W = $derived(width * mapView.maxZoomFraction); // farthest out: the whole frame
   const pointers = new Map<number, { x: number; y: number }>();
   let moved = false;
   let viewRaf = 0; // in-flight animated-view frame
@@ -653,9 +744,8 @@
   // fan of options (which sits outside the chosen hex) stays reachable.
   function clamped(v: { x: number; y: number; w: number; h: number }) {
     let { x, y, w, h } = v;
-    // While building, the view is larger than the placed map; a generous margin
-    // lets you pan around the build area instead of snapping back to centre.
-    const m = building ? buildFar : (layHex ? mapView.layFanMargin : mapView.edgeMargin) * HEX_SIZE;
+    // (While building, the fixed RoLA frame already gives generous panning room.)
+    const m = (layHex ? mapView.layFanMargin : mapView.edgeMargin) * HEX_SIZE;
     if (w >= width + 2 * m) x = minX - (w - width) / 2;
     else x = Math.min(Math.max(x, minX - m), minX + width - w + m);
     if (h >= height + 2 * m) y = minY - (h - height) / 2;
@@ -892,12 +982,18 @@
         <clipPath id="cityclip"><circle r="12.5" /></clipPath>
         <pattern id="ripples" width="40" height="28" patternUnits="userSpaceOnUse">
           <rect width="40" height="28" fill="#74c1be" />
-          {#each RIPPLES as [x, y, fill]}
-            <rect x={x} y={y + 2} width="4" height="2" {fill} />
-            <rect x={x + 4} y={y} width="4" height="2" {fill} />
-            <rect x={x + 8} y={y + 2} width="4" height="2" {fill} />
+          {#each WATER_STATIC as [x, y, w, h, c]}
+            <rect {x} {y} width={w} height={h} fill={c} />
           {/each}
-          <animateTransform attributeName="patternTransform" type="translate" from="0 0" to="40 28" dur="9s" repeatCount="indefinite" />
+          {#each WATER_FRAMES as frame, fi}
+            {@const k = waterKey(fi)}
+            <g opacity={fi === 0 ? 1 : 0}>
+              {#each frame as [x, y, w, h, c]}
+                <rect {x} {y} width={w} height={h} fill={c} />
+              {/each}
+              <animate attributeName="opacity" calcMode="discrete" dur="1.8s" repeatCount="indefinite" keyTimes={k.keyTimes} values={k.values} />
+            </g>
+          {/each}
         </pattern>
       </defs>
 

@@ -18,6 +18,8 @@ export interface MapViewConfig {
   layFanMargin: number;
   /** Show per-hex coordinate labels when the view is at most this many hex columns wide. */
   coordZoomHexes: number;
+  /** RoLA's fixed sea frame, as a multiple of the 1889 (Shikoku) board size. */
+  rolaFrameScale: number;
   /** Multiplier applied per click of the zoom in/out buttons (>1 = zoom out). */
   zoomButtonFactor: number;
   /** Multiplier applied per mouse-wheel notch (>1 = zoom out). */
@@ -36,6 +38,7 @@ export const mapView: MapViewConfig = {
   edgeMargin: 1.5,
   layFanMargin: 3.6,
   coordZoomHexes: 7,
+  rolaFrameScale: 2,
   zoomButtonFactor: 1.25,
   wheelZoomFactor: 1.12,
   zoomAnimMs: 260,
