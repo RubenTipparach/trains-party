@@ -159,37 +159,6 @@
     />
   </div>
 
-  <!-- floating toolbar: horizontal at the top on mobile, vertical dock on desktop -->
-  <nav class="dock" aria-label="Board sections">
-    <a class="dbtn" href="{base}/" title="All games" aria-label="All games">
-      <svg viewBox="0 0 24 24"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
-    </a>
-    <span class="dsep" aria-hidden="true"></span>
-    {#each tabs as t (t.id)}
-      <button
-        class="dbtn"
-        class:on={active === t.id}
-        title={t.label}
-        aria-label={t.label}
-        aria-pressed={active === t.id}
-        onclick={() => toggle(t.id)}
-      >
-        <svg viewBox="0 0 24 24">{@html t.icon}</svg>
-      </button>
-    {/each}
-    <span class="dsep" aria-hidden="true"></span>
-    <button
-      class="dbtn"
-      class:on={anim.enabled}
-      title="Animations {anim.enabled ? 'on' : 'off'}"
-      aria-label="Toggle animations"
-      aria-pressed={anim.enabled}
-      onclick={() => anim.toggle()}
-    >
-      <svg viewBox="0 0 24 24"><path d="M13 2.8L3.8 13.6h6L8.6 21.2 17.8 10.4h-6z"/></svg>
-    </button>
-  </nav>
-
   <!-- room identity chip (desktop) -->
   <div class="roomchip">
     <span class="rtitle">{meta.title}</span>
@@ -197,7 +166,7 @@
   </div>
 
   <!-- always-visible turn status -->
-  <div class="statusbar" class:myturn={game.canAct} style="--p:{seatColor(game.active ?? '')}">
+  <div class="statusbar" class:myturn={game.canAct} class:shifted={!!active} style="--p:{seatColor(game.active ?? '')}">
     <span class="srnd">{roundLabel}</span>
     <span class="splayer">{game.canAct ? 'Your turn · ' : ''}{playerName(game.active)}</span>
     {#if game.isBot(game.active)}<span class="sbot">BOT</span>{/if}
@@ -207,12 +176,47 @@
     {/if}
   </div>
 
-  {#if active && activeTab}
+  {#if active}
     <!-- mobile-only scrim behind the modal -->
     <button class="scrim" aria-label="Close panel" onclick={() => (active = null)} transition:fade={{ duration: 120 }}></button>
+  {/if}
 
-    <!-- the open panel: side panel on desktop, modal on mobile -->
-    <aside class="panelhost" transition:fly={{ y: 12, duration: 180 }} aria-label={activeTab.label}>
+  <!-- the toolbar + panel shell: tabs merge into the open panel. Mobile: a
+       horizontal bar at the top that the modal hangs from. Desktop: a vertical
+       rail on the panel's left edge, the whole shell docked to the right. -->
+  <div class="shell" class:open={!!active}>
+    <nav class="dock" aria-label="Board sections">
+      <a class="dbtn" href="{base}/" title="All games" aria-label="All games">
+        <svg viewBox="0 0 24 24"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
+      </a>
+      <span class="dsep" aria-hidden="true"></span>
+      {#each tabs as t (t.id)}
+        <button
+          class="dbtn"
+          class:on={active === t.id}
+          title={t.label}
+          aria-label={t.label}
+          aria-pressed={active === t.id}
+          onclick={() => toggle(t.id)}
+        >
+          <svg viewBox="0 0 24 24">{@html t.icon}</svg>
+        </button>
+      {/each}
+      <span class="dsep" aria-hidden="true"></span>
+      <button
+        class="dbtn"
+        class:on={anim.enabled}
+        title="Animations {anim.enabled ? 'on' : 'off'}"
+        aria-label="Toggle animations"
+        aria-pressed={anim.enabled}
+        onclick={() => anim.toggle()}
+      >
+        <svg viewBox="0 0 24 24"><path d="M13 2.8L3.8 13.6h6L8.6 21.2 17.8 10.4h-6z"/></svg>
+      </button>
+    </nav>
+
+    {#if active && activeTab}
+    <aside class="panelhost" transition:fade={{ duration: 140 }} aria-label={activeTab.label}>
       <header class="phead">
         <svg class="picon" viewBox="0 0 24 24">{@html activeTab.icon}</svg>
         <h2>{activeTab.label}</h2>
@@ -398,7 +402,8 @@
         {/key}
       </div>
     </aside>
-  {/if}
+    {/if}
+  </div>
 </div>
 {:else}
   <div class="loadingroom"><p>Loading room {code.toUpperCase()}…</p></div>
@@ -438,20 +443,36 @@
     --line: #294258;
   }
 
-  /* ---- floating toolbar (mobile: horizontal top bar / desktop: vertical dock) ---- */
-  .dock {
+  /* ---- the shell: floating toolbar merged with the open panel ----
+     Mobile: a horizontal bar at the top; the modal hangs from it, fused.
+     Desktop: the shell docks to the right edge; the icon rail sits on the
+     panel's left edge, fused into one surface. */
+  .shell {
     position: absolute;
-    z-index: 20;
-    top: 10px;
-    left: 50%;
-    transform: translateX(-50%);
-    max-width: calc(100vw - 16px);
+    z-index: 15;
+    top: 8px;
+    left: 8px;
+    right: 8px;
+    max-height: calc(100% - 16px);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    pointer-events: none;
+  }
+  .shell.open {
+    bottom: 8px;
+    align-items: stretch;
+  }
+  .dock {
+    pointer-events: auto;
+    flex: none;
+    max-width: 100%;
     display: flex;
     align-items: center;
     gap: 4px;
     padding: 5px;
     border-radius: 14px;
-    background: color-mix(in srgb, var(--bg) 84%, transparent);
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
     backdrop-filter: blur(8px);
     border: 1px solid var(--line);
     box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
@@ -460,6 +481,11 @@
   }
   .dock::-webkit-scrollbar {
     display: none;
+  }
+  .shell.open .dock {
+    justify-content: center;
+    border-radius: 14px 14px 0 0;
+    border-bottom: none;
   }
   .dbtn {
     flex: 0 0 auto;
@@ -507,7 +533,7 @@
     position: absolute;
     z-index: 12;
     top: 14px;
-    right: 14px;
+    left: 14px;
     align-items: center;
     gap: 0.55rem;
     padding: 0.4rem 0.8rem;
@@ -577,6 +603,12 @@
     color: var(--muted);
     font-size: 0.76rem;
   }
+  /* On narrow screens the bank crowds the pill (it lives in the Game panel too). */
+  @media (max-width: 480px) {
+    .sbank {
+      display: none;
+    }
+  }
   .skip {
     display: inline-flex;
     align-items: center;
@@ -606,7 +638,7 @@
     padding: 0 0.25rem;
   }
 
-  /* ---- the open panel: modal on mobile, docked side panel on desktop ---- */
+  /* ---- the open panel, fused to the dock ---- */
   .scrim {
     position: absolute;
     inset: 0;
@@ -616,15 +648,12 @@
     cursor: pointer;
   }
   .panelhost {
-    position: absolute;
-    z-index: 15;
-    top: 64px;
-    left: 8px;
-    right: 8px;
-    bottom: 8px;
+    pointer-events: auto;
+    flex: 1;
+    min-height: 0;
     display: flex;
     flex-direction: column;
-    border-radius: 14px;
+    border-radius: 0 0 14px 14px;
     border: 1px solid var(--line);
     background: color-mix(in srgb, var(--bg) 94%, transparent);
     backdrop-filter: blur(10px);
@@ -677,17 +706,32 @@
     overscroll-behavior: contain;
   }
 
-  /* desktop: vertical dock on the left edge, panel docked beside it */
+  /* desktop: the shell docks right; the icon rail fuses to the panel's left edge */
   @media (min-width: 920px) {
+    .shell {
+      top: 12px;
+      bottom: 12px;
+      right: 12px;
+      left: auto;
+      max-height: none;
+      flex-direction: row;
+      align-items: center;
+      justify-content: flex-end;
+    }
+    .shell.open {
+      align-items: stretch;
+    }
     .dock {
-      top: 50%;
-      left: 12px;
-      transform: translateY(-50%);
       flex-direction: column;
       max-width: none;
-      max-height: calc(100vh - 24px);
+      max-height: 100%;
       overflow-x: visible;
       overflow-y: auto;
+    }
+    .shell.open .dock {
+      border-radius: 14px 0 0 14px;
+      border-bottom: 1px solid var(--line);
+      border-right: none;
     }
     .dsep {
       width: 26px;
@@ -702,15 +746,20 @@
       top: 14px;
       max-width: min(60vw, 700px);
     }
+    /* centre the pill over the visible map while the panel is open
+       (shell ≈ 540px panel + 54px rail + 12px edge) */
+    .statusbar.shifted {
+      left: calc((100vw - 606px) / 2);
+    }
     .scrim {
       display: none;
     }
     .panelhost {
-      top: 12px;
-      bottom: 12px;
-      left: 72px;
-      right: auto;
+      flex: none;
+      min-height: 0;
+      height: 100%;
       width: min(540px, calc(100vw - 96px));
+      border-radius: 0 14px 14px 0;
     }
   }
 
@@ -738,6 +787,79 @@
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
     gap: 0.8rem;
+  }
+  .pent {
+    border: 1px solid var(--line);
+    border-top: 3px solid var(--p);
+    border-radius: 10px;
+    background: var(--bg-soft);
+    padding: 0.55rem 0.7rem;
+  }
+  .pehead {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 0.5rem;
+    margin-bottom: 0.25rem;
+  }
+  .pename {
+    font-weight: 700;
+    color: var(--p);
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .pebot {
+    font-size: 0.58rem;
+    color: var(--muted);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 0 0.3rem;
+    margin-left: 0.35rem;
+  }
+  .pecash {
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .pemetrics {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.15rem 0.9rem;
+    font-size: 0.74rem;
+    color: var(--muted);
+    margin-bottom: 0.45rem;
+  }
+  .peholds {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+  }
+  .peshare {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.74rem;
+    font-weight: 600;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 0.08rem 0.5rem;
+    white-space: nowrap;
+  }
+  .peshare i {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--c);
+  }
+  .peshare sup {
+    color: var(--rail);
+  }
+  .penone {
+    font-size: 0.76rem;
+    color: var(--muted);
+    font-style: italic;
   }
   .entcard {
     border: 1px solid var(--line);

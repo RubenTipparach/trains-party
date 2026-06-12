@@ -1287,6 +1287,13 @@
   .wrap.fill .sea {
     border-radius: 0;
   }
+  /* As a background the right edge hosts the panel shell, so park the controls
+     bottom-left where they stay reachable. */
+  .wrap.fill .controls {
+    right: auto;
+    left: 14px;
+    bottom: 14px;
+  }
   /* In fullscreen the wrap fills the screen; ignore the inline aspect-ratio. */
   .wrap:fullscreen {
     width: 100vw;
