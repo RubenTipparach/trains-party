@@ -590,19 +590,6 @@
   const width = $derived(Math.max(...xs) - Math.min(...xs) + pad * 2);
   const height = $derived(Math.max(...ys) - Math.min(...ys) + pad * 2);
 
-  const labels = $derived.by(() => {
-    const colLabels = new Map<string, number>();
-    const rowLabels = new Map<number, number>();
-    for (const p of placed) {
-      const m = p.coord.match(/^([A-Za-z]+)(\d+)$/)!;
-      colLabels.set(m[1], p.cx);
-      rowLabels.set(parseInt(m[2], 10), p.cy);
-    }
-    return { colLabels, rowLabels };
-  });
-  const cols = $derived([...labels.colLabels.entries()].sort((a, b) => a[1] - b[1]));
-  const rows = $derived([...labels.rowLabels.entries()].sort((a, b) => a[1] - b[1]));
-
   const poly = hexPolygon(0, 0);
 
   function endPoint(e: number | 'center') {
@@ -749,14 +736,9 @@
     else document.exitFullscreen?.().catch(() => {});
   }
 
-  // Coordinate guides: pinned to the viewport edges, sliding along their axis to
-  // stay aligned with each column/row as the map pans/zooms.
-  let colMarks = $derived(
-    cols.map(([l, x]) => ({ l, f: (x - view.x) / view.w })).filter((m) => m.f >= 0 && m.f <= 1)
-  );
-  let rowMarks = $derived(
-    rows.map(([n, y]) => ({ n, f: (y - view.y) / view.h })).filter((m) => m.f >= 0 && m.f <= 1)
-  );
+  // Per-hex coordinate labels: printed at the bottom of each tile, fading in
+  // once the view is zoomed close enough that they are readable.
+  const showCoords = $derived(view.w <= mapView.coordZoomHexes * 1.5 * HEX_SIZE);
 
   function onDown(e: PointerEvent) {
     stopViewAnim();
@@ -1036,7 +1018,8 @@
             {@const lp = labelPos(h)}
             <text class="label" x={lp.x} y={lp.y + 4} text-anchor="middle">{h.label}</text>
           {/if}
-          {#if h.name}<text class="name" y={APOTHEM - 6} text-anchor="middle">{h.name}</text>{/if}
+          {#if h.name}<text class="name" y={APOTHEM - 6 - (showCoords ? 7 : 0)} text-anchor="middle">{h.name}</text>{/if}
+          <text class="coordlbl" class:show={showCoords} y={APOTHEM - 5} text-anchor="middle">{h.coord}</text>
         </g>
       {/each}
 
@@ -1219,20 +1202,6 @@
     </svg>
   </div>
 
-  <!-- coordinate guides pinned to the four edges (hidden while the map is turned) -->
-  {#if rotation === 0}
-    <div class="guides" aria-hidden="true">
-      {#each colMarks as m (m.l)}
-        <span class="g top" style="left:{m.f * 100}%">{m.l}</span>
-        <span class="g bot" style="left:{m.f * 100}%">{m.l}</span>
-      {/each}
-      {#each rowMarks as m (m.n)}
-        <span class="g left" style="top:{m.f * 100}%">{m.n}</span>
-        <span class="g right" style="top:{m.f * 100}%">{m.n}</span>
-      {/each}
-    </div>
-  {/if}
-
   {#if canBuild && selectedAnchor}
     <!-- preview controls: icon-only rotate, green check to place, x to cancel -->
     <div class="layctl buildctl" style="left:{buildPos.x}px; top:{buildPos.y}px">
@@ -1325,36 +1294,20 @@
   .map.grabbing {
     cursor: grabbing;
   }
-  .guides {
-    position: absolute;
-    inset: 0;
+  /* per-hex coordinate, printed on the tile's bottom edge at close zoom */
+  .coordlbl {
+    font: 700 5.5px ui-monospace, monospace;
+    fill: #0e3942;
+    opacity: 0;
+    transition: opacity 250ms ease;
     pointer-events: none;
-    z-index: 4;
+    user-select: none;
+    paint-order: stroke;
+    stroke: rgba(243, 238, 222, 0.75);
+    stroke-width: 1.4;
   }
-  .g {
-    position: absolute;
-    font: 700 10px ui-monospace, monospace;
-    color: #0e3942;
-    background: rgba(255, 255, 255, 0.72);
-    border-radius: 4px;
-    padding: 0 3px;
-    line-height: 15px;
-  }
-  .g.top {
-    top: 3px;
-    transform: translateX(-50%);
-  }
-  .g.bot {
-    bottom: 3px;
-    transform: translateX(-50%);
-  }
-  .g.left {
-    left: 3px;
-    transform: translateY(-50%);
-  }
-  .g.right {
-    right: 3px;
-    transform: translateY(-50%);
+  .coordlbl.show {
+    opacity: 0.75;
   }
   .hex {
     cursor: inherit;

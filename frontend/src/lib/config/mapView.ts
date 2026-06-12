@@ -16,6 +16,8 @@ export interface MapViewConfig {
   edgeMargin: number;
   /** Extra reach past the edge while laying a tile (so its fan stays on-screen). */
   layFanMargin: number;
+  /** Show per-hex coordinate labels when the view is at most this many hex columns wide. */
+  coordZoomHexes: number;
   /** Multiplier applied per click of the zoom in/out buttons (>1 = zoom out). */
   zoomButtonFactor: number;
   /** Multiplier applied per mouse-wheel notch (>1 = zoom out). */
@@ -33,6 +35,7 @@ export const mapView: MapViewConfig = {
   maxZoomFraction: 1,
   edgeMargin: 1.5,
   layFanMargin: 3.6,
+  coordZoomHexes: 7,
   zoomButtonFactor: 1.25,
   wheelZoomFactor: 1.12,
   zoomAnimMs: 260,
