@@ -232,6 +232,8 @@ export interface GameConfig {
   cyclesByPlayers?: Record<number, number>;
   /** Export the top depot train before each new SR (RoLA). */
   exportTrains?: boolean;
+  /** RoLA: trains may run a single-stop local route inside a hub city. */
+  localRoutes?: boolean;
   /** RoLA minor companies (launch, operate, merge). */
   minors?: MinorDef[];
   /** RoLA major corporations (formed by merger). */

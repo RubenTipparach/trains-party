@@ -272,6 +272,18 @@ export function corpRoutes(s: GameState, corp: CorporationState): { routes: Rout
       revenue += pick.route.revenue;
       pick.segs.forEach((x) => usedSegs.add(x));
       pick.links.forEach((x) => usedLinks.add(x));
+    } else if (configFor(s.title).localRoutes) {
+      // RoLA local route: a train that cannot reach a second stop still runs a
+      // single stop inside a hub city (no track used; any number per city).
+      let best: Route | null = null;
+      for (const hub of tokenCities) {
+        const rev = centreRevenue(s, hub, diesel);
+        if (rev > 0 && (!best || rev > best.revenue)) best = { hexes: [hub], revenue: rev, segs: [] };
+      }
+      if (best) {
+        routes.push(best);
+        revenue += best.revenue;
+      }
     }
   }
   return { routes, revenue };
@@ -314,6 +326,12 @@ export function routeThroughStops(
   corp?: CorporationState,
   diesel = false
 ): { route: Route; segs: Set<string>; links: Set<string> } | null {
+  if (stops.length === 1) {
+    if (!configFor(s.title).localRoutes) return null;
+    if (!corp?.tokenHexes.includes(stops[0])) return null; // local runs stay in a hub city
+    const rev = centreRevenue(s, stops[0], diesel);
+    return rev > 0 ? { route: { hexes: [...stops], revenue: rev, segs: [] }, segs: new Set<string>(), links: new Set<string>() } : null;
+  }
   if (stops.length < 2 || stops.length > maxStops) return null;
   const hexes = hexesFor(s);
   // Token blocking: an interior stop full of other corporations' tokens cannot
