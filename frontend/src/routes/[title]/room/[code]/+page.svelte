@@ -138,6 +138,21 @@
   );
   const mapPaused = $derived(isMobile && !!active && !sheet);
 
+  // Mobile: when an operating/merger round begins, open the Game sheet by
+  // default so the operating company is visible. Re-opens once per round
+  // (keyed by OR number), so closing it by hand stays closed for that round.
+  let autoOpenedKey = $state('');
+  $effect(() => {
+    if (!isMobile || !ready) return;
+    const r = game.state.round;
+    if (r !== 'operating' && r !== 'merger') return;
+    const key = `${r}:${game.state.orSet}:${game.state.or?.orNumber ?? 0}`;
+    if (active === null && autoOpenedKey !== key) {
+      autoOpenedKey = key;
+      active = 'game';
+    }
+  });
+
   // Always-visible status pill: round, active player (seat colour), bank.
   const seatColor = (id: string) => {
     const i = game.state.players.findIndex((p) => p.id === id);
