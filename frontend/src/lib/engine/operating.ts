@@ -244,9 +244,14 @@ function doRun(s: GameState, c: CorporationState, revenue: number, mode: 'pay' |
         paidOut += amt;
       }
     }
-    const toTreasury = (revenue * c.poolShares) / 100;
+    // 1889: pooled shares pay the corporation, IPO shares pay nobody. RoLA
+    // (incremental cap): unsold shares sit in the company TREASURY and pay the
+    // company itself; bank-pool shares pay nobody (the bank keeps it).
+    const treasuryPct = linear ? c.ipoShares : c.poolShares;
+    const toTreasury = (revenue * treasuryPct) / 100;
     c.cash += toTreasury;
     paidOut += toTreasury;
+    if (linear && toTreasury > 0) s.log.push(`${c.sym} pays itself ${toTreasury} on treasury shares`);
     s.bank -= paidOut;
     if (linear) applyDividend(s, c, 'pay', revenue);
     else moveRight(s, c);
@@ -383,10 +388,12 @@ function doBuyTrain(s: GameState, c: CorporationState, train: string, tradeIn?: 
 
   if (c.cash < price) {
     if (tradeIn) throw new GameError(`${c.sym} cannot afford the ${train}-train even with a trade-in`);
-    // Cannot pay outright: only allowed under a forced (emergency) purchase, where
-    // the president covers the shortfall (after raising money by selling shares).
+    // Short treasuries: under a forced (emergency) purchase - or any face-value
+    // buy when the title allows president funding - the president covers the
+    // shortfall from personal cash (raising money by selling shares first).
     const emg = emergencyFor(s, c);
-    if (!emg || emg.train !== train) throw new GameError(`${c.sym} cannot afford a ${train}-train`);
+    const mayFund = !!configFor(s.title).presidentMayFund || (emg && emg.train === train);
+    if (!mayFund) throw new GameError(`${c.sym} cannot afford a ${train}-train`);
     const pres = s.players.find((p) => p.id === c.president);
     const shortfall = price - c.cash;
     if (!pres || pres.cash < shortfall) {
@@ -394,7 +401,7 @@ function doBuyTrain(s: GameState, c: CorporationState, train: string, tradeIn?: 
     }
     pres.cash -= shortfall;
     c.cash += shortfall;
-    s.log.push(`${pname(s, pres.id)} contributes ${shortfall} to ${c.sym} (emergency)`);
+    s.log.push(`${pname(s, pres.id)} contributes ${shortfall} to ${c.sym}`);
   }
 
   if (tradeIdx !== -1) {

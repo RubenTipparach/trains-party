@@ -77,13 +77,14 @@ function doBuy(s: GameState, id: string, sym: string, from: 'ipo' | 'pool'): voi
   if (c.parPrice === null) throw new GameError(`${sym} has not launched`);
   const p = player(s, id);
   const unit = unitOf(c);
-  let cost: number;
+  // RoLA has no IPO: unsold shares ARE the treasury (partial cap). Both kinds
+  // sell at the CURRENT price; a treasury share pays the company, a bank-pool
+  // share pays the bank.
+  const cost = currentPrice(s, c);
   if (from === 'ipo') {
-    if (c.ipoShares < unit) throw new GameError(`no IPO shares of ${sym}`);
-    cost = c.parPrice;
+    if (c.ipoShares < unit) throw new GameError(`no treasury shares of ${sym}`);
   } else {
     if (c.poolShares < unit) throw new GameError(`no pool shares of ${sym}`);
-    cost = currentPrice(s, c);
   }
   if (holds(p, sym) + unit > HOLD_CAP) throw new GameError(`hold limit (${HOLD_CAP}%) reached for ${sym}`);
   if (p.cash < cost) throw new GameError(`${id} cannot afford a share of ${sym} (${cost})`);
@@ -92,9 +93,10 @@ function doBuy(s: GameState, id: string, sym: string, from: 'ipo' | 'pool'): voi
   else c.poolShares -= unit;
   p.shares[sym] = holds(p, sym) + unit;
   p.cash -= cost;
-  s.bank += cost;
+  if (from === 'ipo') c.cash += cost; // treasury share: the company gets the money
+  else s.bank += cost;
   maybeTakePresidency(s, c, id);
-  s.log.push(`${pname(s, id)} buys ${unit}% of ${sym} from ${from} for ${cost}`);
+  s.log.push(`${pname(s, id)} buys ${unit}% of ${sym} from ${from === 'ipo' ? 'the treasury' : 'the pool'} for ${cost}`);
   st.bought = true;
   st.acted = true;
   st.passes = 0;
@@ -244,7 +246,7 @@ export function rolaStockLegalActions(s: GameState): RolaStockLegal {
         }
       } else if (c.parPrice !== null) {
         const unit = unitOf(c);
-        if (c.ipoShares >= unit && holds(p, c.sym) + unit <= HOLD_CAP && p.cash >= (c.parPrice ?? 0)) buyIpo.push(c.sym);
+        if (c.ipoShares >= unit && holds(p, c.sym) + unit <= HOLD_CAP && p.cash >= currentPrice(s, c)) buyIpo.push(c.sym);
         if (c.poolShares >= unit && holds(p, c.sym) + unit <= HOLD_CAP && p.cash >= currentPrice(s, c)) buyPool.push(c.sym);
       }
     }

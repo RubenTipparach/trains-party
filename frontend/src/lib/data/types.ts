@@ -234,6 +234,8 @@ export interface GameConfig {
   exportTrains?: boolean;
   /** RoLA: trains may run a single-stop local route inside a hub city. */
   localRoutes?: boolean;
+  /** The president may top up face-value train purchases from personal cash. */
+  presidentMayFund?: boolean;
   /** RoLA minor companies (launch, operate, merge). */
   minors?: MinorDef[];
   /** RoLA major corporations (formed by merger). */

@@ -259,6 +259,7 @@ export const configRola: GameConfig = {
   cyclesByPlayers: { 2: 4, 3: 6, 4: 6, 5: 6 }, // Short (2p) = 4 cycles, Long = 6
   exportTrains: true, // rulebook: export the top train before each new SR
   localRoutes: true, // rulebook: single-stop local runs inside a hub city
+  presidentMayFund: true, // house option: top up train buys from personal cash
   phases: PHASES,
   trains: TRAINS,
   corporations: [], // RoLA uses minors/majors, not 1889-style corporations
