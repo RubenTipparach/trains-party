@@ -107,6 +107,14 @@ function botOperating(s: GameState): GameAction | null {
   if (!v || !v.president) return null;
   const me = v.president;
   const c = s.corporations.find((x) => x.sym === v.corp)!;
+  if (v.step === 'leadoff') {
+    // Buy the leadoff train when the treasury affords it (a minor's first OR).
+    if (v.canBuyTrain && c.trains.length === 0) {
+      const def = configFor(s.title).trains.find((t) => t.name === v.canBuyTrain)!;
+      if (c.cash >= def.price) return { type: 'buy_train', player: me, corp: v.corp, train: v.canBuyTrain };
+    }
+    return { type: 'pass', player: me };
+  }
   if (v.step === 'track') {
     // Lay an affordable tile (prefer the home hex, else the cheapest), else skip.
     const lays = trackLays(s).filter((l) => l.cost <= c.cash);

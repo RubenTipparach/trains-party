@@ -48,6 +48,8 @@ export interface CorporationState {
   coordinates: string;
   /** RoLA: minor vs major (undefined for 1889 corporations). */
   kind?: 'minor' | 'major';
+  /** Set once the company has completed an OR turn (gates leadoff + selling). */
+  operated?: boolean;
   /** RoLA share denomination / dividend percent per share (minor 20, major 10). */
   shareUnit?: number;
   /** RoLA: set when the price reached 0 and the company dissolved. */
@@ -90,12 +92,17 @@ export interface ORState {
   order: string[];
   /** Index of the corporation currently operating. */
   index: number;
-  /** Step within the corporation's turn. */
-  step: 'track' | 'token' | 'run' | 'trains';
+  /** Step within the corporation's turn. RoLA: a newly launched minor's first
+   * turn opens at `leadoff` (an optional train purchase before anything else). */
+  step: 'leadoff' | 'track' | 'token' | 'run' | 'trains';
   /** Which operating round in the current set (1-based). */
   orNumber: number;
   /** Total operating rounds in this set (phase-dependent). */
   orsThisSet: number;
+  /** Yellow tiles laid by the operating company this turn (RoLA allows 2). */
+  yellowLaid?: number;
+  /** The operating company has used its issue/redeem action this turn (RoLA). */
+  issued?: boolean;
 }
 
 export interface Bid {
@@ -210,6 +217,10 @@ export type GameAction =
   | { type: 'exchange'; player: string; company: string }
   // Emergency money raising: a president forced to fund a mandatory train sells
   // shares to the pool (emr_sell), or declares bankruptcy when nothing can cover it.
+  // RoLA OR step 2: issue one treasury share to the pool (price drops one), or
+  // redeem one pooled share into the treasury at current price (no price move).
+  | { type: 'issue'; player: string; corp: string }
+  | { type: 'redeem'; player: string; corp: string }
   | { type: 'emr_sell'; player: string; corp: string; count: number }
   | { type: 'declare_bankruptcy'; player: string }
   | { type: 'pass'; player: string };

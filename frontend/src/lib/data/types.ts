@@ -217,6 +217,16 @@ export interface GameConfig {
   marketKind?: 'grid' | 'linear';
   /** RoLA: inclusive par-price band [min, max] by phase colour. */
   parBands?: Record<string, [number, number]>;
+  /** RoLA tile-lay rule: up to two yellow tiles OR one upgrade per OR turn. */
+  doubleYellowOrSingleUpgrade?: boolean;
+  /** RoLA: a minor's first OR opens with an optional leadoff train purchase. */
+  leadoffTrain?: boolean;
+  /** RoLA: companies may issue/redeem one share at the start of their OR turn. */
+  issueRedeem?: boolean;
+  /** Fixed game length in cycles (RoLA: SR + 2 OR + merger; 2p Short 4 / else 6). */
+  cyclesByPlayers?: Record<number, number>;
+  /** Export the top depot train before each new SR (RoLA). */
+  exportTrains?: boolean;
   /** RoLA minor companies (launch, operate, merge). */
   minors?: MinorDef[];
   /** RoLA major corporations (formed by merger). */

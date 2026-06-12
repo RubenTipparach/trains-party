@@ -15,7 +15,8 @@ import { applyLayTile, legalLays, applyToken, legalTokens, applySpecialLay } fro
 import { routeRevenue, canRunRoute, revenueForChosenRoutes } from './routes';
 import { playerValue } from './metrics';
 import { sellSharesToPool, currentPrice, canSell, maxSellCount, stampPrice } from './stock';
-import { applyDividend } from './rolaStock';
+import { applyDividend, issueShare, redeemShare } from './rolaStock';
+import { hexesFor } from './board';
 
 function corp(s: GameState, sym: string): CorporationState {
   const c = s.corporations.find((x) => x.sym === sym);
@@ -73,10 +74,18 @@ export function startOperatingRound(s: GameState, orNumber = 1): void {
     return;
   }
   s.round = 'operating';
-  s.or = { order, index: 0, step: 'track', orNumber, orsThisSet: orsForPhase(s) };
+  s.or = { order, index: 0, step: 'track', orNumber, orsThisSet: orsForPhase(s), yellowLaid: 0 };
   s.log.push(`Operating round ${s.orSet}.${orNumber} begins`);
   payPrivateIncome(s);
   ensureHomeToken(s, activeCorp(s));
+  s.or.step = entryStep(s, activeCorp(s));
+}
+
+/** First step of a company's OR turn: RoLA minors that have never operated may
+ * buy a leadoff train before anything else (rulebook OR step 1). */
+function entryStep(s: GameState, c: CorporationState): 'leadoff' | 'track' {
+  const cfg = configFor(s.title);
+  return cfg.leadoffTrain && c.kind === 'minor' && !c.operated ? 'leadoff' : 'track';
 }
 
 /**
@@ -165,11 +174,14 @@ function nextCorp(s: GameState): void {
   const or = s.or!;
   or.index += 1;
   or.step = 'track';
+  or.yellowLaid = 0;
+  or.issued = false;
   if (or.index >= or.order.length) {
     if (or.orNumber < or.orsThisSet) startOperatingRound(s, or.orNumber + 1);
     else finishOperatingSet(s);
   } else {
     ensureHomeToken(s, activeCorp(s));
+    or.step = entryStep(s, activeCorp(s));
   }
 }
 
@@ -479,20 +491,35 @@ export function applyOperating(s: GameState, action: GameAction): void {
   }
 
   switch (action.type) {
-    case 'lay_tile':
-      if (s.or.step !== 'track') throw new GameError(`${c.sym} is not laying track`);
+    case 'lay_tile': {
+      if (s.or.step !== 'leadoff' && s.or.step !== 'track') {
+        throw new GameError(`${c.sym} is not laying track`);
+      }
+      // RoLA: up to two yellow tiles OR one upgrade per turn (rulebook OR step 3).
+      const dbl = !!configFor(s.title).doubleYellowOrSingleUpgrade;
+      const wasUpgrade =
+        !!s.tiles[action.hex] || (hexesFor(s)[action.hex]?.color ?? 'white') !== 'white';
+      if (dbl && wasUpgrade && (s.or.yellowLaid ?? 0) > 0) {
+        throw new GameError(`${c.sym} may lay up to two yellow tiles OR one upgrade per turn`);
+      }
       applyLayTile(s, c, action.hex, action.tile, action.rotation);
-      s.or.step = 'token'; // one tile per OR, then the optional token step
+      if (dbl && !wasUpgrade) {
+        s.or.yellowLaid = (s.or.yellowLaid ?? 0) + 1;
+        s.or.step = s.or.yellowLaid >= 2 ? 'token' : 'track'; // second yellow allowed
+      } else {
+        s.or.step = 'token'; // one upgrade (or 1889's single lay), then the token step
+      }
       break;
+    }
     case 'place_token':
-      if (s.or.step !== 'token' && s.or.step !== 'track') throw new GameError(`${c.sym} cannot place a token now`);
+      if (s.or.step !== 'token' && s.or.step !== 'track' && s.or.step !== 'leadoff') {
+        throw new GameError(`${c.sym} cannot place a token now`);
+      }
       applyToken(s, c, action.hex);
       s.or.step = 'run'; // one token per OR
       break;
     case 'run': {
-      if (s.or.step !== 'run' && s.or.step !== 'track' && s.or.step !== 'token') {
-        throw new GameError(`${c.sym} has already run`);
-      }
+      if (s.or.step === 'trains') throw new GameError(`${c.sym} has already run`);
       // Revenue is computed authoritatively from the corporation's routes, never
       // trusted from the action. If the player supplied explicit routes, validate
       // and score those; otherwise run the best routes the engine can find.
@@ -504,6 +531,16 @@ export function applyOperating(s: GameState, action: GameAction): void {
       break;
     }
     case 'buy_train':
+      if (s.or.step === 'leadoff') {
+        // Leadoff: one train at face value from the depot stack/pool only
+        // (never from another company), paid fully from the treasury.
+        if (action.from !== undefined) {
+          throw new GameError('a leadoff train cannot be bought from another company');
+        }
+        doBuyTrain(s, c, action.train, action.tradeIn);
+        s.or.step = 'track';
+        break;
+      }
       if (s.or.step !== 'trains') throw new GameError(`${c.sym} must run before buying trains`);
       if (action.from !== undefined) {
         doBuyTrainFromCorp(s, c, action.from, action.train, action.price ?? 1);
@@ -511,6 +548,19 @@ export function applyOperating(s: GameState, action: GameAction): void {
         doBuyTrain(s, c, action.train, action.tradeIn);
       }
       break;
+    case 'issue':
+    case 'redeem': {
+      if (!configFor(s.title).issueRedeem) throw new GameError('issuing is not part of this game');
+      if (s.or.step !== 'leadoff' && s.or.step !== 'track') {
+        throw new GameError(`${c.sym} may only issue/redeem at the start of its turn`);
+      }
+      if ((s.or.yellowLaid ?? 0) > 0) throw new GameError('issue/redeem must come before laying track');
+      if (s.or.issued) throw new GameError(`${c.sym} has already issued or redeemed this turn`);
+      if (action.type === 'issue') issueShare(s, c);
+      else redeemShare(s, c);
+      s.or.issued = true;
+      break;
+    }
     case 'special_lay':
       applySpecialLay(s, action.player, action.company, action.hex, action.tile, action.rotation);
       break;
@@ -525,7 +575,9 @@ export function applyOperating(s: GameState, action: GameAction): void {
       doDeclareBankruptcy(s, c);
       break;
     case 'pass':
-      if (s.or.step === 'track') {
+      if (s.or.step === 'leadoff') {
+        s.or.step = 'track'; // skip the leadoff train
+      } else if (s.or.step === 'track') {
         s.or.step = 'token'; // skip laying track -> optional token
       } else if (s.or.step === 'token') {
         s.or.step = 'run'; // skip the token
@@ -533,6 +585,7 @@ export function applyOperating(s: GameState, action: GameAction): void {
         // A corporation that can run but owns no train must buy one; it cannot
         // finish its turn train-less.
         if (mustBuyTrain(s, c)) throw new GameError(`${c.sym} must own a train (buy one before finishing)`);
+        c.operated = true;
         s.log.push(`${c.sym} finishes operating`);
         nextCorp(s);
       } else {
@@ -547,20 +600,27 @@ export function applyOperating(s: GameState, action: GameAction): void {
 /** Legal tile plays for the operating corporation (track step). */
 export function trackLays(s: GameState) {
   if (!s.or || s.or.step !== 'track') return [];
-  return legalLays(s, activeCorp(s));
+  const lays = legalLays(s, activeCorp(s));
+  return (s.or.yellowLaid ?? 0) > 0 ? lays.filter((l) => !l.upgrade) : lays;
 }
 
 /** Legal token placements for the operating corporation (token step). */
 export function tokenPlays(s: GameState) {
-  if (!s.or || (s.or.step !== 'token' && s.or.step !== 'track')) return [];
+  if (!s.or || (s.or.step !== 'token' && s.or.step !== 'track' && s.or.step !== 'leadoff')) return [];
   return legalTokens(s, activeCorp(s));
 }
 
 export interface OperatingView {
   corp: string;
   president: string | null;
-  step: 'track' | 'token' | 'run' | 'trains';
+  step: 'leadoff' | 'track' | 'token' | 'run' | 'trains';
   order: string[];
+  /** Yellow tiles already laid this turn (RoLA may lay a second). */
+  yellowLaid: number;
+  /** The company may issue a share right now (RoLA OR step 2). */
+  canIssue: boolean;
+  /** The company may redeem a pooled share right now (RoLA OR step 2). */
+  canRedeem: boolean;
   index: number;
   orNumber: number;
   orsThisSet: number;
@@ -607,6 +667,21 @@ export function operatingView(s: GameState): OperatingView | null {
     corp: c.sym,
     president: c.president,
     step: s.or.step,
+    yellowLaid: s.or.yellowLaid ?? 0,
+    canIssue:
+      !!configFor(s.title).issueRedeem &&
+      (s.or.step === 'leadoff' || s.or.step === 'track') &&
+      !(s.or.yellowLaid ?? 0) &&
+      !s.or.issued &&
+      c.ipoShares >= (c.shareUnit ?? 10) &&
+      c.poolShares + (c.shareUnit ?? 10) <= 50,
+    canRedeem:
+      !!configFor(s.title).issueRedeem &&
+      (s.or.step === 'leadoff' || s.or.step === 'track') &&
+      !(s.or.yellowLaid ?? 0) &&
+      !s.or.issued &&
+      c.poolShares >= (c.shareUnit ?? 10) &&
+      c.cash >= currentPrice(s, c),
     order: s.or.order,
     index: s.or.index,
     orNumber: s.or.orNumber,

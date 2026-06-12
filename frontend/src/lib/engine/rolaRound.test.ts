@@ -46,12 +46,22 @@ describe('RoLA stock round (Stage 4c)', () => {
     // p2 (a non-president) holds two single shares (40%)
     s.players[1].shares['AG'] = 40;
     ag(s).ipoShares = 20; // 100 - 40 pres - 40 p2
+    ag(s).operated = true; // companies cannot be sold before their first OR
     const before = ag(s).priceCol!;
     s = apply(s, { type: 'sell', player: 'p2', corp: 'AG', count: 2 });
     expect(ag(s).priceCol).toBe(before - 1); // one space, despite selling two shares
     expect(ag(s).poolShares).toBe(40);
     expect(s.players[1].shares['AG']).toBe(0);
     expect(s.players[1].cash).toBe(300 + 2 * 80); // proceeds at the pre-move price (80)
+  });
+
+  it('cannot sell shares of a company that has not operated yet', () => {
+    let s = rola();
+    s = apply(s, { type: 'launch', player: 'p1', corp: 'AG', bid: 160 });
+    s = apply(s, { type: 'pass', player: 'p1' });
+    s.players[1].shares['AG'] = 40;
+    ag(s).ipoShares = 20;
+    expect(() => apply(s, { type: 'sell', player: 'p2', corp: 'AG', count: 1 })).toThrow(/cannot sell/);
   });
 
   it('ends the round on a full lap of passes and starts the OR with launched minors', () => {

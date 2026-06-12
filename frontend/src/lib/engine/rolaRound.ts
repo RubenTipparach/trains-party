@@ -106,6 +106,7 @@ export function maxRolaSell(s: GameState, id: string, sym: string): number {
   const c = corp(s, sym);
   const p = player(s, id);
   if (c.priceCol === null || !c.floated) return 0;
+  if (!c.operated) return 0; // rulebook: cannot sell a company that has not operated
   const unit = unitOf(c);
   const have = holds(p, sym);
   const poolRoom = POOL_CAP - c.poolShares;

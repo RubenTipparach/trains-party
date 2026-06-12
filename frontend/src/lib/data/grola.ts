@@ -252,6 +252,11 @@ export const configRola: GameConfig = {
   parPrices: PAR_PRICES,
   parCol: 0, // linear market: par cells live in the single row (see parBands)
   parBands: PAR_BANDS,
+  doubleYellowOrSingleUpgrade: true, // rulebook OR step 3: 2 yellow or 1 upgrade
+  leadoffTrain: true, // rulebook OR step 1: new minors may buy a train first
+  issueRedeem: true, // rulebook OR step 2: issue or redeem one share
+  cyclesByPlayers: { 2: 4, 3: 6, 4: 6, 5: 6 }, // Short (2p) = 4 cycles, Long = 6
+  exportTrains: true, // rulebook: export the top train before each new SR
   phases: PHASES,
   trains: TRAINS,
   corporations: [], // RoLA uses minors/majors, not 1889-style corporations

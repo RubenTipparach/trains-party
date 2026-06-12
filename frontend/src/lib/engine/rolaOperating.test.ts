@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { apply, initialState } from './index';
+import { apply, initialState, trackLays } from './index';
 import type { GameState } from './types';
 
 const seats = [
@@ -19,6 +19,70 @@ function toOperating(): GameState {
   return s;
 }
 const AG = (s: GameState) => s.corporations.find((c) => c.sym === 'AG')!;
+
+describe('RoLA leadoff train + issue/redeem + two yellow lays', () => {
+  it("opens a fresh minor's first turn at the leadoff step and buys a train that can run", () => {
+    let s = toOperating();
+    expect(s.or!.step).toBe('leadoff');
+    s = apply(s, { type: 'buy_train', player: 'p1', corp: 'AG', train: '2' });
+    expect(AG(s).trains).toEqual(['2']);
+    expect(AG(s).cash).toBe(60); // 160 bid - 100 train, paid from the treasury
+    expect(s.or!.step).toBe('track'); // one leadoff train, then the normal turn
+  });
+
+  it('skipping the leadoff moves to the track step; later ORs skip it entirely', () => {
+    let s = toOperating();
+    s = apply(s, { type: 'pass', player: 'p1' }); // skip leadoff
+    expect(s.or!.step).toBe('track');
+    // finish the turn: skip track + token, run 0, finish -> OR 2 begins
+    s = apply(s, { type: 'pass', player: 'p1' });
+    s = apply(s, { type: 'pass', player: 'p1' });
+    s = apply(s, { type: 'run', player: 'p1', corp: 'AG', revenue: 0, dividend: 'withhold' });
+    s = apply(s, { type: 'pass', player: 'p1' });
+    expect(s.or!.orNumber).toBe(2);
+    expect(AG(s).operated).toBe(true);
+    expect(s.or!.step).toBe('track'); // no leadoff once the minor has operated
+  });
+
+  it('issues a share at the start of the turn (treasury +price, price -1, once)', () => {
+    let s = toOperating();
+    const before = AG(s).cash;
+    s = apply(s, { type: 'issue', player: 'p1', corp: 'AG' });
+    expect(AG(s).cash).toBe(before + 80); // current price 80
+    expect(AG(s).poolShares).toBe(20);
+    expect(AG(s).priceCol).toBe(7); // 80 -> 70
+    expect(() => apply(s, { type: 'issue', player: 'p1', corp: 'AG' })).toThrow(/already issued/);
+  });
+
+  it('redeems a pooled share at current price with no price move', () => {
+    let s = toOperating();
+    AG(s).poolShares = 20;
+    AG(s).ipoShares = 40;
+    AG(s).cash = 200;
+    s = apply(s, { type: 'redeem', player: 'p1', corp: 'AG' });
+    expect(AG(s).poolShares).toBe(0);
+    expect(AG(s).cash).toBe(120); // paid the 80 price
+    expect(AG(s).priceCol).toBe(8); // unchanged
+  });
+
+  it('allows a second yellow lay in the same turn (2 yellow or 1 upgrade)', () => {
+    let s = toOperating();
+    s = apply(s, { type: 'pass', player: 'p1' }); // leadoff -> track
+    const lays = trackLays(s).filter((l) => !l.upgrade && l.cost <= AG(s).cash);
+    expect(lays.length).toBeGreaterThan(0);
+    const a = lays[0];
+    s = apply(s, { type: 'lay_tile', player: 'p1', corp: 'AG', hex: a.hex, tile: a.tile, rotation: a.rotation });
+    expect(s.or!.step).toBe('track'); // still open for the second yellow
+    expect(s.or!.yellowLaid).toBe(1);
+    const lays2 = trackLays(s).filter((l) => l.cost <= AG(s).cash);
+    expect(lays2.every((l) => !l.upgrade)).toBe(true); // upgrades are off the table now
+    if (lays2.length) {
+      const b = lays2[0];
+      s = apply(s, { type: 'lay_tile', player: 'p1', corp: 'AG', hex: b.hex, tile: b.tile, rotation: b.rotation });
+      expect(s.or!.step).toBe('token'); // two yellows laid -> on to the token step
+    }
+  });
+});
 
 describe('RoLA operating round (Stage 4d)', () => {
   it('starts the OR with the launched minor and places its home token', () => {
