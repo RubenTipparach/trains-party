@@ -12,7 +12,6 @@
   } from '$lib/engine';
   import { TRAINS, MARKET, CURRENCY, COMPANIES } from '$lib/data/g1889';
   import type { CorporationState } from '$lib/engine';
-  import HexMap from './HexMap.svelte';
   import PrivateChip from './PrivateChip.svelte';
   import MoneyValue from './MoneyValue.svelte';
   import Treasury from './Treasury.svelte';
@@ -164,16 +163,8 @@
 
     {#if game.error}<p class="err">{game.error}</p>{/if}
 
+    <!-- track / token / route interactions live on the background map -->
     <div class="cols">
-      <!-- the board, with track laying live on it (only interactive on your turn) -->
-      <div class="mapwrap">
-        <HexMap
-          layMode={game.canAct && v.step === 'track'}
-          tokenMode={game.canAct && v.step === 'token'}
-          runMode={game.canAct && v.step === 'run'}
-        />
-      </div>
-
       <!-- the operating corporation + its current action -->
       <aside>
         <div class="cur" style="--c:{c.color}">
@@ -422,14 +413,6 @@
     grid-template-columns: 1fr;
     gap: 1rem;
     align-items: start;
-  }
-  @media (min-width: 880px) {
-    .cols {
-      grid-template-columns: minmax(0, 1.6fr) minmax(280px, 1fr);
-    }
-  }
-  .mapwrap {
-    min-width: 0;
   }
   aside {
     display: flex;

@@ -12,7 +12,7 @@
   import TileGraphic from '$lib/components/TileGraphic.svelte';
   import PrivateChip from '$lib/components/PrivateChip.svelte';
   import { game } from '$lib/game/sandbox.svelte';
-  import { playerValue, playerLiquidity, configFor, currencyFor } from '$lib/engine';
+  import { playerValue, playerLiquidity, configFor, currencyFor, operatingView } from '$lib/engine';
 
   const SEAT = ['#f5c542', '#3fb6a8', '#e0655c', '#9b8cf0', '#7cc36b', '#e8923a'];
   // The entities tab still lists 1889's privates/corporations directly (RoLA's
@@ -38,13 +38,21 @@
   const cfg = $derived(configFor(game.title));
   const currency = $derived(currencyFor(game.title));
 
-  // Init animation prefs and the skip hotkey on the client.
+  // The map is the board's permanent background. The single background HexMap
+  // also carries the operating-round interactions (lay track / token / routes).
+  const opv = $derived(game.state.round === 'operating' ? operatingView(game.state) : null);
+
+  // Init animation prefs and the hotkeys on the client; open the Game panel by
+  // default on desktop (it holds the action UI), keep the map clear on mobile.
   onMount(() => {
     anim.init();
+    if (window.matchMedia('(min-width: 920px)').matches) active = 'game';
     const onKey = (e: KeyboardEvent) => {
       if (e.code === 'Space' && !(e.target instanceof HTMLInputElement)) {
         e.preventDefault();
         anim.skip();
+      } else if (e.key === 'Escape') {
+        active = null;
       }
     };
     window.addEventListener('keydown', onKey);
@@ -66,22 +74,61 @@
     }
   });
 
+  // Floating-toolbar panels. The map is not a panel: it is the background.
   const tabs = [
-    { id: 'game', label: 'Game' },
-    { id: 'map', label: 'Map' },
-    { id: 'market', label: 'Market' },
-    { id: 'info', label: 'Info' },
-    { id: 'entities', label: 'Entities' },
-    { id: 'tiles', label: 'Tiles' },
-    { id: 'spreadsheet', label: 'Spreadsheet' }
+    {
+      id: 'game',
+      label: 'Game',
+      icon: '<path d="M7 5.3v13.4a.6.6 0 0 0 .92.5l10.5-6.7a.6.6 0 0 0 0-1L7.92 4.8a.6.6 0 0 0-.92.5z"/>'
+    },
+    {
+      id: 'market',
+      label: 'Market',
+      icon: '<path d="M3 17l6-6 4 4 8-8"/><path d="M14.5 7H21v6.5"/>'
+    },
+    {
+      id: 'info',
+      label: 'Info',
+      icon: '<circle cx="12" cy="12" r="8.6"/><path d="M12 11.2v5"/><path d="M12 7.8h.01"/>'
+    },
+    {
+      id: 'entities',
+      label: 'Entities',
+      icon: '<circle cx="9" cy="8.2" r="3.4"/><path d="M2.8 19.4c0-3.2 2.8-5.3 6.2-5.3s6.2 2.1 6.2 5.3"/><circle cx="16.8" cy="9.2" r="2.5"/><path d="M16.6 14.3c2.7.4 4.6 2.2 4.6 4.6"/>'
+    },
+    {
+      id: 'tiles',
+      label: 'Tiles',
+      icon: '<path d="M12 2.6l8.1 4.7v9.4L12 21.4l-8.1-4.7V7.3z"/>'
+    },
+    {
+      id: 'spreadsheet',
+      label: 'Spreadsheet',
+      icon: '<rect x="3.5" y="4" width="17" height="16" rx="2"/><path d="M3.5 9.5h17"/><path d="M9.3 9.5V20"/><path d="M14.9 9.5V20"/>'
+    }
   ] as const;
   type TabId = (typeof tabs)[number]['id'];
-  let active = $state<TabId>('game');
+  let active = $state<TabId | null>(null);
+  const activeTab = $derived(tabs.find((t) => t.id === active) ?? null);
 
-  function onKey(e: KeyboardEvent, i: number) {
-    if (e.key === 'ArrowRight') active = tabs[(i + 1) % tabs.length].id;
-    else if (e.key === 'ArrowLeft') active = tabs[(i - 1 + tabs.length) % tabs.length].id;
+  function toggle(id: TabId) {
+    active = active === id ? null : id;
   }
+
+  // Always-visible status pill: round, active player (seat colour), bank.
+  const seatColor = (id: string) => {
+    const i = game.state.players.findIndex((p) => p.id === id);
+    return SEAT[(i < 0 ? 0 : i) % SEAT.length];
+  };
+  const playerName = (id: string | null) =>
+    id ? (game.state.players.find((p) => p.id === id)?.name ?? id) : '-';
+  const roundLabel = $derived.by(() => {
+    const s = game.state;
+    if (s.round === 'auction') return 'ISR';
+    if (s.round === 'mapbuild') return 'MAP';
+    if (s.round === 'stock') return `SR ${s.srCount}`;
+    return s.or ? `OR ${s.orSet}.${s.or.orNumber}` : 'OR';
+  });
 
   const cash = $derived([...new Set(Object.values(cfg.startingCash))].map((v) => `${currency}${v}`).join(' / '));
   const rustsWhenBought = (name: string) => cfg.trains.find((x) => x.rustsOn === name)?.name;
@@ -102,273 +149,273 @@
 
 {#if ready}
 <div class="board-root" class:theme-rola={isRola}>
-<header>
-  <a class="back" href="{base}/">← All games</a>
-  <div class="htop">
-    <div class="hid">
-      <h1>{meta.title}</h1>
-      {#if game.code}<span class="roomcode" title="Room code (in the URL)">Room {game.code.toUpperCase()}</span>{/if}
-    </div>
-    <div class="animctl">
-      {#if anim.pacing}
-        <button class="skip" onclick={() => anim.skip()}>Skip ⏭ <kbd>Space</kbd></button>
-      {/if}
-      <button class="anitoggle" class:on={anim.enabled} onclick={() => anim.toggle()} title="Toggle animations">
-        Animations {anim.enabled ? 'on' : 'off'}
-      </button>
-    </div>
+  <!-- the map: full-screen, always on, the board's background -->
+  <div class="maplayer">
+    <HexMap
+      fill
+      layMode={game.canAct && opv?.step === 'track'}
+      tokenMode={game.canAct && opv?.step === 'token'}
+      runMode={game.canAct && opv?.step === 'run'}
+    />
   </div>
-  <p class="subtitle">{meta.subtitle}</p>
-</header>
 
-<nav class="topnav" aria-label="Board sections">
-  <div role="tablist">
-    {#each tabs as t, i (t.id)}
+  <!-- floating toolbar: horizontal at the top on mobile, vertical dock on desktop -->
+  <nav class="dock" aria-label="Board sections">
+    <a class="dbtn" href="{base}/" title="All games" aria-label="All games">
+      <svg viewBox="0 0 24 24"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
+    </a>
+    <span class="dsep" aria-hidden="true"></span>
+    {#each tabs as t (t.id)}
       <button
-        role="tab"
-        id="tab-{t.id}"
-        aria-selected={active === t.id}
-        aria-controls="panel-{t.id}"
-        tabindex={active === t.id ? 0 : -1}
-        class:selected={active === t.id}
-        onclick={() => (active = t.id)}
-        onkeydown={(e) => onKey(e, i)}
+        class="dbtn"
+        class:on={active === t.id}
+        title={t.label}
+        aria-label={t.label}
+        aria-pressed={active === t.id}
+        onclick={() => toggle(t.id)}
       >
-        {t.label}
+        <svg viewBox="0 0 24 24">{@html t.icon}</svg>
       </button>
     {/each}
+    <span class="dsep" aria-hidden="true"></span>
+    <button
+      class="dbtn"
+      class:on={anim.enabled}
+      title="Animations {anim.enabled ? 'on' : 'off'}"
+      aria-label="Toggle animations"
+      aria-pressed={anim.enabled}
+      onclick={() => anim.toggle()}
+    >
+      <svg viewBox="0 0 24 24"><path d="M13 2.8L3.8 13.6h6L8.6 21.2 17.8 10.4h-6z"/></svg>
+    </button>
+  </nav>
+
+  <!-- room identity chip (desktop) -->
+  <div class="roomchip">
+    <span class="rtitle">{meta.title}</span>
+    {#if game.code}<span class="rcode">Room {game.code.toUpperCase()}</span>{/if}
   </div>
-</nav>
 
-<main in:fade={{ duration: 200 }}>
-  {#key active}
-    <div class="panel" role="tabpanel" id="panel-{active}" aria-labelledby="tab-{active}" in:fly={{ y: 10, duration: 200 }}>
-      {#if active === 'game'}
-        <GamePanel />
-      {:else if active === 'spreadsheet'}
-        <h2>Spreadsheet</h2>
-        <Spreadsheet />
-      {:else if active === 'map'}
-        <HexMap />
-      {:else if active === 'market'}
-        <h2>Stock market</h2>
-        <StockMarket />
-        <ul class="legend-list">
-          <li><span class="chip par">par</span> Par price: a corporation's starting share price.</li>
-          <li><span class="chip yel">yellow</span> Shares do not count toward the certificate limit.</li>
-          <li><span class="chip ora">orange</span> Shares may be held above 60%.</li>
-        </ul>
-      {:else if active === 'info'}
-        <section>
-          <h2>Trains</h2>
-          <div class="scroll">
-            <table>
-              <thead>
-                <tr><th>Type</th><th>Price</th><th>Available</th><th>Rusts</th><th>Upgrade discount</th><th>Phase</th></tr>
-              </thead>
-              <tbody>
-                {#each cfg.trains as t (t.name)}
-                  {@const left = game.state.depot.find((d) => d.name === t.name)?.remaining ?? t.num}
-                  <tr>
-                    <td><strong>{t.name}</strong></td>
-                    <td>{currency}{t.price}</td>
-                    <td>{t.num === -1 ? (left === -1 ? '∞' : left) : `${left}/${t.num}`}</td>
-                    <td>{rustsWhenBought(t.name) ?? '-'}</td>
-                    <td>{t.discount ? `${Object.keys(t.discount).join(', ')} → ${currency}${Object.values(t.discount)[0]}` : '-'}</td>
-                    <td>{t.availableOn ? `phase ${t.availableOn}` : '-'}</td>
-                  </tr>
-                {/each}
-              </tbody>
-            </table>
-          </div>
-          {#if !isRola}<p class="legend">The 5-train closes all private companies when the first one is bought.</p>{/if}
-        </section>
+  <!-- always-visible turn status -->
+  <div class="statusbar" class:myturn={game.canAct} style="--p:{seatColor(game.active ?? '')}">
+    <span class="srnd">{roundLabel}</span>
+    <span class="splayer">{game.canAct ? 'Your turn · ' : ''}{playerName(game.active)}</span>
+    {#if game.isBot(game.active)}<span class="sbot">BOT</span>{/if}
+    <span class="sbank">Bank {currency}{game.state.bank.toLocaleString()}</span>
+    {#if anim.pacing}
+      <button class="skip" onclick={() => anim.skip()}>Skip ⏭ <kbd>Space</kbd></button>
+    {/if}
+  </div>
 
-        <section>
-          <h2>Game phases</h2>
-          <div class="scroll">
-            <table>
-              <thead>
-                <tr><th>Phase</th><th>On train</th><th>ORs</th><th>Train limit</th><th>Tiles</th><th>Status</th></tr>
-              </thead>
-              <tbody>
-                {#each cfg.phases as p (p.name)}
-                  {@const hi = p.tiles[p.tiles.length - 1]}
-                  <tr>
-                    <td><strong>{p.name}</strong></td>
-                    <td>{p.on ?? 'start'}</td>
-                    <td>{p.operatingRounds}</td>
-                    <td>{p.minorTrainLimit ? `${p.minorTrainLimit}/${p.trainLimit}` : p.trainLimit}</td>
-                    <td><span class="tilebadge" style:background={isRola && hi === 'brown' ? '#9b6fb0' : TILE_FILL[hi]}>{isRola && hi === 'brown' ? 'purple' : isRola && hi === 'gray' ? 'grey' : hi}</span></td>
-                    <td>{p.canBuyCompanies ? 'Can buy companies' : '-'}</td>
-                  </tr>
-                {/each}
-              </tbody>
-            </table>
-          </div>
-        </section>
+  {#if active && activeTab}
+    <!-- mobile-only scrim behind the modal -->
+    <button class="scrim" aria-label="Close panel" onclick={() => (active = null)} transition:fade={{ duration: 120 }}></button>
 
-        <section>
-          <h2>Reasons for end of game</h2>
-          <table>
-            <thead>
-              <tr><th>Reason</th><th>Timing</th></tr>
-            </thead>
-            <tbody>
-              {#each cfg.endGame ?? [] as e (e.reason)}
-                <tr><td>{e.reason}</td><td>{e.timing}</td></tr>
-              {/each}
-            </tbody>
-          </table>
-        </section>
-
-        <section>
-          <h2>Game info</h2>
-          <table>
-            <tbody>
-              <tr><th>Title</th><td>{meta.title}{meta.subtitle ? ` - ${meta.subtitle}` : ''}</td></tr>
-              <tr><th>Players</th><td>{meta.players ?? '-'}</td></tr>
-              <tr><th>Bank</th><td>{currency}{cfg.bankCash.toLocaleString()}</td></tr>
-              <tr><th>Starting cash</th><td>{cash} (by player count)</td></tr>
-              <tr><th>Certificate limit</th><td>{Object.entries(cfg.certLimit).map(([p, n]) => `${p}p: ${n < 0 ? 'none' : n}`).join(' · ')}</td></tr>
-              <tr><th>Par prices</th><td>{cfg.parPrices.map((p) => `${currency}${p}`).join(' · ')}</td></tr>
-              <tr><th>Capitalization</th><td>{isRola ? 'Incremental' : 'Full'}</td></tr>
-              <tr><th>Published by</th><td>{meta.publisher}</td></tr>
-              <tr><th>Designed by</th><td>{meta.designer ?? '-'}</td></tr>
-              <tr><th>Rules</th><td><a href={meta.rulebookUrl} target="_blank" rel="noreferrer">Rulebook (PDF)</a></td></tr>
-            </tbody>
-          </table>
-        </section>
-      {:else if active === 'entities'}
-        <section>
-          <h2>Players <span class="count">{game.state.players.length}</span></h2>
-          <div class="cards">
-            {#each game.state.players as pl, i (pl.id)}
-              <div class="pent" style="--p:{SEAT[i % SEAT.length]}">
-                <div class="pehead">
-                  <span class="pename">{pl.name}{#if game.isBot(pl.id)}<span class="pebot">BOT</span>{/if}</span>
-                  <span class="pecash">{currency}{pl.cash}</span>
+    <!-- the open panel: side panel on desktop, modal on mobile -->
+    <aside class="panelhost" transition:fly={{ y: 12, duration: 180 }} aria-label={activeTab.label}>
+      <header class="phead">
+        <svg class="picon" viewBox="0 0 24 24">{@html activeTab.icon}</svg>
+        <h2>{activeTab.label}</h2>
+        <button class="pclose" aria-label="Close panel" onclick={() => (active = null)}>✕</button>
+      </header>
+      <div class="pbody">
+        {#key active}
+          <div class="panel" in:fade={{ duration: 150 }}>
+            {#if active === 'game'}
+              <GamePanel />
+            {:else if active === 'spreadsheet'}
+              <Spreadsheet />
+            {:else if active === 'market'}
+              <StockMarket />
+              <ul class="legend-list">
+                <li><span class="chip par">par</span> Par price: a corporation's starting share price.</li>
+                <li><span class="chip yel">yellow</span> Shares do not count toward the certificate limit.</li>
+                <li><span class="chip ora">orange</span> Shares may be held above 60%.</li>
+              </ul>
+            {:else if active === 'info'}
+              <section>
+                <h3>Trains</h3>
+                <div class="scroll">
+                  <table>
+                    <thead>
+                      <tr><th>Type</th><th>Price</th><th>Available</th><th>Rusts</th><th>Upgrade discount</th><th>Phase</th></tr>
+                    </thead>
+                    <tbody>
+                      {#each cfg.trains as t (t.name)}
+                        {@const left = game.state.depot.find((d) => d.name === t.name)?.remaining ?? t.num}
+                        <tr>
+                          <td><strong>{t.name}</strong></td>
+                          <td>{currency}{t.price}</td>
+                          <td>{t.num === -1 ? (left === -1 ? '∞' : left) : `${left}/${t.num}`}</td>
+                          <td>{rustsWhenBought(t.name) ?? '-'}</td>
+                          <td>{t.discount ? `${Object.keys(t.discount).join(', ')} → ${currency}${Object.values(t.discount)[0]}` : '-'}</td>
+                          <td>{t.availableOn ? `phase ${t.availableOn}` : '-'}</td>
+                        </tr>
+                      {/each}
+                    </tbody>
+                  </table>
                 </div>
-                <div class="pemetrics">
-                  <span>Value {currency}{playerValue(game.state, pl.id)}</span>
-                  <span>Liquidity {currency}{playerLiquidity(game.state, pl.id)}</span>
+                {#if !isRola}<p class="legend">The 5-train closes all private companies when the first one is bought.</p>{/if}
+              </section>
+
+              <section>
+                <h3>Game phases</h3>
+                <div class="scroll">
+                  <table>
+                    <thead>
+                      <tr><th>Phase</th><th>On train</th><th>ORs</th><th>Train limit</th><th>Tiles</th><th>Status</th></tr>
+                    </thead>
+                    <tbody>
+                      {#each cfg.phases as p (p.name)}
+                        {@const hi = p.tiles[p.tiles.length - 1]}
+                        <tr>
+                          <td><strong>{p.name}</strong></td>
+                          <td>{p.on ?? 'start'}</td>
+                          <td>{p.operatingRounds}</td>
+                          <td>{p.minorTrainLimit ? `${p.minorTrainLimit}/${p.trainLimit}` : p.trainLimit}</td>
+                          <td><span class="tilebadge" style:background={isRola && hi === 'brown' ? '#9b6fb0' : TILE_FILL[hi]}>{isRola && hi === 'brown' ? 'purple' : isRola && hi === 'gray' ? 'grey' : hi}</span></td>
+                          <td>{p.canBuyCompanies ? 'Can buy companies' : '-'}</td>
+                        </tr>
+                      {/each}
+                    </tbody>
+                  </table>
                 </div>
-                <div class="peholds">
-                  {#each game.state.corporations.filter((c) => (pl.shares[c.sym] ?? 0) > 0) as c (c.sym)}
-                    <span class="peshare" style="--c:{c.color}"><i></i>{c.sym} {pl.shares[c.sym]}%{#if c.president === pl.id}<sup>P</sup>{/if}</span>
+              </section>
+
+              <section>
+                <h3>Reasons for end of game</h3>
+                <table>
+                  <thead>
+                    <tr><th>Reason</th><th>Timing</th></tr>
+                  </thead>
+                  <tbody>
+                    {#each cfg.endGame ?? [] as e (e.reason)}
+                      <tr><td>{e.reason}</td><td>{e.timing}</td></tr>
+                    {/each}
+                  </tbody>
+                </table>
+              </section>
+
+              <section>
+                <h3>Game info</h3>
+                <table>
+                  <tbody>
+                    <tr><th>Title</th><td>{meta.title}{meta.subtitle ? ` - ${meta.subtitle}` : ''}</td></tr>
+                    <tr><th>Players</th><td>{meta.players ?? '-'}</td></tr>
+                    <tr><th>Bank</th><td>{currency}{cfg.bankCash.toLocaleString()}</td></tr>
+                    <tr><th>Starting cash</th><td>{cash} (by player count)</td></tr>
+                    <tr><th>Certificate limit</th><td>{Object.entries(cfg.certLimit).map(([p, n]) => `${p}p: ${n < 0 ? 'none' : n}`).join(' · ')}</td></tr>
+                    <tr><th>Par prices</th><td>{cfg.parPrices.map((p) => `${currency}${p}`).join(' · ')}</td></tr>
+                    <tr><th>Capitalization</th><td>{isRola ? 'Incremental' : 'Full'}</td></tr>
+                    <tr><th>Published by</th><td>{meta.publisher}</td></tr>
+                    <tr><th>Designed by</th><td>{meta.designer ?? '-'}</td></tr>
+                    <tr><th>Rules</th><td><a href={meta.rulebookUrl} target="_blank" rel="noreferrer">Rulebook (PDF)</a></td></tr>
+                  </tbody>
+                </table>
+              </section>
+            {:else if active === 'entities'}
+              <section>
+                <h3>Players <span class="count">{game.state.players.length}</span></h3>
+                <div class="cards">
+                  {#each game.state.players as pl, i (pl.id)}
+                    <div class="pent" style="--p:{SEAT[i % SEAT.length]}">
+                      <div class="pehead">
+                        <span class="pename">{pl.name}{#if game.isBot(pl.id)}<span class="pebot">BOT</span>{/if}</span>
+                        <span class="pecash">{currency}{pl.cash}</span>
+                      </div>
+                      <div class="pemetrics">
+                        <span>Value {currency}{playerValue(game.state, pl.id)}</span>
+                        <span>Liquidity {currency}{playerLiquidity(game.state, pl.id)}</span>
+                      </div>
+                      <div class="peholds">
+                        {#each game.state.corporations.filter((c) => (pl.shares[c.sym] ?? 0) > 0) as c (c.sym)}
+                          <span class="peshare" style="--c:{c.color}"><i></i>{c.sym} {pl.shares[c.sym]}%{#if c.president === pl.id}<sup>P</sup>{/if}</span>
+                        {/each}
+                        {#each pl.companies as sym (sym)}<PrivateChip {sym} />{/each}
+                        {#if game.state.corporations.every((c) => (pl.shares[c.sym] ?? 0) === 0) && pl.companies.length === 0}
+                          <span class="penone">no holdings yet</span>
+                        {/if}
+                      </div>
+                    </div>
                   {/each}
-                  {#each pl.companies as sym (sym)}<PrivateChip {sym} />{/each}
-                  {#if game.state.corporations.every((c) => (pl.shares[c.sym] ?? 0) === 0) && pl.companies.length === 0}
-                    <span class="penone">no holdings yet</span>
-                  {/if}
                 </div>
+              </section>
+              {#if isRola}
+                <section>
+                  <h3>Minor companies <span class="count">{cfg.minors?.length ?? 0}</span></h3>
+                  <div class="cards">
+                    {#each cfg.minors ?? [] as m (m.sym)}
+                      <div class="entcard" style="--c:{m.color}">
+                        <div class="enthead">
+                          <CompanyLogo sym={m.sym} color={m.color} size={26} />
+                          <span class="entsym">{m.sym}</span>
+                          <span class="entname">{m.name}</span>
+                        </div>
+                        <p class="entdesc">{m.desc}</p>
+                      </div>
+                    {/each}
+                  </div>
+                </section>
+                <section>
+                  <h3>Major corporations <span class="count">{cfg.majors?.length ?? 0}</span></h3>
+                  <div class="cards">
+                    {#each cfg.majors ?? [] as m (m.sym)}
+                      <div class="entcard" style="--c:{m.color}">
+                        <div class="enthead">
+                          <CompanyLogo sym={m.sym} color={m.color} size={26} />
+                          <span class="entsym">{m.sym}</span>
+                          <span class="entname">{m.name}</span>
+                        </div>
+                        <p class="entdesc">Forms in the green phase when two minors merge.</p>
+                      </div>
+                    {/each}
+                  </div>
+                </section>
+              {:else}
+                <section>
+                  <h3>Corporations <span class="count">{CORPORATIONS.length}</span></h3>
+                  <div class="cards">
+                    {#each CORPORATIONS as corp (corp.sym)}<CorporationCard {corp} />{/each}
+                  </div>
+                </section>
+                <section>
+                  <h3>Private companies <span class="count">{COMPANIES.length}</span></h3>
+                  <div class="cards">
+                    {#each COMPANIES as company (company.sym)}<CompanyCard {company} />{/each}
+                  </div>
+                </section>
+              {/if}
+            {:else if active === 'tiles'}
+              <h3>Tile manifest <span class="count">{cfg.tileManifest.reduce((n, t) => n + t.count, 0)} tiles</span></h3>
+              <div class="tiles">
+                {#each cfg.tileManifest as t (t.id)}
+                  <TileGraphic id={t.id} count={t.count} />
+                {/each}
               </div>
-            {/each}
+              <p class="legend">Each tile and how many are available, coloured by phase ({isRola ? 'yellow / green / purple / grey' : 'yellow / green / brown'}).</p>
+            {/if}
           </div>
-        </section>
-        {#if isRola}
-          <section>
-            <h2>Minor companies <span class="count">{cfg.minors?.length ?? 0}</span></h2>
-            <div class="cards">
-              {#each cfg.minors ?? [] as m (m.sym)}
-                <div class="entcard" style="--c:{m.color}">
-                  <div class="enthead">
-                    <CompanyLogo sym={m.sym} color={m.color} size={26} />
-                    <span class="entsym">{m.sym}</span>
-                    <span class="entname">{m.name}</span>
-                  </div>
-                  <p class="entdesc">{m.desc}</p>
-                </div>
-              {/each}
-            </div>
-          </section>
-          <section>
-            <h2>Major corporations <span class="count">{cfg.majors?.length ?? 0}</span></h2>
-            <div class="cards">
-              {#each cfg.majors ?? [] as m (m.sym)}
-                <div class="entcard" style="--c:{m.color}">
-                  <div class="enthead">
-                    <CompanyLogo sym={m.sym} color={m.color} size={26} />
-                    <span class="entsym">{m.sym}</span>
-                    <span class="entname">{m.name}</span>
-                  </div>
-                  <p class="entdesc">Forms in the green phase when two minors merge.</p>
-                </div>
-              {/each}
-            </div>
-          </section>
-        {:else}
-          <section>
-            <h2>Corporations <span class="count">{CORPORATIONS.length}</span></h2>
-            <div class="cards">
-              {#each CORPORATIONS as corp (corp.sym)}<CorporationCard {corp} />{/each}
-            </div>
-          </section>
-          <section>
-            <h2>Private companies <span class="count">{COMPANIES.length}</span></h2>
-            <div class="cards">
-              {#each COMPANIES as company (company.sym)}<CompanyCard {company} />{/each}
-            </div>
-          </section>
-        {/if}
-      {:else if active === 'tiles'}
-        <h2>Tile manifest <span class="count">{cfg.tileManifest.reduce((n, t) => n + t.count, 0)} tiles</span></h2>
-        <div class="tiles">
-          {#each cfg.tileManifest as t (t.id)}
-            <TileGraphic id={t.id} count={t.count} />
-          {/each}
-        </div>
-        <p class="legend">Each tile and how many are available, coloured by phase ({isRola ? 'yellow / green / purple / grey' : 'yellow / green / brown'}).</p>
-      {/if}
-    </div>
-  {/key}
-
-  <footer>{meta.title}{meta.subtitle ? ` · ${meta.subtitle}` : ''}</footer>
-</main>
+        {/key}
+      </div>
+    </aside>
+  {/if}
 </div>
 {:else}
   <div class="loadingroom"><p>Loading room {code.toUpperCase()}…</p></div>
 {/if}
 
 <style>
-  header {
-    max-width: 1100px;
-    margin: 0 auto;
-    padding: 1.1rem 1rem 0;
+  /* ---- full-screen board: the map is the background, everything floats ---- */
+  .board-root {
+    position: fixed;
+    inset: 0;
+    overflow: hidden;
+    background: var(--bg);
   }
-  .back {
-    font-size: 0.85rem;
-    text-decoration: none;
-    color: var(--muted);
-  }
-  .back:hover {
-    color: var(--accent);
-  }
-  h1 {
-    font-size: clamp(1.4rem, 4vw, 2rem);
-    margin: 0.3rem 0 0;
-    color: var(--rail);
-  }
-  .hid {
-    display: flex;
-    align-items: baseline;
-    gap: 0.7rem;
-    flex-wrap: wrap;
-  }
-  .roomcode {
-    font: 700 0.8rem ui-monospace, monospace;
-    letter-spacing: 0.08em;
-    color: var(--accent);
-    border: 1px solid var(--line);
-    border-radius: 999px;
-    padding: 0.2rem 0.7rem;
-    background: rgba(255, 255, 255, 0.04);
-    text-transform: uppercase;
-  }
-  .subtitle {
-    margin: 0.15rem 0 0;
-    color: var(--muted);
-    font-size: 0.92rem;
+  .maplayer {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
   }
   .loadingroom {
     min-height: 60vh;
@@ -378,8 +425,8 @@
     font-size: 1rem;
   }
   /* Railways of the Lost Atlas — its own identity (inspired by the rulebook):
-     deep navy + copper, parchment ink, a vintage engraved-serif wordmark. The
-     CSS-variable overrides cascade into every child panel that uses them. */
+     deep navy + copper, parchment ink. The CSS-variable overrides cascade into
+     every floating panel that uses them. */
   .board-root.theme-rola {
     --bg: #0c2032;
     --bg-soft: #14304a;
@@ -389,39 +436,157 @@
     --rail-deep: #b06a30;
     --accent: #d6884a;
     --line: #294258;
-    min-height: 100vh;
-    background: radial-gradient(1100px 720px at 72% -12%, #173552 0%, var(--bg) 58%);
   }
-  .theme-rola h1 {
-    font-family: 'Cinzel', Georgia, 'Times New Roman', serif;
-    letter-spacing: 0.05em;
-    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.45);
-  }
-  .theme-rola .subtitle {
-    font-style: italic;
-  }
-  .htop {
-    display: flex;
-    align-items: flex-end;
-    justify-content: space-between;
-    gap: 1rem;
-    flex-wrap: wrap;
-  }
-  .animctl {
+
+  /* ---- floating toolbar (mobile: horizontal top bar / desktop: vertical dock) ---- */
+  .dock {
+    position: absolute;
+    z-index: 20;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    max-width: calc(100vw - 16px);
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 4px;
+    padding: 5px;
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--bg) 84%, transparent);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--line);
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .dock::-webkit-scrollbar {
+    display: none;
+  }
+  .dbtn {
+    flex: 0 0 auto;
+    width: 42px;
+    height: 42px;
+    display: grid;
+    place-items: center;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    text-decoration: none;
+    transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
+  }
+  .dbtn svg {
+    width: 22px;
+    height: 22px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .dbtn:hover {
+    color: var(--ink);
+    background: rgba(255, 255, 255, 0.06);
+  }
+  .dbtn.on {
+    color: var(--rail);
+    background: color-mix(in srgb, var(--rail) 14%, transparent);
+    border-color: var(--rail-deep);
+  }
+  .dsep {
+    flex: 0 0 auto;
+    width: 1px;
+    height: 26px;
+    background: var(--line);
+    margin: 0 2px;
+  }
+
+  /* ---- room identity chip ---- */
+  .roomchip {
+    display: none;
+    position: absolute;
+    z-index: 12;
+    top: 14px;
+    right: 14px;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0.4rem 0.8rem;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--bg) 84%, transparent);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--line);
+  }
+  .rtitle {
+    font-weight: 800;
+    color: var(--rail);
+    font-size: 0.88rem;
+  }
+  .rcode {
+    font: 700 0.72rem ui-monospace, monospace;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    text-transform: uppercase;
+  }
+
+  /* ---- always-visible turn status ---- */
+  .statusbar {
+    position: absolute;
+    z-index: 12;
+    bottom: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    max-width: calc(100vw - 120px);
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0.45rem 0.85rem;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--bg) 86%, transparent);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--line);
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+    font-size: 0.84rem;
+    white-space: nowrap;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .statusbar.myturn {
+    border-color: var(--p);
+    box-shadow: 0 0 0 1px var(--p) inset, 0 4px 18px rgba(0, 0, 0, 0.35);
+  }
+  .srnd {
+    font: 700 0.74rem ui-monospace, monospace;
+    color: #0f1419;
+    background: var(--rail);
+    border-radius: 999px;
+    padding: 0.12rem 0.5rem;
+  }
+  .splayer {
+    font-weight: 700;
+    color: var(--p);
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .sbot {
+    font-size: 0.58rem;
+    color: var(--muted);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 0 0.3rem;
+  }
+  .sbank {
+    color: var(--muted);
+    font-size: 0.76rem;
   }
   .skip {
     display: inline-flex;
     align-items: center;
     gap: 0.35rem;
-    padding: 0.35rem 0.7rem;
+    padding: 0.25rem 0.6rem;
     border-radius: 999px;
     border: 1px solid var(--rail-deep);
     background: var(--rail);
     color: #1b1b1b;
-    font: 700 0.8rem ui-sans-serif, sans-serif;
+    font: 700 0.76rem ui-sans-serif, sans-serif;
     cursor: pointer;
     animation: skippulse 1.2s ease-in-out infinite;
   }
@@ -435,78 +600,126 @@
     }
   }
   .skip kbd {
-    font: 600 0.66rem ui-monospace, monospace;
+    font: 600 0.62rem ui-monospace, monospace;
     background: rgba(0, 0, 0, 0.18);
     border-radius: 4px;
     padding: 0 0.25rem;
   }
-  .anitoggle {
-    padding: 0.35rem 0.7rem;
-    border-radius: 999px;
+
+  /* ---- the open panel: modal on mobile, docked side panel on desktop ---- */
+  .scrim {
+    position: absolute;
+    inset: 0;
+    z-index: 14;
+    border: none;
+    background: rgba(5, 9, 13, 0.55);
+    cursor: pointer;
+  }
+  .panelhost {
+    position: absolute;
+    z-index: 15;
+    top: 64px;
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+    display: flex;
+    flex-direction: column;
+    border-radius: 14px;
+    border: 1px solid var(--line);
+    background: color-mix(in srgb, var(--bg) 94%, transparent);
+    backdrop-filter: blur(10px);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+    overflow: hidden;
+  }
+  .phead {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0.65rem 0.9rem;
+    border-bottom: 1px solid var(--line);
+    background: color-mix(in srgb, var(--bg-soft) 80%, transparent);
+  }
+  .picon {
+    width: 19px;
+    height: 19px;
+    fill: none;
+    stroke: var(--rail);
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .phead h2 {
+    margin: 0;
+    font-size: 1rem;
+    color: var(--rail);
+  }
+  .pclose {
+    margin-left: auto;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
     border: 1px solid var(--line);
     background: transparent;
     color: var(--muted);
-    font: 600 0.78rem ui-sans-serif, sans-serif;
+    font-size: 0.85rem;
     cursor: pointer;
   }
-  .anitoggle.on {
-    color: var(--accent);
-    border-color: var(--accent);
-  }
-  .topnav {
-    position: sticky;
-    top: 0;
-    z-index: 6;
-    background: rgba(15, 20, 25, 0.92);
-    backdrop-filter: blur(6px);
-    border-bottom: 2px solid var(--accent);
-    margin-top: 0.8rem;
-  }
-  .topnav div[role='tablist'] {
-    max-width: 1100px;
-    margin: 0 auto;
-    display: flex;
-    gap: 0.2rem;
-    padding: 0 0.6rem;
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-  .topnav div[role='tablist']::-webkit-scrollbar {
-    display: none;
-  }
-  .topnav button {
-    flex: 0 0 auto;
-    min-height: 44px;
-    padding: 0.6rem 0.9rem;
-    border: none;
-    background: transparent;
-    color: var(--muted);
-    font: 600 0.98rem ui-sans-serif, sans-serif;
-    cursor: pointer;
-    border-bottom: 3px solid transparent;
-    margin-bottom: -2px;
-    transition: color 120ms ease, border-color 120ms ease;
-  }
-  .topnav button:hover {
+  .pclose:hover {
     color: var(--ink);
+    border-color: var(--rail-deep);
   }
-  .topnav button.selected {
-    color: var(--rail);
-    border-bottom-color: var(--rail);
+  .pbody {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    padding: 0.9rem 1rem 1.4rem;
+    overscroll-behavior: contain;
   }
-  main {
-    max-width: 1100px;
-    margin: 0 auto;
-    padding: 1.2rem 1rem 4rem;
+
+  /* desktop: vertical dock on the left edge, panel docked beside it */
+  @media (min-width: 920px) {
+    .dock {
+      top: 50%;
+      left: 12px;
+      transform: translateY(-50%);
+      flex-direction: column;
+      max-width: none;
+      max-height: calc(100vh - 24px);
+      overflow-x: visible;
+      overflow-y: auto;
+    }
+    .dsep {
+      width: 26px;
+      height: 1px;
+      margin: 2px 0;
+    }
+    .roomchip {
+      display: inline-flex;
+    }
+    .statusbar {
+      bottom: auto;
+      top: 14px;
+      max-width: min(60vw, 700px);
+    }
+    .scrim {
+      display: none;
+    }
+    .panelhost {
+      top: 12px;
+      bottom: 12px;
+      left: 72px;
+      right: auto;
+      width: min(540px, calc(100vw - 96px));
+    }
   }
-  .panel {
-    min-height: 50vh;
-  }
+
+  /* ---- panel content (shared by all tabs) ---- */
   section {
     margin-bottom: 1.8rem;
   }
-  h2 {
-    font-size: 1.05rem;
+  h3 {
+    font-size: 1rem;
     border-bottom: 1px solid var(--line);
     padding-bottom: 0.4rem;
     margin: 0 0 0.9rem;
@@ -523,7 +736,7 @@
   }
   .cards {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
     gap: 0.8rem;
   }
   .entcard {
@@ -641,11 +854,5 @@
   }
   .chip.ora {
     background: #e8923a;
-  }
-  footer {
-    margin-top: 2rem;
-    color: var(--muted);
-    font-size: 0.8rem;
-    text-align: center;
   }
 </style>

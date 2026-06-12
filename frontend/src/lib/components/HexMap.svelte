@@ -117,8 +117,9 @@
   let {
     layMode = false,
     tokenMode = false,
-    runMode = false
-  }: { layMode?: boolean; tokenMode?: boolean; runMode?: boolean } = $props();
+    runMode = false,
+    fill = false
+  }: { layMode?: boolean; tokenMode?: boolean; runMode?: boolean; fill?: boolean } = $props();
   const lays = $derived(layMode ? trackLays(game.state) : []);
   const layHexes = $derived(new Set(lays.map((l) => l.hex)));
   const tokenHexes = $derived(tokenMode ? new Set(tokenPlays(game.state).map((t) => t.hex)) : new Set<string>());
@@ -888,7 +889,7 @@
   }
 </script>
 
-<div class="wrap" bind:this={wrap} style="aspect-ratio: {wrapAspect}">
+<div class="wrap" class:fill bind:this={wrap} style="aspect-ratio: {wrapAspect}">
   <div class="sea">
     <svg
       class="map"
@@ -1276,6 +1277,15 @@
   .wrap {
     position: relative;
     width: 100%;
+  }
+  /* As a background layer the wrap fills its parent; ignore the inline aspect-ratio. */
+  .wrap.fill {
+    width: 100%;
+    height: 100%;
+    aspect-ratio: auto !important;
+  }
+  .wrap.fill .sea {
+    border-radius: 0;
   }
   /* In fullscreen the wrap fills the screen; ignore the inline aspect-ratio. */
   .wrap:fullscreen {

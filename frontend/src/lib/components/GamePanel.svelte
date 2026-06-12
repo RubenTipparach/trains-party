@@ -3,7 +3,6 @@
   import AuctionPanel from './AuctionPanel.svelte';
   import StockPanel from './StockPanel.svelte';
   import OperatingPanel from './OperatingPanel.svelte';
-  import HexMap from './HexMap.svelte';
   import { PHASES } from '$lib/data/g1889';
   import { currencyFor } from '$lib/engine';
   const CURRENCY = $derived(currencyFor(game.title));
@@ -100,13 +99,11 @@
     {#if game.state.round === 'auction'}
       <AuctionPanel />
     {:else if game.state.round === 'mapbuild'}
-      <div class="buildwrap">
-        <p class="buildlead">
-          Lay tri-hex tiles to build the map. On your turn, click the board to position the next
-          tile ({game.state.mapBuild?.pool.length ?? 0} left) - green outline = legal - then rotate and place it.
-        </p>
-        <div class="mapwrap"><HexMap /></div>
-      </div>
+      <p class="buildlead">
+        Lay tri-hex tiles to build the map. On your turn, click the map behind this panel to
+        position the next tile ({game.state.mapBuild?.pool.length ?? 0} left) - green outline =
+        legal - then rotate and place it.
+      </p>
     {:else if game.state.round === 'stock'}
       <StockPanel />
     {:else}
@@ -331,8 +328,5 @@
     color: #c8d2dc;
     font-size: 0.88rem;
     line-height: 1.5;
-  }
-  .mapwrap {
-    min-width: 0;
   }
 </style>
