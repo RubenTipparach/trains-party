@@ -21,7 +21,14 @@ export interface Seat {
 function rolaCorporations(cfg: GameConfig): CorporationState[] {
   const make =
     (kind: 'minor' | 'major', shareUnit: number) =>
-    (c: { sym: string; name: string; color: string; tokens: number; homeCoord?: string }): CorporationState => ({
+    (c: {
+      sym: string;
+      name: string;
+      color: string;
+      tokens: number;
+      homeCoord?: string;
+      ability?: { type: string; placeCost?: number };
+    }): CorporationState => ({
       sym: c.sym,
       name: c.name,
       color: c.color,
@@ -39,7 +46,8 @@ function rolaCorporations(cfg: GameConfig): CorporationState[] {
       trains: [],
       companies: [],
       tokenHexes: [],
-      tokens: Array.from({ length: c.tokens }, () => 0),
+      // The home token is free; extra tokens (Expansive) cost their printed price.
+      tokens: Array.from({ length: c.tokens }, (_, i) => (i === 0 ? 0 : (c.ability?.placeCost ?? 0))),
       stackSeq: 0
     });
   return [

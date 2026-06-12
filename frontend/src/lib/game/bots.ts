@@ -94,7 +94,14 @@ function botRolaStock(s: GameState, level: BotLevel): GameAction {
 
   if (myMinors.length === 0 && sl.launch.length) {
     const opt = sl.launch[0];
-    return { type: 'launch', player: me, corp: opt.corp, bid: opt.minBid }; // open at the minimum bid (120)
+    // Easy bots open at the minimum; normal bots bid a little above it (more
+    // treasury for the launch) without going aggressive: up to 150, capped at
+    // roughly 40% of their cash, in legal increments of 5.
+    const p = s.players.find((x) => x.id === me)!;
+    const eager = level === 'normal' ? Math.min(150, Math.floor((p.cash * 0.4) / 5) * 5) : opt.minBid;
+    const bid = Math.max(opt.minBid, eager);
+    if (p.cash >= bid) return { type: 'launch', player: me, corp: opt.corp, bid };
+    if (p.cash >= opt.minBid) return { type: 'launch', player: me, corp: opt.corp, bid: opt.minBid };
   }
   if (level === 'normal') {
     if (sl.buyIpo.length) return { type: 'buy', player: me, corp: sl.buyIpo[0], from: 'ipo' };

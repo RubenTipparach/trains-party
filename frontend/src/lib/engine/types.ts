@@ -52,6 +52,8 @@ export interface CorporationState {
   operated?: boolean;
   /** Major only: the two minors this corporation was merged from (abilities persist). */
   mergedFrom?: string[];
+  /** Resourceful: rusted trains held for one final run (no limit, unsellable). */
+  rustedTrains?: string[];
   /** RoLA share denomination / dividend percent per share (minor 20, major 10). */
   shareUnit?: number;
   /** RoLA: set when the price reached 0 and the company dissolved. */
@@ -105,6 +107,8 @@ export interface ORState {
   yellowLaid?: number;
   /** The operating company has used its issue/redeem action this turn (RoLA). */
   issued?: boolean;
+  /** The company upgraded a tile this turn (Agricultural may add one yellow). */
+  upgraded?: boolean;
 }
 
 export interface Bid {

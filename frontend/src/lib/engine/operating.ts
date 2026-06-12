@@ -200,6 +200,7 @@ function nextCorp(s: GameState): void {
   or.index += 1;
   or.step = 'track';
   or.yellowLaid = 0;
+  or.upgraded = false;
   or.issued = false;
   if (or.index >= or.order.length) {
     if (or.orNumber < or.orsThisSet) startOperatingRound(s, or.orNumber + 1);
@@ -230,6 +231,11 @@ function phaseReached(s: GameState, phaseName: string): boolean {
 
 function doRun(s: GameState, c: CorporationState, revenue: number, mode: 'pay' | 'withhold'): void {
   if (revenue < 0) throw new GameError('revenue cannot be negative');
+  // Resourceful: rusted trains are spent after their one extra run.
+  if (c.rustedTrains?.length) {
+    s.log.push(`${c.sym}'s rusted ${c.rustedTrains.join(', ')}-train(s) are discarded after their final run`);
+    c.rustedTrains = [];
+  }
   const linear = configFor(s.title).marketKind === 'linear';
   if (mode === 'pay' && revenue > 0) {
     // Each holder is paid in proportion to the percent they hold (so this works
@@ -330,7 +336,17 @@ function advancePhaseAndRust(s: GameState, train: string): void {
     .filter((t) => t.rustsOn === train || (group && t.rustsOn === group))
     .map((t) => t.name);
   if (rusts.length) {
-    for (const co of s.corporations) co.trains = co.trains.filter((t) => !rusts.includes(t));
+    for (const co of s.corporations) {
+      const dead = co.trains.filter((t) => rusts.includes(t));
+      if (!dead.length) continue;
+      co.trains = co.trains.filter((t) => !rusts.includes(t));
+      // Resourceful: rusted trains run one more time before discarding. They no
+      // longer count against the limit and cannot be sold or traded in.
+      if (rolaAbility(s.title, co, 'run_rusted_once')) {
+        co.rustedTrains = [...(co.rustedTrains ?? []), ...dead];
+        s.log.push(`${co.sym} keeps its rusted ${dead.join(', ')}-train(s) for one last run`);
+      }
+    }
     s.trainPool = (s.trainPool ?? []).filter((t) => !rusts.includes(t));
     s.log.push(`${rusts.join(', ')}-trains rust`);
   }
@@ -581,18 +597,27 @@ export function applyOperating(s: GameState, action: GameAction): void {
         throw new GameError(`${c.sym} is not laying track`);
       }
       // RoLA: up to two yellow tiles OR one upgrade per turn (rulebook OR step 3).
+      // Agricultural: an upgrade additionally earns one bonus yellow lay.
       const dbl = !!configFor(s.title).doubleYellowOrSingleUpgrade;
       const wasUpgrade =
         !!s.tiles[action.hex] || (hexesFor(s)[action.hex]?.color ?? 'white') !== 'white';
-      if (dbl && wasUpgrade && (s.or.yellowLaid ?? 0) > 0) {
+      if (dbl && wasUpgrade && ((s.or.yellowLaid ?? 0) > 0 || s.or.upgraded)) {
         throw new GameError(`${c.sym} may lay up to two yellow tiles OR one upgrade per turn`);
       }
       applyLayTile(s, c, action.hex, action.tile, action.rotation);
-      if (dbl && !wasUpgrade) {
+      if (dbl && wasUpgrade) {
+        if (rolaAbility(s.title, c, 'extra_yellow_after_upgrade')) {
+          s.or.upgraded = true; // one bonus yellow remains available
+          s.or.step = 'track';
+        } else {
+          s.or.step = 'token';
+        }
+      } else if (dbl) {
         s.or.yellowLaid = (s.or.yellowLaid ?? 0) + 1;
-        s.or.step = s.or.yellowLaid >= 2 ? 'token' : 'track'; // second yellow allowed
+        // after an upgrade the bonus is a single yellow; otherwise two yellows
+        s.or.step = s.or.upgraded || s.or.yellowLaid >= 2 ? 'token' : 'track';
       } else {
-        s.or.step = 'token'; // one upgrade (or 1889's single lay), then the token step
+        s.or.step = 'token'; // 1889's single lay, then the token step
       }
       break;
     }
@@ -686,7 +711,7 @@ export function applyOperating(s: GameState, action: GameAction): void {
 export function trackLays(s: GameState) {
   if (!s.or || s.or.step !== 'track') return [];
   const lays = legalLays(s, activeCorp(s));
-  return (s.or.yellowLaid ?? 0) > 0 ? lays.filter((l) => !l.upgrade) : lays;
+  return (s.or.yellowLaid ?? 0) > 0 || s.or.upgraded ? lays.filter((l) => !l.upgrade) : lays;
 }
 
 /** Legal token placements for the operating corporation (token step). */
@@ -776,7 +801,7 @@ export function operatingView(s: GameState): OperatingView | null {
     dieselPrice: diesel?.price ?? 0,
     dieselTradeIns,
     revenue: c.trains.length ? routeRevenue(s, c) : 0,
-    hasTrains: c.trains.length > 0,
+    hasTrains: c.trains.length + (c.rustedTrains?.length ?? 0) > 0,
     mustBuy: mustBuyTrain(s, c),
     emergency: emergencyView(s, c)
   };
