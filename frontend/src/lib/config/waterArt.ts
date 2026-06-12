@@ -69,3 +69,14 @@ export const WATER_FRAMES: Px[][] = [
     [16, 2, 2, 2, FOAM]
   ]
 ];
+
+/** Each frame as an SVG data URI, for compositor-friendly CSS backgrounds. */
+export function waterFrameUris(): string[] {
+  return WATER_FRAMES.map((frame) => {
+    const rects = [...WATER_STATIC, ...frame]
+      .map(([x, y, w, h, c]) => `<rect x='${x}' y='${y}' width='${w}' height='${h}' fill='${c}'/>`)
+      .join('');
+    const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='${TILE_W}' height='${TILE_H}'><rect width='${TILE_W}' height='${TILE_H}' fill='${WATER_BASE}'/>${rects}</svg>`;
+    return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+  });
+}
