@@ -5,7 +5,7 @@
   import type { HexDef, PathPart, TileColor } from '$lib/data/types';
   import { HEX_SIZE, APOTHEM, hexCenter, hexPolygon, edgeMidpoint } from '$lib/hexgeo';
   import { mapView } from '$lib/config/mapView';
-  import { WATER_LOOP_S, waterFrameUris } from '$lib/config/waterArt';
+  import { WATER_LOOP_S, waterFrameUris, waterHexGridUri } from '$lib/config/waterArt';
   import { game } from '$lib/game/sandbox.svelte';
   import { anim } from '$lib/game/anim.svelte';
   import { routing } from '$lib/game/routing.svelte';
@@ -657,6 +657,41 @@
   // Water lives on composited CSS layers behind the SVG (opacity-only fades on
   // the GPU): animating it inside the SVG forced full-scene repaints on phones.
   const WATER_URIS = waterFrameUris();
+  const WATER_GRID = waterHexGridUri();
+
+  // Coastline: edges of visible hexes that face the open sea. Each entry is the
+  // edge segment (two vertices) plus its outward normal, so the shallow band,
+  // foam line, and incoming swell can be drawn at offsets from the shore.
+  const coastEdges = $derived.by(() => {
+    const have = new Set(visiblePlaced.map((p) => p.coord));
+    const out: { x1: number; y1: number; x2: number; y2: number; nx: number; ny: number }[] = [];
+    for (const h of visiblePlaced) {
+      for (let e = 0; e < 6; e++) {
+        const na = (Math.PI / 180) * (90 + 60 * e);
+        const nx = Math.cos(na);
+        const ny = Math.sin(na);
+        // neighbour centre on the far side of edge e
+        const cx = h.cx + 2 * APOTHEM * nx;
+        const cy = h.cy + 2 * APOTHEM * ny;
+        const nb = hexAt(cx, cy);
+        if (nb && have.has(nb)) {
+          const c = hexCenter(nb);
+          if (Math.hypot(c.x - cx, c.y - cy) < 1) continue; // real neighbour: no coast
+        }
+        const a1 = (Math.PI / 180) * (60 * (e + 1));
+        const a2 = (Math.PI / 180) * (60 * (e + 2));
+        out.push({
+          x1: h.cx + HEX_SIZE * Math.cos(a1),
+          y1: h.cy + HEX_SIZE * Math.sin(a1),
+          x2: h.cx + HEX_SIZE * Math.cos(a2),
+          y2: h.cy + HEX_SIZE * Math.sin(a2),
+          nx,
+          ny
+        });
+      }
+    }
+    return out;
+  });
 
   function endPoint(e: number | 'center') {
     return e === 'center' ? { x: 0, y: 0 } : edgeMidpoint(0, 0, e);
@@ -996,6 +1031,7 @@
           style="background-image:url(&quot;{uri}&quot;); animation-delay:{(i - WATER_URIS.length) * (WATER_LOOP_S / WATER_URIS.length)}s"
         ></div>
       {/each}
+      <div class="wgrid" style="background-image:url(&quot;{WATER_GRID}&quot;)"></div>
     </div>
     <svg
       class="map"
@@ -1018,6 +1054,17 @@
 
       <!-- everything on the board rotates as a group around the board centre -->
       <g transform="rotate({$rotAnim} {rotPivot.x} {rotPivot.y})">
+      <!-- shoreline: shallow water band, foam at the beach, and a swell that
+           rolls in from the sea (animated on desktop, static on phones) -->
+      <g class="coast" aria-hidden="true">
+        {#each coastEdges as ce, i (i)}
+          <line class="shallow" x1={ce.x1 + ce.nx * 12} y1={ce.y1 + ce.ny * 12} x2={ce.x2 + ce.nx * 12} y2={ce.y2 + ce.ny * 12} />
+        {/each}
+        {#each coastEdges as ce, i (i)}
+          <line class="swell" x1={ce.x1 + ce.nx * 10} y1={ce.y1 + ce.ny * 10} x2={ce.x2 + ce.nx * 10} y2={ce.y2 + ce.ny * 10} />
+          <line class="foam" x1={ce.x1 + ce.nx * 2.5} y1={ce.y1 + ce.ny * 2.5} x2={ce.x2 + ce.nx * 2.5} y2={ce.y2 + ce.ny * 2.5} />
+        {/each}
+      </g>
       {#each visiblePlaced as h (h.coord)}
         <g
           class="hex"
@@ -1459,6 +1506,14 @@
     will-change: opacity;
     animation: wfade 6s linear infinite; /* WATER_LOOP_S */
   }
+  /* the open sea reads as hexes, Civ-style: one static composited layer */
+  .wgrid {
+    position: absolute;
+    inset: 0;
+    background-repeat: repeat;
+    background-size: 96px 55.4px;
+    pointer-events: none;
+  }
   /* one 1/6 slot visible per frame, 0.45s crossfades (see waterArt.ts) */
   @keyframes wfade {
     0% {
@@ -1503,6 +1558,55 @@
     color: #1b1b1b;
     font: 700 0.82rem ui-sans-serif, sans-serif;
     cursor: pointer;
+  }
+  .coast line {
+    fill: none;
+    stroke-linecap: round;
+  }
+  .coast .shallow {
+    stroke: #74c1be; /* WATER_SHALLOW: light water hugging the land */
+    stroke-width: 26;
+    opacity: 0.55;
+  }
+  .coast .foam {
+    stroke: rgba(255, 255, 255, 0.6);
+    stroke-width: 2.6;
+    opacity: 0.5;
+  }
+  .coast .swell {
+    stroke: rgba(255, 255, 255, 0.45);
+    stroke-width: 2.2;
+    opacity: 0;
+  }
+  /* the wave rolls in from the sea, then the beach foam brightens as it lands
+     (desktop only: SVG animation forces repaints, too costly on phones) */
+  @media (min-width: 920px) {
+    .coast .foam {
+      animation: foamhit 4.5s ease-in-out infinite;
+    }
+    .coast .swell {
+      animation: swellin 4.5s ease-in-out infinite;
+    }
+  }
+  @keyframes swellin {
+    0%, 100% {
+      opacity: 0;
+      transform: none;
+    }
+    30% {
+      opacity: 0.5;
+    }
+    55% {
+      opacity: 0;
+    }
+  }
+  @keyframes foamhit {
+    0%, 35%, 100% {
+      opacity: 0.35;
+    }
+    55% {
+      opacity: 0.85;
+    }
   }
   .homeres {
     opacity: 0.38;
