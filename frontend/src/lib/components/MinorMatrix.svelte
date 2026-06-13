@@ -51,7 +51,7 @@
   <div class="matrix">
     <div class="mhead">
       <h3>Minor companies</h3>
-      <span class="hint">Launch the bottom of a column — the next one reveals.</span>
+      <span class="hint">Launch the bottom of a column - the next one reveals.</span>
     </div>
     <div class="cols">
       {#each matrix as col, i (i)}
@@ -100,7 +100,7 @@
                   <button class="openbtn" onclick={() => open(sym)}>Launch · bid ≥ {CURRENCY}{minBid(sym)}</button>
                 {/if}
               {:else}
-                <div class="wait">bottom of column — launchable on a turn</div>
+                <div class="wait">bottom of column - launchable on a turn</div>
               {/if}
             </div>
           {:else}
