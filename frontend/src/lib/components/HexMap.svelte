@@ -681,7 +681,7 @@
   }
   type CoastEdge = {
     x1: number; y1: number; x2: number; y2: number; // the shore edge (padded, for waves)
-    rx1: number; ry1: number; rx2: number; ry2: number; // raw shore edge (for the shallow wedge)
+    gx1: number; gy1: number; gx2: number; gy2: number; // widened shore base (shallow wedge)
     ox: number; oy: number; // the bordering ocean hex centre (wave origin)
     phase: number; speed: number;
   };
@@ -716,10 +716,13 @@
           y1: y1 + (my - y1) * PADF,
           x2: x2 + (mx - x2) * PADF,
           y2: y2 + (my - y2) * PADF,
-          rx1: x1, // raw shore-edge vertices (for the shallow gradient triangle)
-          ry1: y1,
-          rx2: x2,
-          ry2: y2,
+          // shallow-wedge base: the shore edge widened past its vertices so
+          // neighbouring wedges overlap and fill the deep notch at convex
+          // coastline corners (the spill onto land is hidden under the tiles).
+          gx1: mx + (x1 - mx) * 1.34,
+          gy1: my + (y1 - my) * 1.34,
+          gx2: mx + (x2 - mx) * 1.34,
+          gy2: my + (y2 - my) * 1.34,
           ox: ncx, // the ocean hex centre beyond this edge
           oy: ncy,
           phase: segRand(mx, my, 1),
@@ -1096,9 +1099,8 @@
              triangle is drawn in a group translated to its ocean-hex centre, so
              this single def paints every wedge at the right spot - batched, and
              only at the coast (the same triangle system as the waves). -->
-        <radialGradient id="shallowgrad" gradientUnits="userSpaceOnUse" cx="0" cy="0" r={HEX_SIZE}>
+        <radialGradient id="shallowgrad" gradientUnits="userSpaceOnUse" cx="0" cy="0" r={APOTHEM} spreadMethod="pad">
           <stop offset="0%" stop-color="#74c1be" stop-opacity="0" />
-          <stop offset="55%" stop-color="#74c1be" stop-opacity="0" />
           <stop offset="100%" stop-color="#74c1be" stop-opacity="0.9" />
         </radialGradient>
       </defs>
@@ -1113,7 +1115,7 @@
       <g class="shallows" aria-hidden="true">
         {#each coast.edges as e, i (i)}
           <polygon
-            points="{e.rx1 - e.ox} {e.ry1 - e.oy} {e.rx2 - e.ox} {e.ry2 - e.oy} 0 0"
+            points="{e.gx1 - e.ox} {e.gy1 - e.oy} {e.gx2 - e.ox} {e.gy2 - e.oy} 0 0"
             fill="url(#shallowgrad)"
             transform="translate({e.ox} {e.oy})"
           />
