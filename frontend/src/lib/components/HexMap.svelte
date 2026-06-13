@@ -5,7 +5,6 @@
   import type { HexDef, PathPart, TileColor } from '$lib/data/types';
   import { HEX_SIZE, APOTHEM, hexCenter, hexPolygon, edgeMidpoint } from '$lib/hexgeo';
   import { mapView } from '$lib/config/mapView';
-  import { WATER_FRAMES, WATER_STATIC, TILE_W, TILE_H } from '$lib/config/waterArt';
   import { game } from '$lib/game/sandbox.svelte';
   import { anim } from '$lib/game/anim.svelte';
   import { routing } from '$lib/game/routing.svelte';
@@ -656,14 +655,11 @@
 
   // Water lives on composited CSS layers behind the SVG (opacity-only fades on
   // the GPU): animating it inside the SVG forced full-scene repaints on phones.
-  // World-space water (pans and rotates with the map): a deep base, shallow
-  // halos that fade out from every coast into the depths, and a static surface
-  // texture. One frame of the pixel ripples gives surface detail without the
-  // idle SVG repaint cost of an animation.
+  // World-space water (pans and rotates with the map): a deep base and shallow
+  // halos that step down from every coast into the depths (posterized bands).
   const SHALLOW_R = 2.4 * HEX_SIZE; // how far the shallow band reaches from land
-  const SEATEX = [...WATER_STATIC, ...WATER_FRAMES[0]];
-  // A generous rect (in world units) for the deep base + texture, covering the
-  // map with room to pan; beyond it the .sea deep colour shows through.
+  // A generous rect (in world units) for the deep base, covering the map with
+  // room to pan; beyond it the .sea deep colour shows through.
   const seaRect = $derived({
     x: minX - width,
     y: minY - height,
@@ -704,11 +700,16 @@
     }
     return out;
   });
-  // Three foam bands rolling out to sea (offset, width, dash, opacity).
-  const FOAM_BANDS = [
-    { off: 3, w: 2.6, dash: '7 5', op: 0.6 },
-    { off: 9, w: 2.1, dash: '5 8', op: 0.32 },
-    { off: 15, w: 1.7, dash: '4 10', op: 0.18 }
+  // Foam waves: dashed bands at stepped offsets from the shore. Each band pulses
+  // in turn (staggered by delay) so a crest rolls in from the sea and fades out
+  // as it reaches the beach. `peak` tapers at both ends (faint at sea, faint at
+  // the shore) so waves fade in approaching and dissipate on landing.
+  const WAVE_BANDS = [
+    { off: 3, w: 2.4, dash: '7 5', peak: 0.28, delay: 2.4 }, // shore (dies here)
+    { off: 7, w: 2.4, dash: '6 6', peak: 0.5, delay: 1.8 },
+    { off: 11, w: 2.2, dash: '5 7', peak: 0.6, delay: 1.2 },
+    { off: 15, w: 2.0, dash: '5 8', peak: 0.5, delay: 0.6 },
+    { off: 19, w: 1.8, dash: '4 9', peak: 0.3, delay: 0 } // sea (fades in)
   ];
 
   function endPoint(e: number | 'center') {
@@ -1058,49 +1059,45 @@
       <defs>
         <clipPath id="hexclip"><polygon points={poly} /></clipPath>
         <clipPath id="cityclip"><circle r="12.5" /></clipPath>
-        <!-- shallow-water halo: light teal at the shore fading to clear (the
-             deep base shows through), giving shallow-near-land / deep-far -->
+        <!-- shallow-water halo, POSTERIZED into two flat depth rings (light teal
+             near the shore, a darker teal step, then the deep base shows) -->
         <radialGradient id="shallowgrad">
-          <stop offset="0%" stop-color="#74c1be" stop-opacity="1" />
-          <stop offset="42%" stop-color="#74c1be" stop-opacity="1" />
-          <stop offset="100%" stop-color="#74c1be" stop-opacity="0" />
+          <stop offset="0%" stop-color="#7fc8c4" stop-opacity="1" />
+          <stop offset="42%" stop-color="#7fc8c4" stop-opacity="1" />
+          <stop offset="42%" stop-color="#52a6a8" stop-opacity="1" />
+          <stop offset="72%" stop-color="#52a6a8" stop-opacity="1" />
+          <stop offset="72%" stop-color="#52a6a8" stop-opacity="0" />
+          <stop offset="100%" stop-color="#52a6a8" stop-opacity="0" />
         </radialGradient>
-        <!-- static surface texture (one ripple frame, no animation) -->
-        <pattern id="seatex" patternUnits="userSpaceOnUse" width={TILE_W * 2} height={TILE_H * 2}>
-          <g transform="scale(2)" opacity="0.5">
-            {#each SEATEX as [x, y, w, h, c]}
-              <rect {x} {y} width={w} height={h} fill={c} />
-            {/each}
-          </g>
-        </pattern>
       </defs>
 
       <!-- everything on the board rotates as a group around the board centre -->
       <g transform="rotate({$rotAnim} {rotPivot.x} {rotPivot.y})">
-      <!-- deep-water base + panning surface texture (under the shallows) -->
+      <!-- deep-water base (under the shallows) -->
       <rect class="deep" x={seaRect.x} y={seaRect.y} width={seaRect.w} height={seaRect.h} />
-      <rect x={seaRect.x} y={seaRect.y} width={seaRect.w} height={seaRect.h} fill="url(#seatex)" />
-      <!-- shallow halo around each land hex (fades out into the deep) -->
+      <!-- shallow halo around each land hex (steps out into the deep) -->
       <g class="shallows" aria-hidden="true">
         {#each visiblePlaced as h (h.coord)}
           <circle cx={h.cx} cy={h.cy} r={SHALLOW_R} fill="url(#shallowgrad)" />
         {/each}
       </g>
-      <!-- shoreline foam: wavy white bands following the coast (under the land) -->
+      <!-- shoreline foam waves: each band pulses in turn so a crest rolls in
+           from the sea and fades out at the beach -->
       <g class="coast" aria-hidden="true">
-        {#each FOAM_BANDS as band (band.off)}
-          {#each coastEdges as ce, i (i)}
-            <line
-              class="foam"
-              x1={ce.x1 + ce.nx * band.off}
-              y1={ce.y1 + ce.ny * band.off}
-              x2={ce.x2 + ce.nx * band.off}
-              y2={ce.y2 + ce.ny * band.off}
-              stroke-width={band.w}
-              stroke-dasharray={band.dash}
-              opacity={band.op}
-            />
-          {/each}
+        {#each WAVE_BANDS as band (band.off)}
+          <g class="wave" style="--peak:{band.peak}; animation-delay:{band.delay}s">
+            {#each coastEdges as ce, i (i)}
+              <line
+                class="foam"
+                x1={ce.x1 + ce.nx * band.off}
+                y1={ce.y1 + ce.ny * band.off}
+                x2={ce.x2 + ce.nx * band.off}
+                y2={ce.y2 + ce.ny * band.off}
+                stroke-width={band.w}
+                stroke-dasharray={band.dash}
+              />
+            {/each}
+          </g>
         {/each}
       </g>
       {#each visiblePlaced as h (h.coord)}
@@ -1565,6 +1562,32 @@
     fill: none;
     stroke: #ffffff;
     stroke-linecap: round;
+  }
+  /* each band pulses; staggered delays make a crest roll shoreward. Opacity-only
+     on a handful of grouped layers, so it composites cheaply (no idle repaint
+     of the map contents). */
+  .wave {
+    opacity: 0;
+    will-change: opacity;
+    animation: wavepulse 3s linear infinite;
+  }
+  @keyframes wavepulse {
+    0% {
+      opacity: 0;
+    }
+    35% {
+      opacity: var(--peak, 0.5);
+    }
+    70%,
+    100% {
+      opacity: 0;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .wave {
+      animation: none;
+      opacity: calc(var(--peak, 0.5) * 0.7);
+    }
   }
   .homeres {
     opacity: 0.38;
