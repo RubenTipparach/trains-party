@@ -86,6 +86,33 @@ describe('RoLA bot merger behaviour', () => {
   });
 });
 
+describe('RoLA bot bidding', () => {
+  it('bids the minimum on easy and capitalizes harder on normal', () => {
+    const s = initialState(seats, 'rola');
+    const easy = botAction(s, 'easy');
+    const normal = botAction(s, 'normal');
+    expect(easy?.type).toBe('launch');
+    expect(normal?.type).toBe('launch');
+    if (easy?.type === 'launch' && normal?.type === 'launch') {
+      expect(easy.bid).toBe(120); // minimum launch bid
+      expect(normal.bid).toBeGreaterThan(easy.bid); // more into the treasury
+      expect(normal.bid % 5).toBe(0); // legal increment
+      expect(normal.bid).toBeLessThanOrEqual(300); // never over its cash
+    }
+  });
+
+  it('never bids more cash than it holds', () => {
+    const s = initialState(seats, 'rola');
+    s.players.forEach((p) => (p.cash = 122)); // just over the minimum
+    const a = botAction(s, 'normal');
+    expect(a?.type).toBe('launch');
+    if (a?.type === 'launch') {
+      expect(a.bid).toBe(120); // floor to a legal, affordable bid
+      expect(a.bid).toBeLessThanOrEqual(122);
+    }
+  });
+});
+
 describe('RoLA bot playthrough', () => {
   it('bots launch minors and drive multiple stock/operating cycles without error', () => {
     let s = initialState(

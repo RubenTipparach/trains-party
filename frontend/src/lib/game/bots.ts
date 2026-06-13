@@ -28,6 +28,18 @@ export type BotLevel = 'easy' | 'normal';
 const FLOAT_RESERVE: Record<BotLevel, number> = { easy: 180, normal: 325 };
 const OVERPAY: Record<BotLevel, number> = { easy: 0, normal: 25 };
 
+/**
+ * RoLA launch aggressiveness. A minor floats only by bidding, and the whole bid
+ * funds its treasury, so a bigger bid is a better-capitalized company at the cost
+ * of the president's cash. `frac` is the share of cash a bot sinks into the bid
+ * above the minimum; `cap` is the hard ceiling. Easy bots bid the minimum and
+ * hoard cash; Normal bots capitalize the minor harder.
+ */
+const LAUNCH_AGGRO: Record<BotLevel, { frac: number; cap: number }> = {
+  easy: { frac: 0, cap: 0 },
+  normal: { frac: 0.45, cap: 200 }
+};
+
 function cashOf(s: GameState, id: string): number {
   return s.players.find((p) => p.id === id)?.cash ?? 0;
 }
@@ -102,15 +114,18 @@ function botRolaStock(s: GameState, level: BotLevel): GameAction {
       configFor(s.title).minors?.find((m) => m.sym === sym)?.ability?.type === 'choose_home';
     const opt = sl.launch.find((o) => !isAd(o.corp) || !!home);
     if (opt) {
-      // Easy bots open at the minimum; normal bots bid a little above it (more
-      // treasury for the launch) without going aggressive: up to 150, capped at
-      // roughly 40% of their cash, in legal increments of 5.
+      // Bid the minimum plus a difficulty-scaled chunk of cash (in legal
+      // increments of 5), never exceeding the bot's cash. More aggressive
+      // difficulties pour more into the new minor's treasury.
       const p = s.players.find((x) => x.id === me)!;
-      const eager = level === 'normal' ? Math.min(150, Math.floor((p.cash * 0.4) / 5) * 5) : opt.minBid;
-      const bid = Math.max(opt.minBid, eager);
+      const { frac, cap } = LAUNCH_AGGRO[level];
+      const reach = Math.min(cap, Math.floor((p.cash * frac) / 5) * 5);
+      let bid = Math.max(opt.minBid, reach);
+      if (bid > p.cash) bid = Math.floor(p.cash / 5) * 5;
       const withHome = isAd(opt.corp) ? { home } : {};
-      if (p.cash >= bid) return { type: 'launch', player: me, corp: opt.corp, bid, ...withHome };
-      if (p.cash >= opt.minBid) return { type: 'launch', player: me, corp: opt.corp, bid: opt.minBid, ...withHome };
+      if (bid >= opt.minBid && p.cash >= bid) {
+        return { type: 'launch', player: me, corp: opt.corp, bid, ...withHome };
+      }
     }
   }
   if (level === 'normal') {
@@ -125,6 +140,12 @@ function botOperating(s: GameState): GameAction | null {
   if (!v || !v.president) return null;
   const me = v.president;
   const c = s.corporations.find((x) => x.sym === v.corp)!;
+  // OR step 2 (before laying track): issue one treasury share to the pool to help
+  // fund a train the corporation has no money for and currently no train to run.
+  if (v.canIssue && c.trains.length === 0 && v.canBuyTrain) {
+    const def = configFor(s.title).trains.find((t) => t.name === v.canBuyTrain)!;
+    if (c.cash < def.price) return { type: 'issue', player: me, corp: v.corp };
+  }
   if (v.step === 'leadoff') {
     // Buy the leadoff train when the treasury affords it (a minor's first OR).
     if (v.canBuyTrain && c.trains.length === 0) {
