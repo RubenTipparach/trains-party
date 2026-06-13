@@ -19,28 +19,22 @@
     return -1;
   });
 
-  // The yellow era (phase 2) has NO merger round: the cycle is just
-  // SR -> OR1 -> OR2. Green and later eras add MR (matches the engine, which
-  // only runs a merger once a green train has been bought).
+  // The yellow era (phase 2) has NO merger round: the token path is just
+  // SR -> OR1 -> OR2 -> (next SR). Green and later eras add MR (matches the
+  // engine, which only runs a merger once a green train has been bought). The
+  // board always SHOWS all four spaces; in yellow MR is just greyed off-path.
   const hasMerger = $derived(game.state.phase !== '2');
 
-  // Node layout. Without MR: a triangle (SR, OR1, OR2). With MR: the 2x2 loop,
-  // SR top-left like the compass on the board.
-  const NODES = $derived(
-    hasMerger
-      ? [
-          { id: 0, label: 'SR', x: 26, y: 24 },
-          { id: 1, label: 'OR1', x: 108, y: 24 },
-          { id: 2, label: 'OR2', x: 108, y: 92 },
-          { id: 3, label: 'MR', x: 26, y: 92 }
-        ]
-      : [
-          { id: 0, label: 'SR', x: 26, y: 24 },
-          { id: 1, label: 'OR1', x: 108, y: 24 },
-          { id: 2, label: 'OR2', x: 67, y: 92 }
-        ]
-  );
-  // Loop edges: 0->1->2->(3->)0
+  // Fixed board layout (matches the physical tracker): SR top-left, OR1 top-
+  // right, MR bottom-left, OR2 bottom-right.
+  const NODES = [
+    { id: 0, label: 'SR', x: 26, y: 24 },
+    { id: 1, label: 'OR1', x: 108, y: 24 },
+    { id: 3, label: 'MR', x: 26, y: 92 },
+    { id: 2, label: 'OR2', x: 108, y: 92 }
+  ];
+  const POS = NODES.reduce((m, n) => ((m[n.id] = n), m), {} as Record<number, (typeof NODES)[number]>);
+  // Token path: yellow skips MR (OR2 -> SR), green+ goes OR2 -> MR -> SR.
   const EDGES = $derived(
     hasMerger
       ? [
@@ -102,23 +96,17 @@
           {#each EDGES as [a, b], i (i)}
             {@const active = pos === a}
             <g class:activeedge={active}>
-              {#each stripes(NODES[a], NODES[b]) as s (s.col)}
+              {#each stripes(POS[a], POS[b]) as s (s.col)}
                 <line x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2} stroke={s.col} stroke-width="2.1" stroke-linecap="round" />
               {/each}
-              <polygon points={head(NODES[a], NODES[b])} fill={active ? '#1c2a36' : '#6b5f44'} />
+              <polygon points={head(POS[a], POS[b])} fill={active ? '#1c2a36' : '#6b5f44'} />
             </g>
           {/each}
           {#each NODES as n (n.id)}
             {@const here = pos === n.id}
-            <circle cx={n.x} cy={n.y} r={NR} class="node" class:here />
-            {#if here}
-              <g transform="translate({n.x} {n.y})">
-                <path d="M0,-9 L2.4,0 L0,9 L-2.4,0 Z" fill="#2f6f96" />
-                <path d="M-9,0 L0,2.4 L9,0 L0,-2.4 Z" fill="#5fa3c2" />
-              </g>
-            {:else}
-              <text x={n.x} y={n.y + 3.5} text-anchor="middle" class="nlabel">{n.label}</text>
-            {/if}
+            {@const offpath = n.id === 3 && !hasMerger}
+            <circle cx={n.x} cy={n.y} r={NR} class="node" class:here class:offpath />
+            <text x={n.x} y={n.y + 3.5} text-anchor="middle" class="nlabel" class:offlabel={offpath}>{n.label}</text>
           {/each}
         </svg>
       </div>
@@ -177,13 +165,21 @@
     stroke-width: 1.6;
   }
   .node.here {
-    fill: #f3e7c4;
-    stroke: #b06a30;
-    stroke-width: 2.2;
+    fill: #eaf3f8;
+    stroke: #2f6f96;
+    stroke-width: 3;
+  }
+  .node.offpath {
+    fill: #e4ddca;
+    stroke: #9a8f72;
+    stroke-dasharray: 3 3;
   }
   .nlabel {
     font: 800 11px ui-sans-serif, sans-serif;
     fill: #4a4030;
+  }
+  .nlabel.offlabel {
+    fill: #9a8f72;
   }
   .activeedge line {
     stroke-width: 3 !important;
