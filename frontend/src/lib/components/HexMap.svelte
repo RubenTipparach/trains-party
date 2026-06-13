@@ -681,14 +681,18 @@
   }
   type CoastEdge = {
     x1: number; y1: number; x2: number; y2: number; // the shore edge (padded, for waves)
-    gx1: number; gy1: number; gx2: number; gy2: number; // widened shore base (shallow wedge)
     ox: number; oy: number; // the bordering ocean hex centre (wave origin)
     phase: number; speed: number;
   };
   const coast = $derived.by(() => {
     const have = new Set(visiblePlaced.map((p) => p.coord));
     const edges: CoastEdge[] = [];
+    // Coastal LAND hex centres: each casts a shallow halo into the surrounding
+    // ocean. Halos from adjacent coast hexes overlap to cover convex-corner
+    // notches smoothly; rendered through a mask so the overlap can't brighten.
+    const halos: { cx: number; cy: number }[] = [];
     for (const h of visiblePlaced) {
+      let coastal = false;
       for (let e = 0; e < 6; e++) {
         const na = (Math.PI / 180) * (90 + 60 * e);
         const nx = Math.cos(na);
@@ -700,6 +704,7 @@
           const c = hexCenter(nb);
           if (Math.hypot(c.x - ncx, c.y - ncy) < 1) continue; // a real land neighbour: not coast
         }
+        coastal = true;
         const a1 = (Math.PI / 180) * (60 * (e + 1));
         const a2 = (Math.PI / 180) * (60 * (e + 2));
         const x1 = h.cx + HEX_SIZE * Math.cos(a1);
@@ -716,22 +721,17 @@
           y1: y1 + (my - y1) * PADF,
           x2: x2 + (mx - x2) * PADF,
           y2: y2 + (my - y2) * PADF,
-          // shallow-wedge base: the shore edge widened past its vertices so
-          // neighbouring wedges overlap and fill the deep notch at convex
-          // coastline corners (the spill onto land is hidden under the tiles).
-          gx1: mx + (x1 - mx) * 1.34,
-          gy1: my + (y1 - my) * 1.34,
-          gx2: mx + (x2 - mx) * 1.34,
-          gy2: my + (y2 - my) * 1.34,
           ox: ncx, // the ocean hex centre beyond this edge
           oy: ncy,
           phase: segRand(mx, my, 1),
           speed: 6 + 4 * segRand(mx, my, 2) // slow: 6-10s per wave cycle
         });
       }
+      if (coastal) halos.push({ cx: h.cx, cy: h.cy });
     }
-    return { edges };
+    return { edges, halos };
   });
+  const HALO_R = 1.7 * HEX_SIZE; // shallow reach from a coastal land hex centre
   // Waves, per the design algorithm: for each ocean hex bordering the map, for
   // each shared edge, a wave SPAWNS AT THE OCEAN HEX CENTRE and travels to that
   // edge, its endpoints riding the triangle (centre -> edge vertices). That is
@@ -1094,33 +1094,36 @@
             <rect {x} {y} width={w} height={h} fill={c} />
           {/each}
         </pattern>
-        <!-- shallow water: ONE shared radial gradient centred at the origin
-             (transparent in deep water -> light teal at the shore). Each coast
-             triangle is drawn in a group translated to its ocean-hex centre, so
-             this single def paints every wedge at the right spot - batched, and
-             only at the coast (the same triangle system as the waves). -->
-        <radialGradient id="shallowgrad" gradientUnits="userSpaceOnUse" cx="0" cy="0" r={APOTHEM} spreadMethod="pad">
-          <stop offset="0%" stop-color="#74c1be" stop-opacity="0" />
-          <stop offset="100%" stop-color="#74c1be" stop-opacity="0.9" />
+        <!-- shallow water: a halo around every COASTAL land hex (batched - no
+             interior hexes). The halos paint a MASK (white near the shore ->
+             clear out in the deep); where halos overlap the mask clamps at
+             white instead of brightening, and convex-corner notches fill
+             smoothly from the two neighbouring coast hexes' halos. -->
+        <radialGradient id="halograd">
+          <stop offset="0%" stop-color="#fff" stop-opacity="1" />
+          <stop offset="52%" stop-color="#fff" stop-opacity="1" />
+          <stop offset="100%" stop-color="#fff" stop-opacity="0" />
         </radialGradient>
+        <mask id="shallowmask" maskUnits="userSpaceOnUse" x={seaRect.x} y={seaRect.y} width={seaRect.w} height={seaRect.h}>
+          {#each coast.halos as hl, i (i)}
+            <circle cx={hl.cx} cy={hl.cy} r={HALO_R} fill="url(#halograd)" />
+          {/each}
+        </mask>
       </defs>
 
       <!-- everything on the board rotates as a group around the board centre -->
       <g transform="rotate({$rotAnim} {rotPivot.x} {rotPivot.y})">
       <!-- deep-water base (under the shallows) -->
       <rect class="deep" x={seaRect.x} y={seaRect.y} width={seaRect.w} height={seaRect.h} />
-      <!-- shallow water: one triangle per coast edge (ocean centre -> shore edge),
-           each translated to its ocean-hex centre so the shared origin-centred
-           gradient lands shallow at the shore and fades to deep toward the sea -->
-      <g class="shallows" aria-hidden="true">
-        {#each coast.edges as e, i (i)}
-          <polygon
-            points="{e.gx1 - e.ox} {e.gy1 - e.oy} {e.gx2 - e.ox} {e.gy2 - e.oy} 0 0"
-            fill="url(#shallowgrad)"
-            transform="translate({e.ox} {e.oy})"
-          />
-        {/each}
-      </g>
+      <!-- shallow water: one teal fill revealed through the coastal-halo mask -->
+      <rect
+        class="shallow"
+        x={seaRect.x}
+        y={seaRect.y}
+        width={seaRect.w}
+        height={seaRect.h}
+        mask="url(#shallowmask)"
+      />
       <!-- shoreline waves: spawn at each bordering ocean hex centre and travel
            to the shared shore edge, endpoints confined to the centre->edge
            triangle (the line scales about the ocean centre). Per-edge random
@@ -1573,6 +1576,10 @@
   }
   .deep {
     fill: #1b6075;
+  }
+  .shallow {
+    fill: #74c1be;
+    opacity: 0.9;
   }
   .map {
     position: relative;
