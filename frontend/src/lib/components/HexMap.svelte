@@ -667,50 +667,57 @@
     h: height * 3
   });
 
-  // Coastline foam: hex edges of the visible map that face the open sea, with an
-  // outward normal so we can draw wavy white bands rolling out from the shore
-  // (the look of the reference beach art). Derived from the visible tiles, so it
-  // grows with the assembly intro and follows the island outline.
+  // Coastline: sea-facing hex edges of the visible map. Each carries its hex
+  // centre and the two vertex angles of the edge, so waves can be drawn as arcs
+  // centred on the hex - they start near the centre and expand out across the
+  // edge into the sea. Derived from the visible tiles, so it grows with the
+  // assembly intro and follows the island outline.
   const coastEdges = $derived.by(() => {
     const have = new Set(visiblePlaced.map((p) => p.coord));
-    const out: { x1: number; y1: number; x2: number; y2: number; nx: number; ny: number }[] = [];
+    const out: { cx: number; cy: number; a1: number; a2: number }[] = [];
     for (const h of visiblePlaced) {
       for (let e = 0; e < 6; e++) {
         const na = (Math.PI / 180) * (90 + 60 * e);
         const nx = Math.cos(na);
         const ny = Math.sin(na);
-        const cx = h.cx + 2 * APOTHEM * nx;
-        const cy = h.cy + 2 * APOTHEM * ny;
-        const nb = hexAt(cx, cy);
+        const ncx = h.cx + 2 * APOTHEM * nx;
+        const ncy = h.cy + 2 * APOTHEM * ny;
+        const nb = hexAt(ncx, ncy);
         if (nb && have.has(nb)) {
           const c = hexCenter(nb);
-          if (Math.hypot(c.x - cx, c.y - cy) < 1) continue; // a real land neighbour: not coast
+          if (Math.hypot(c.x - ncx, c.y - ncy) < 1) continue; // a real land neighbour: not coast
         }
-        const a1 = (Math.PI / 180) * (60 * (e + 1));
-        const a2 = (Math.PI / 180) * (60 * (e + 2));
         out.push({
-          x1: h.cx + HEX_SIZE * Math.cos(a1),
-          y1: h.cy + HEX_SIZE * Math.sin(a1),
-          x2: h.cx + HEX_SIZE * Math.cos(a2),
-          y2: h.cy + HEX_SIZE * Math.sin(a2),
-          nx,
-          ny
+          cx: h.cx,
+          cy: h.cy,
+          a1: (Math.PI / 180) * (60 * (e + 1)),
+          a2: (Math.PI / 180) * (60 * (e + 2))
         });
       }
     }
     return out;
   });
-  // Foam waves: dashed bands at stepped offsets from the shore. Each band pulses
-  // in turn (staggered by delay) so a crest rolls in from the sea and fades out
-  // as it reaches the beach. `peak` tapers at both ends (faint at sea, faint at
-  // the shore) so waves fade in approaching and dissipate on landing.
+  // Foam waves: concentric arcs at growing radii (as a fraction of the hex size).
+  // Each ring pulses in turn (staggered delays), so a crest expands outward from
+  // the shore into the sea; the arc length grows with the radius and the rings
+  // are spaced so they never overlap. `peak` tapers at both ends - faint as the
+  // wave forms at the beach, brightest mid-water, faint as it dissipates.
   const WAVE_BANDS = [
-    { off: 3, w: 2.4, dash: '7 5', peak: 0.28, delay: 2.4 }, // shore (dies here)
-    { off: 7, w: 2.4, dash: '6 6', peak: 0.5, delay: 1.8 },
-    { off: 11, w: 2.2, dash: '5 7', peak: 0.6, delay: 1.2 },
-    { off: 15, w: 2.0, dash: '5 8', peak: 0.5, delay: 0.6 },
-    { off: 19, w: 1.8, dash: '4 9', peak: 0.3, delay: 0 } // sea (fades in)
+    { f: 0.95, w: 2.4, dash: '6 6', peak: 0.3, delay: 0 }, // at the shoreline
+    { f: 1.2, w: 2.3, dash: '6 7', peak: 0.5, delay: 0.5 },
+    { f: 1.45, w: 2.1, dash: '5 8', peak: 0.6, delay: 1.0 },
+    { f: 1.7, w: 1.9, dash: '5 9', peak: 0.45, delay: 1.5 },
+    { f: 1.95, w: 1.7, dash: '4 10', peak: 0.28, delay: 2.0 } // out in the sea
   ];
+  /** SVG arc spanning a coast edge at radius f x HEX_SIZE, centred on its hex. */
+  function wavePath(ce: { cx: number; cy: number; a1: number; a2: number }, f: number): string {
+    const r = f * HEX_SIZE;
+    const x1 = ce.cx + r * Math.cos(ce.a1);
+    const y1 = ce.cy + r * Math.sin(ce.a1);
+    const x2 = ce.cx + r * Math.cos(ce.a2);
+    const y2 = ce.cy + r * Math.sin(ce.a2);
+    return `M ${x1.toFixed(2)} ${y1.toFixed(2)} A ${r.toFixed(2)} ${r.toFixed(2)} 0 0 1 ${x2.toFixed(2)} ${y2.toFixed(2)}`;
+  }
 
   function endPoint(e: number | 'center') {
     return e === 'center' ? { x: 0, y: 0 } : edgeMidpoint(0, 0, e);
@@ -1059,15 +1066,12 @@
       <defs>
         <clipPath id="hexclip"><polygon points={poly} /></clipPath>
         <clipPath id="cityclip"><circle r="12.5" /></clipPath>
-        <!-- shallow-water halo, POSTERIZED into two flat depth rings (light teal
-             near the shore, a darker teal step, then the deep base shows) -->
+        <!-- shallow-water halo: light teal at the shore fading smoothly to clear
+             (the deep base shows through), giving shallow-near-land / deep-far -->
         <radialGradient id="shallowgrad">
-          <stop offset="0%" stop-color="#7fc8c4" stop-opacity="1" />
-          <stop offset="42%" stop-color="#7fc8c4" stop-opacity="1" />
-          <stop offset="42%" stop-color="#52a6a8" stop-opacity="1" />
-          <stop offset="72%" stop-color="#52a6a8" stop-opacity="1" />
-          <stop offset="72%" stop-color="#52a6a8" stop-opacity="0" />
-          <stop offset="100%" stop-color="#52a6a8" stop-opacity="0" />
+          <stop offset="0%" stop-color="#74c1be" stop-opacity="1" />
+          <stop offset="42%" stop-color="#74c1be" stop-opacity="1" />
+          <stop offset="100%" stop-color="#74c1be" stop-opacity="0" />
         </radialGradient>
       </defs>
 
@@ -1081,21 +1085,13 @@
           <circle cx={h.cx} cy={h.cy} r={SHALLOW_R} fill="url(#shallowgrad)" />
         {/each}
       </g>
-      <!-- shoreline foam waves: each band pulses in turn so a crest rolls in
-           from the sea and fades out at the beach -->
+      <!-- shoreline foam waves: concentric arcs expanding out from each coastal
+           hex; the rings pulse in turn so a crest ripples toward the sea -->
       <g class="coast" aria-hidden="true">
-        {#each WAVE_BANDS as band (band.off)}
+        {#each WAVE_BANDS as band (band.f)}
           <g class="wave" style="--peak:{band.peak}; animation-delay:{band.delay}s">
             {#each coastEdges as ce, i (i)}
-              <line
-                class="foam"
-                x1={ce.x1 + ce.nx * band.off}
-                y1={ce.y1 + ce.ny * band.off}
-                x2={ce.x2 + ce.nx * band.off}
-                y2={ce.y2 + ce.ny * band.off}
-                stroke-width={band.w}
-                stroke-dasharray={band.dash}
-              />
+              <path class="foam" d={wavePath(ce, band.f)} stroke-width={band.w} stroke-dasharray={band.dash} />
             {/each}
           </g>
         {/each}
