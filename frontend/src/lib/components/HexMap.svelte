@@ -740,16 +740,17 @@
       return { x1: a.x, y1: a.y, x2: b.x, y2: b.y };
     });
   }
-  // Foam waves: flat dashed lines at stepped offsets from the shore. Each band
-  // pulses in turn (staggered delays) so a crest rolls outward toward the sea;
-  // `peak` tapers at both ends - faint at the beach, brightest mid-water, faint
-  // out at sea.
+  // Foam waves: flat dashed crests in the shallow band, between each sea-facing
+  // edge and the open-water hex beyond it. The crests originate out at the water
+  // hex centre (~one apothem past the shore) and roll IN toward the beach,
+  // breaking as they land - the outer band pulses first, the shore band last.
+  // `peak` tapers at both ends (forming at sea, dissipating on the sand).
   const WAVE_BANDS = [
-    { off: 3, w: 2.4, dash: '7 5', peak: 0.32, delay: 0 }, // at the shore
-    { off: 7, w: 2.3, dash: '6 6', peak: 0.55, delay: 0.5 },
-    { off: 11, w: 2.1, dash: '5 7', peak: 0.62, delay: 1.0 },
-    { off: 15, w: 1.9, dash: '5 8', peak: 0.45, delay: 1.5 },
-    { off: 19, w: 1.7, dash: '4 9', peak: 0.28, delay: 2.0 } // out in the sea
+    { off: 6, w: 2.4, dash: '7 5', peak: 0.3, delay: 2.0 }, // breaks at the shore (last)
+    { off: 13, w: 2.3, dash: '6 6', peak: 0.52, delay: 1.5 },
+    { off: 20, w: 2.2, dash: '6 7', peak: 0.62, delay: 1.0 },
+    { off: 27, w: 2.0, dash: '5 8', peak: 0.5, delay: 0.5 },
+    { off: 34, w: 1.8, dash: '5 9', peak: 0.34, delay: 0 } // forms at the water-hex centre (first)
   ];
 
   function endPoint(e: number | 'center') {
