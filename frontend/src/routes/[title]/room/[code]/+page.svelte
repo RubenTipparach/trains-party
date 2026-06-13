@@ -200,8 +200,9 @@
     <RoundTracker />
   </div>
 
-  <!-- always-visible turn status -->
-  <div class="statusbar" class:myturn={game.canAct} class:shifted={!!active} style="--p:{seatColor(game.active ?? '')}">
+  <!-- turn status + history rewind, shared between the floating pill and the
+       operating panel header (mobile folds it into the op sheet during ORs) -->
+  {#snippet turnStatus()}
     <span class="srnd">{roundLabel}</span>
     <span class="splayer">{game.canAct ? 'Your turn · ' : ''}{playerName(game.active)}</span>
     {#if game.isBot(game.active)}<span class="sbot">BOT</span>{/if}
@@ -218,11 +219,23 @@
     {#if anim.pacing}
       <button class="skip" onclick={() => anim.skip()}>Skip ⏭ <kbd>Space</kbd></button>
     {/if}
+  {/snippet}
+
+  <!-- always-visible turn status (hidden on mobile during ORs: folded into the
+       operating panel header below) -->
+  <div class="statusbar" class:myturn={game.canAct} class:shifted={!!active} style="--p:{seatColor(game.active ?? '')}">
+    {@render turnStatus()}
   </div>
 
   {#if opPanel}
-    <!-- the current operation: its own persistent panel, never closeable -->
+    <!-- the current operation: its own persistent panel, never closeable. On
+         mobile the turn status + rewind fold into this header (.opstatus) so the
+         floating pill can hide; on desktop the floating pill stays and this is
+         hidden. -->
     <section class="oppanel" aria-label="Current operation">
+      <div class="opstatus" class:myturn={game.canAct} style="--p:{seatColor(game.active ?? '')}">
+        {@render turnStatus()}
+      </div>
       <div class="opbody" class:locked={game.reviewing}>
         {#if game.state.round === 'merger'}<MergerPanel />{:else}<OperatingPanel />{/if}
       </div>
@@ -290,6 +303,12 @@
                 <li><span class="chip ora">orange</span> Shares may be held above 60%.</li>
               </ul>
             {:else if active === 'info'}
+              {#if isRola}
+                <section class="trackerinfo">
+                  <h3>Rounds and cycles</h3>
+                  <RoundTracker embedded />
+                </section>
+              {/if}
               <section>
                 <h3>Trains</h3>
                 <div class="scroll">
@@ -609,16 +628,9 @@
     }
   }
   @media (max-width: 919px) {
-    /* mobile: tuck it top-left, smaller, out of the way of the dock/pill */
+    /* mobile: hide the floating tracker entirely to keep the board clear; it is
+       available (always expanded) in the Info panel instead. */
     .trackerfloat {
-      top: 60px;
-      bottom: auto;
-      left: 6px;
-      transform: scale(0.8);
-      transform-origin: top left;
-    }
-    /* hide while a full panel/sheet covers the map */
-    .board-root .trackerfloat.shifted {
       display: none;
     }
   }
@@ -868,6 +880,11 @@
     opacity: 0.5;
     pointer-events: none;
   }
+  /* turn status + rewind folded into the op-panel header: mobile only (desktop
+     keeps the floating pill at the top of the screen). */
+  .opstatus {
+    display: none;
+  }
   @media (max-width: 919px) {
     /* mobile: a fixed bottom sheet; the map stays live in the top half */
     .oppanel {
@@ -884,8 +901,26 @@
     .board-root.opdock .maplayer {
       bottom: 50%;
     }
+    /* during ORs/MRs the turn status lives in the op-panel header, so hide the
+       floating pill and reveal the header bar. */
     .board-root.opdock .statusbar {
-      bottom: calc(50% + 10px);
+      display: none;
+    }
+    .opstatus {
+      display: flex;
+      flex: none;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: center;
+      gap: 0.3rem 0.5rem;
+      padding: 0.5rem 0.7rem;
+      border-bottom: 1px solid var(--line);
+      background: var(--bg-soft);
+      font-size: 0.84rem;
+      white-space: nowrap;
+    }
+    .opstatus.myturn {
+      box-shadow: 0 2px 0 -1px var(--p) inset;
     }
     /* perf: backdrop blur is expensive on phones - use solid surfaces instead */
     .dock,

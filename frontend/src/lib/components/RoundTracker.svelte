@@ -5,6 +5,10 @@
   import { game } from '$lib/game/sandbox.svelte';
   import { configFor } from '$lib/engine';
 
+  // `embedded` renders the tracker inline (e.g. in the Info panel): always
+  // expanded, no minimise control, no floating shadow.
+  let { embedded = false }: { embedded?: boolean } = $props();
+
   const totalCycles = $derived(configFor(game.title).cyclesByPlayers?.[game.state.players.length] ?? 0);
   const isCycleGame = $derived(totalCycles > 0);
   const cycle = $derived(Math.min(game.state.cycle ?? 1, totalCycles));
@@ -92,9 +96,11 @@
 </script>
 
 {#if isCycleGame && pos >= 0}
-  {#if open}
-    <div class="tracker" aria-label="Round and cycle tracker">
-      <button class="min" title="Minimise" aria-label="Minimise tracker" onclick={() => (open = false)}>–</button>
+  {#if open || embedded}
+    <div class="tracker" class:embedded aria-label="Round and cycle tracker">
+      {#if !embedded}
+        <button class="min" title="Minimise" aria-label="Minimise tracker" onclick={() => (open = false)}>–</button>
+      {/if}
       <div class="cols">
         <!-- ROUNDS -->
         <div class="rounds">
@@ -153,6 +159,16 @@
     color: #3a3526;
     user-select: none;
     width: max-content;
+  }
+  /* inline in a panel: drop the floating shadow and the absolute min button gap */
+  .tracker.embedded {
+    box-shadow: none;
+    width: 100%;
+    max-width: 320px;
+  }
+  .tracker.embedded .cols {
+    padding-right: 0;
+    justify-content: space-between;
   }
   .min {
     position: absolute;
