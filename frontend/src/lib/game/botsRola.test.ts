@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { initialState, apply } from '$lib/engine';
+import { launchViaAuction } from '$lib/engine/rolaTestUtil';
 import type { GameState } from '$lib/engine';
 import { botAction } from './bots';
 
@@ -11,13 +12,10 @@ const seats = [
 
 /** Launch AG + EA under p1, run both through the OR set at phase 3 (merger unlocked). */
 function toMerger(): GameState {
-  let s = initialState(seats, 'rola');
-  s = apply(s, { type: 'launch', player: 'p1', corp: 'AG', bid: 120 });
-  s = apply(s, { type: 'pass', player: 'p1' });
+  let s = launchViaAuction(initialState(seats, 'rola'), 'p1', 'AG', 120); // turn -> p2
   s = apply(s, { type: 'pass', player: 'p2' });
-  s = apply(s, { type: 'pass', player: 'p3' });
-  s = apply(s, { type: 'launch', player: 'p1', corp: 'EA', bid: 120 });
-  s = apply(s, { type: 'pass', player: 'p1' });
+  s = apply(s, { type: 'pass', player: 'p3' }); // back to p1
+  s = launchViaAuction(s, 'p1', 'EA', 120); // turn -> p2
   s = apply(s, { type: 'pass', player: 'p2' });
   s = apply(s, { type: 'pass', player: 'p3' });
   s = apply(s, { type: 'pass', player: 'p1' }); // full pass lap -> OR
@@ -86,29 +84,37 @@ describe('RoLA bot merger behaviour', () => {
   });
 });
 
-describe('RoLA bot bidding', () => {
-  it('bids the minimum on easy and capitalizes harder on normal', () => {
+describe('RoLA bot launch auction', () => {
+  it('opens the auction at the minimum on easy and higher on normal', () => {
     const s = initialState(seats, 'rola');
-    const easy = botAction(s, 'easy');
+    expect(botAction(s, 'easy')).toEqual({ type: 'initiate_auction', player: 'p1', bid: 120 });
     const normal = botAction(s, 'normal');
-    expect(easy?.type).toBe('launch');
-    expect(normal?.type).toBe('launch');
-    if (easy?.type === 'launch' && normal?.type === 'launch') {
-      expect(easy.bid).toBe(120); // minimum launch bid
-      expect(normal.bid).toBeGreaterThan(easy.bid); // more into the treasury
-      expect(normal.bid % 5).toBe(0); // legal increment
+    expect(normal?.type).toBe('initiate_auction');
+    if (normal?.type === 'initiate_auction') {
+      expect(normal.bid).toBeGreaterThan(120); // capitalizes harder
+      expect(normal.bid % 5).toBe(0);
       expect(normal.bid).toBeLessThanOrEqual(300); // never over its cash
     }
   });
 
-  it('never bids more cash than it holds', () => {
-    const s = initialState(seats, 'rola');
-    s.players.forEach((p) => (p.cash = 122)); // just over the minimum
+  it('raises a contested bid up to its ceiling, then drops out', () => {
+    let s = initialState(seats, 'rola');
+    s = apply(s, { type: 'initiate_auction', player: 'p1', bid: 120 });
+    // p2's turn: Normal raises (ceiling 135 >= 125); Easy drops out (ceiling 120 < 125).
+    expect(botAction(s, 'normal')).toEqual({ type: 'launch_bid', player: 'p2', bid: 125 });
+    expect(botAction(s, 'easy')).toEqual({ type: 'pass', player: 'p2' });
+  });
+
+  it('launches an available minor after winning the auction', () => {
+    let s = initialState(seats, 'rola');
+    s = apply(s, { type: 'initiate_auction', player: 'p1', bid: 120 });
+    s = apply(s, { type: 'pass', player: 'p2' });
+    s = apply(s, { type: 'pass', player: 'p3' }); // p1 wins
     const a = botAction(s, 'normal');
     expect(a?.type).toBe('launch');
     if (a?.type === 'launch') {
-      expect(a.bid).toBe(120); // floor to a legal, affordable bid
-      expect(a.bid).toBeLessThanOrEqual(122);
+      s = apply(s, a);
+      expect(s.corporations.some((c) => c.kind === 'minor' && c.floated)).toBe(true);
     }
   });
 });
@@ -123,7 +129,7 @@ describe('RoLA bot playthrough', () => {
     let operated = false;
     let steps = 0;
 
-    while (steps < 400 && !s.finished) {
+    while (steps < 800 && !s.finished) {
       const action = botAction(s, 'normal');
       if (!action) break;
       s = apply(s, action); // throws if the bot ever proposes an illegal action

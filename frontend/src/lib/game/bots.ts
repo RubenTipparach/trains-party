@@ -101,32 +101,45 @@ function botStock(s: GameState, level: BotLevel): GameAction {
   return { type: 'pass', player: me };
 }
 
-/** RoLA stock round: launch a minor if running none, else pick up a cheap share. */
-function botRolaStock(s: GameState, level: BotLevel): GameAction {
+/** The most a bot will commit to a launch bid: a difficulty-scaled chunk of its
+ *  cash above the minimum, capped, never over its cash and in legal increments. */
+function botMaxLaunchBid(s: GameState, me: string, level: BotLevel, minBid: number): number {
+  const cash = cashOf(s, me);
+  const { frac, cap } = LAUNCH_AGGRO[level];
+  const reach = Math.min(cap, Math.floor((cash * frac) / 5) * 5);
+  return Math.min(Math.floor(cash / 5) * 5, Math.max(minBid, reach));
+}
+
+/** Pick a minor to launch after winning the auction (available is pre-filtered
+ *  to launchable minors, so an Adaptive entry already has an open home). */
+function botLaunchPick(s: GameState, me: string, available: string[]): GameAction {
+  if (available.length === 0) return { type: 'pass', player: me };
+  const sym = available[0];
+  const isAd = configFor(s.title).minors?.find((m) => m.sym === sym)?.ability?.type === 'choose_home';
+  return { type: 'launch', player: me, corp: sym, ...(isAd ? { home: adaptiveHomes(s)[0] } : {}) };
+}
+
+/** RoLA stock round: drive the launch auction (open / raise / pass / launch when
+ *  won), else pick up a cheap share. Bidding aggressiveness scales with difficulty. */
+function botRolaStock(s: GameState, level: BotLevel): GameAction | null {
   const sl = rolaStockLegalActions(s);
   const me = sl.player;
-  const myMinors = s.corporations.filter((c) => c.kind === 'minor' && c.president === me && c.floated);
 
-  if (myMinors.length === 0 && sl.launch.length) {
-    // Adaptive needs an open basic-city home; skip it when none is available.
-    const home = adaptiveHomes(s)[0];
-    const isAd = (sym: string) =>
-      configFor(s.title).minors?.find((m) => m.sym === sym)?.ability?.type === 'choose_home';
-    const opt = sl.launch.find((o) => !isAd(o.corp) || !!home);
-    if (opt) {
-      // Bid the minimum plus a difficulty-scaled chunk of cash (in legal
-      // increments of 5), never exceeding the bot's cash. More aggressive
-      // difficulties pour more into the new minor's treasury.
-      const p = s.players.find((x) => x.id === me)!;
-      const { frac, cap } = LAUNCH_AGGRO[level];
-      const reach = Math.min(cap, Math.floor((p.cash * frac) / 5) * 5);
-      let bid = Math.max(opt.minBid, reach);
-      if (bid > p.cash) bid = Math.floor(p.cash / 5) * 5;
-      const withHome = isAd(opt.corp) ? { home } : {};
-      if (bid >= opt.minBid && p.cash >= bid) {
-        return { type: 'launch', player: me, corp: opt.corp, bid, ...withHome };
-      }
+  if (sl.auction) {
+    if (sl.auction.iWon) return botLaunchPick(s, me, sl.available);
+    if (sl.auction.myTurn) {
+      const max = botMaxLaunchBid(s, me, level, sl.minBid);
+      if (sl.auction.minRaise <= max) return { type: 'launch_bid', player: me, bid: sl.auction.minRaise };
+      return { type: 'pass', player: me };
     }
+    return null; // gated by activePlayer; should not be reached
+  }
+
+  // Start an auction when running no minor and able to: open at our ceiling so an
+  // unopposed launch still capitalizes the minor (higher difficulty bids harder).
+  const myMinors = s.corporations.filter((c) => c.kind === 'minor' && c.president === me && c.floated);
+  if (myMinors.length === 0 && sl.canInitiate) {
+    return { type: 'initiate_auction', player: me, bid: botMaxLaunchBid(s, me, level, sl.minBid) };
   }
   if (level === 'normal') {
     if (sl.buyIpo.length) return { type: 'buy', player: me, corp: sl.buyIpo[0], from: 'ipo' };

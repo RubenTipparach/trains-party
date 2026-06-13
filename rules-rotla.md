@@ -210,9 +210,10 @@ one share**, or (3) **Pass**.
   fully-player-owned companies **+1**; advance to OR1.
 
 *Engine:* the auction is a **mid-stock-round sub-auction for choice** — different
-from our opening `waterfall_auction` (`auction.ts`). It's a new step but can borrow
-the bidding/pass-out mechanics. `applyStock` gains `initiate_auction` / `launch`
-actions and the "buy one share, treasury vs pool" split.
+from our opening `waterfall_auction` (`auction.ts`). Implemented in `rolaRound.ts`
+via `initiate_auction` / `launch_bid` / `pass` (drop out) / `launch` (the lone
+survivor picks any available minor), plus the "buy one share, treasury vs pool"
+split.
 
 ---
 

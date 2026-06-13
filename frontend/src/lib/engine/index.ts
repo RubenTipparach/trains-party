@@ -103,7 +103,11 @@ export function replay(initial: GameState, actions: readonly GameAction[]): Game
 export function activePlayer(state: GameState): string | null {
   if (state.finished) return null;
   if (state.round === 'auction') return auctionActivePlayer(state);
-  if (state.round === 'stock' && state.stock) return state.players[state.current].id;
+  if (state.round === 'stock' && state.stock) {
+    const la = state.stock.launchAuction;
+    if (la) return la.turn ?? la.winner;
+    return state.players[state.current].id;
+  }
   if (state.round === 'operating') return operatingActivePlayer(state);
   if (state.round === 'mapbuild') return mapBuildActivePlayer(state);
   if (state.round === 'merger') return mergerActivePlayer(state);

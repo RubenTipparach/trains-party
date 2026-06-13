@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { apply, initialState, trackLays } from './index';
+import { launchViaAuction } from './rolaTestUtil';
 import type { GameState } from './types';
 
 const seats = [
@@ -10,9 +11,7 @@ const seats = [
 
 /** Launch AG (home C2) and run the stock round out to the operating round. */
 function toOperating(): GameState {
-  let s = initialState(seats, 'rola');
-  s = apply(s, { type: 'launch', player: 'p1', corp: 'AG', bid: 160 });
-  s = apply(s, { type: 'pass', player: 'p1' }); // end p1 turn
+  let s = launchViaAuction(initialState(seats, 'rola'), 'p1', 'AG', 160); // turn -> p2
   s = apply(s, { type: 'pass', player: 'p2' });
   s = apply(s, { type: 'pass', player: 'p3' });
   s = apply(s, { type: 'pass', player: 'p1' }); // full lap -> OR

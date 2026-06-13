@@ -140,6 +140,28 @@ export interface StockState {
    * id -> set of corp syms.
    */
   soldThisRound: Record<string, string[]>;
+  /**
+   * RoLA: a mid-stock-round launch auction in progress, or null. The initiator's
+   * turn opens it; players raise or pass out clockwise; the last one standing
+   * picks any available minor and launches it (the only way to start a minor).
+   */
+  launchAuction?: LaunchAuctionState | null;
+}
+
+export interface LaunchAuctionState {
+  /** Player who initiated (whose SR turn this is); the turn resumes clockwise from them. */
+  initiator: string;
+  /** All players in clockwise order starting at the initiator. */
+  order: string[];
+  /** Players who have passed out of this auction. */
+  passed: string[];
+  /** Standing high bid and who holds it. */
+  highBid: number;
+  highBidder: string;
+  /** Player who must bid or pass now; null once the auction is won. */
+  turn: string | null;
+  /** The lone remaining bidder, who must now launch a minor; null while bidding. */
+  winner: string | null;
 }
 
 export interface MergerState {
@@ -228,8 +250,12 @@ export interface GameState {
 export type GameAction =
   | { type: 'bid'; player: string; company: string; price: number }
   | { type: 'par'; player: string; corp: string; price: number }
-  // RoLA: launch a minor at `price` (a par space) paying `bid` into its treasury.
-  | { type: 'launch'; player: string; corp: string; bid: number; price?: number; home?: string }
+  // RoLA: the auction winner launches a minor (the bid comes from the won auction).
+  | { type: 'launch'; player: string; corp: string; bid?: number; price?: number; home?: string }
+  // RoLA: open a mid-stock-round launch auction; `bid` is the opening bid (>= 120).
+  | { type: 'initiate_auction'; player: string; bid: number }
+  // RoLA: raise the standing bid in an open launch auction.
+  | { type: 'launch_bid'; player: string; bid: number }
   | { type: 'buy'; player: string; corp: string; from: 'ipo' | 'pool' }
   | { type: 'sell'; player: string; corp: string; count: number }
   | { type: 'lay_tile'; player: string; corp: string; hex: string; tile: string; rotation: number }

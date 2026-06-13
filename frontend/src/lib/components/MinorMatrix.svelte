@@ -12,14 +12,22 @@
   const launched = (sym: string) => corp(sym).parPrice !== null;
   const me = $derived(game.active ?? '');
   const legal = $derived(game.state.round === 'stock' ? rolaStockLegalActions(game.state) : null);
-  const canLaunch = (sym: string) => !!legal?.launch.find((l) => l.corp === sym);
-  const minBid = (sym: string) => legal?.launch.find((l) => l.corp === sym)?.minBid ?? 120;
+  // A minor is launched only by winning a bidding auction (rulebook p.10).
+  const auction = $derived(legal?.auction ?? null);
+  const available = (sym: string) => legal?.available.includes(sym) ?? false;
+  const pname = (id: string) => game.state.players.find((p) => p.id === id)?.name ?? id;
 
-  let sel = $state<{ sym: string; bid: number } | null>(null);
   const price = (bid: number) => parForBid(game.state, bid);
-  function open(sym: string) {
-    sel = { sym, bid: sel?.sym === sym ? sel.bid : minBid(sym) };
-  }
+  // Opening-bid and raise inputs.
+  let openBid = $state(120);
+  let raiseBid = $state(125);
+  $effect(() => {
+    if (legal && openBid < legal.minBid) openBid = legal.minBid;
+  });
+  $effect(() => {
+    if (auction && raiseBid < auction.minRaise) raiseBid = auction.minRaise;
+  });
+
   // Adaptive chooses an empty basic-city home as it launches.
   const homes = $derived(adaptiveHomes(game.state));
   let homeSel = $state('');
@@ -29,16 +37,18 @@
   const minorDef = (sym: string) => configFor(game.title).minors?.find((m) => m.sym === sym);
   const descOf = (sym: string) => minorDef(sym)?.desc ?? '';
   const isAdaptive = (sym: string) => minorDef(sym)?.ability?.type === 'choose_home';
-  function launch(sym: string) {
-    if (!sel || sel.sym !== sym) return;
-    game.act({
-      type: 'launch',
-      player: me,
-      corp: sym,
-      bid: sel.bid,
-      ...(isAdaptive(sym) ? { home: homeSel } : {})
-    });
-    if (!game.error) sel = null;
+
+  function initiate() {
+    game.act({ type: 'initiate_auction', player: me, bid: openBid });
+  }
+  function raise() {
+    game.act({ type: 'launch_bid', player: me, bid: raiseBid });
+  }
+  function passAuction() {
+    game.act({ type: 'pass', player: me });
+  }
+  function launchPick(sym: string) {
+    game.act({ type: 'launch', player: me, corp: sym, ...(isAdaptive(sym) ? { home: homeSel } : {}) });
   }
   // For a column: the unlaunched minors, available first (bottom), upcoming above.
   const column = (col: string[]) => {
@@ -52,6 +62,35 @@
     <div class="mhead">
       <h3>Minor companies</h3>
     </div>
+
+    {#if auction}
+      <div class="auc">
+        <div class="aucrow">
+          <span>Launch auction. High bid <b>{CURRENCY}{auction.highBid}</b> by <b>{pname(auction.highBidder)}</b></span>
+          <span class="muted">price would be {CURRENCY}{price(auction.highBid)}</span>
+        </div>
+        {#if game.canAct && auction.myTurn}
+          <div class="aucact">
+            <label>raise to <input type="number" min={auction.minRaise} step="5" bind:value={raiseBid} /></label>
+            <button class="go" disabled={raiseBid < auction.minRaise || raiseBid % 5 !== 0} onclick={raise}>Bid</button>
+            <button class="ghost" onclick={passAuction}>Drop out</button>
+          </div>
+        {:else if game.canAct && auction.iWon}
+          <p class="muted">You won. Pick a minor below to launch for {CURRENCY}{auction.highBid}.</p>
+        {:else}
+          <p class="muted">Waiting for {pname(legal?.player ?? '')} to bid…</p>
+        {/if}
+      </div>
+    {:else if game.canAct && legal?.canInitiate}
+      <div class="auc">
+        <div class="aucact">
+          <label>open auction at <input type="number" min={legal.minBid} step="5" bind:value={openBid} /></label>
+          <span class="muted">price {CURRENCY}{price(openBid)}</span>
+          <button class="go" disabled={openBid < legal.minBid || openBid % 5 !== 0} onclick={initiate}>Start auction</button>
+        </div>
+      </div>
+    {/if}
+
     <div class="cols">
       {#each matrix as col, i (i)}
         {@const c = column(col)}
@@ -75,31 +114,21 @@
               {#if descOf(sym)}
                 <p class="cdesc">{descOf(sym)}</p>
               {/if}
-              {#if game.canAct && canLaunch(sym)}
-                {#if sel?.sym === sym}
-                  <div class="launch">
-                    <label>bid <input type="number" min={minBid(sym)} step="5" bind:value={sel.bid} /></label>
-                    <span class="derv">price {CURRENCY}{price(sel.bid)} · treasury {CURRENCY}{sel.bid}</span>
-                    {#if isAdaptive(sym)}
-                      <label>home
-                        <select bind:value={homeSel}>
-                          {#each homes as h (h)}<option value={h}>{h}</option>{/each}
-                        </select>
-                      </label>
-                    {/if}
-                    <button
-                      class="go"
-                      disabled={sel.bid < minBid(sym) || sel.bid % 5 !== 0 || (isAdaptive(sym) && !homeSel)}
-                      onclick={() => launch(sym)}
-                    >
-                      Launch
-                    </button>
-                  </div>
-                {:else}
-                  <button class="openbtn" onclick={() => open(sym)}>Launch · bid ≥ {CURRENCY}{minBid(sym)}</button>
-                {/if}
+              {#if game.canAct && auction?.iWon && available(sym)}
+                <div class="launch">
+                  {#if isAdaptive(sym)}
+                    <label>home
+                      <select bind:value={homeSel}>
+                        {#each homes as h (h)}<option value={h}>{h}</option>{/each}
+                      </select>
+                    </label>
+                  {/if}
+                  <button class="go" disabled={isAdaptive(sym) && !homeSel} onclick={() => launchPick(sym)}>
+                    Launch for {CURRENCY}{auction.highBid}
+                  </button>
+                </div>
               {:else}
-                <div class="wait">bottom of column - launchable on a turn</div>
+                <div class="wait">bottom of column - launched by auction</div>
               {/if}
             </div>
           {:else}
@@ -125,6 +154,56 @@
   .mhead h3 {
     margin: 0;
     font-size: 0.95rem;
+  }
+  .auc {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--bg-soft);
+    padding: 0.55rem 0.7rem;
+    margin-bottom: 0.7rem;
+  }
+  .aucrow {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    font-size: 0.86rem;
+    margin-bottom: 0.4rem;
+  }
+  .aucact {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+  .aucact label {
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+  .aucact input {
+    width: 4.6rem;
+    margin-left: 0.3rem;
+    padding: 0.2rem 0.3rem;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--ink);
+    font: inherit;
+  }
+  .muted {
+    color: var(--muted);
+    font-size: 0.82rem;
+    margin: 0.2rem 0 0;
+  }
+  .ghost {
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 0.32rem 0.7rem;
+    background: transparent;
+    color: var(--ink);
+    font-weight: 700;
+    font-size: 0.8rem;
+    cursor: pointer;
   }
   .cols {
     display: grid;
@@ -209,21 +288,6 @@
     font-size: 0.78rem;
     color: var(--muted);
   }
-  .launch input {
-    width: 4.2rem;
-    margin-left: 0.25rem;
-    padding: 0.2rem 0.3rem;
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    background: var(--bg);
-    color: var(--ink);
-    font: inherit;
-  }
-  .derv {
-    font-size: 0.74rem;
-    color: var(--muted);
-  }
-  .openbtn,
   .go {
     border: none;
     border-radius: 6px;
@@ -233,9 +297,6 @@
     font-weight: 800;
     font-size: 0.8rem;
     cursor: pointer;
-  }
-  .openbtn {
-    margin: 0.45rem 0.55rem;
   }
   .go:disabled {
     opacity: 0.4;
