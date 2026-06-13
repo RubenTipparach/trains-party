@@ -672,11 +672,21 @@
   // MITER join at each shared vertex, so adjacent segments meet at one point
   // instead of crossing - the bands never overlap. Derived from the visible
   // tiles, so it grows with the assembly intro and follows the island outline.
-  type CoastEdge = { x1: number; y1: number; x2: number; y2: number; nx: number; ny: number };
+  // Each coastal hex gets a stable phase bucket from its coordinate, so stretches
+  // of shore wave out of sync instead of all pulsing together (the per-hex roll
+  // stays coherent - the whole hex's wave train just shifts by its bucket phase).
+  const PHASE_BUCKETS = [0, 0.9, 1.7, 2.5];
+  function bucketOf(coord: string): number {
+    let h = 0;
+    for (const c of coord) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+    return h % PHASE_BUCKETS.length;
+  }
+  type CoastEdge = { x1: number; y1: number; x2: number; y2: number; nx: number; ny: number; bucket: number };
   const coast = $derived.by(() => {
     const have = new Set(visiblePlaced.map((p) => p.coord));
     const edges: CoastEdge[] = [];
     for (const h of visiblePlaced) {
+      const bucket = bucketOf(h.coord);
       for (let e = 0; e < 6; e++) {
         const na = (Math.PI / 180) * (90 + 60 * e);
         const nx = Math.cos(na);
@@ -696,7 +706,8 @@
           x2: h.cx + HEX_SIZE * Math.cos(a2),
           y2: h.cy + HEX_SIZE * Math.sin(a2),
           nx,
-          ny
+          ny,
+          bucket
         });
       }
     }
@@ -737,7 +748,7 @@
     return coast.edges.map((ed) => {
       const a = miter(ed.x1, ed.y1, ed.nx, ed.ny, d);
       const b = miter(ed.x2, ed.y2, ed.nx, ed.ny, d);
-      return { x1: a.x, y1: a.y, x2: b.x, y2: b.y };
+      return { x1: a.x, y1: a.y, x2: b.x, y2: b.y, bucket: ed.bucket };
     });
   }
   // Foam waves: flat dashed crests in the shallow band, between each sea-facing
@@ -1119,15 +1130,18 @@
           <circle cx={h.cx} cy={h.cy} r={SHALLOW_R} fill="url(#shallowgrad)" />
         {/each}
       </g>
-      <!-- shoreline foam waves: flat miter-joined bands offset from the coast;
-           the bands pulse in turn so a crest rolls outward toward the sea -->
+      <!-- shoreline foam waves: flat miter-joined bands rolling in to the shore.
+           Bands are split by phase bucket so different shores wave out of sync. -->
       <g class="coast" aria-hidden="true">
         {#each WAVE_BANDS as band (band.off)}
-          <g class="wave" style="--peak:{band.peak}; animation-delay:{band.delay}s">
-            {#each bandSegs(band.off) as s, i (i)}
-              <line class="foam" x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2} stroke-width={band.w} stroke-dasharray={band.dash} />
-            {/each}
-          </g>
+          {@const segs = bandSegs(band.off)}
+          {#each PHASE_BUCKETS as ph, bi (bi)}
+            <g class="wave" style="--peak:{band.peak}; animation-delay:{band.delay + ph}s">
+              {#each segs.filter((s) => s.bucket === bi) as s, i (i)}
+                <line class="foam" x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2} stroke-width={band.w} stroke-dasharray={band.dash} />
+              {/each}
+            </g>
+          {/each}
         {/each}
       </g>
       {#each visiblePlaced as h (h.coord)}
