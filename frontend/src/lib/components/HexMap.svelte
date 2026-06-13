@@ -904,6 +904,26 @@
   let moved = false;
   let viewRaf = 0; // in-flight animated-view frame
 
+  // --- transform-based panning (composited, no per-frame raster) -------------
+  // A single-pointer drag does NOT churn the viewBox (which would re-rasterise
+  // the whole scene every frame). Instead we translate the SVG element with a
+  // CSS transform - a compositor-only operation - and only bake the offset back
+  // into the viewBox occasionally (when it nears the overscan edge, and on
+  // pointer-up). To keep the reveal seamless the SVG renders an overscan margin
+  // on every side: the element is 1 + 2*PAN_OS the size of the visible sea, and
+  // the viewBox is expanded to match, so the visible scale is unchanged but
+  // there is real content to slide in from beyond the edges.
+  const PAN_OS = 0.35;
+  // Expanded viewBox actually rendered (visible `view` plus the overscan ring).
+  const vb = $derived({
+    x: view.x - PAN_OS * view.w,
+    y: view.y - PAN_OS * view.h,
+    w: view.w * (1 + 2 * PAN_OS),
+    h: view.h * (1 + 2 * PAN_OS)
+  });
+  let panOffset = $state({ x: 0, y: 0 }); // live CSS-px translate during a drag
+  let dragScale = 1; // svg view-units per screen pixel, captured at drag start
+
   // Keep the view within the map bounds, leaving a little wiggle room past the
   // edge (mapView.edgeMargin). While laying a tile, allow a larger margin so the
   // fan of options (which sits outside the chosen hex) stays reachable.
@@ -1045,7 +1065,12 @@
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     moved = false;
-    if (pointers.size === 1) dragging = true;
+    if (pointers.size === 1) {
+      dragging = true;
+      // svg user-units per screen pixel = rendered viewBox width / element width.
+      const rw = svgEl.getBoundingClientRect().width || 1;
+      dragScale = (view.w * (1 + 2 * PAN_OS)) / rw;
+    }
   }
   function onMove(e: PointerEvent) {
     // Map building: highlight the hex under the cursor (where a click would place).
@@ -1075,17 +1100,38 @@
       moved = true;
       hide();
     }
-    // Pan in SVG space (rotation-aware): keep the point under the cursor put.
-    const p0 = clientToSvg(prev.x, prev.y);
-    const p1 = clientToSvg(e.clientX, e.clientY);
+    // Pan via a composited CSS transform on the SVG (no viewBox churn). The
+    // screen-pixel delta maps straight to screen-aligned view units (the viewBox
+    // is screen-aligned; rotation lives on an inner group), so dragScale alone
+    // converts between them - the same scale the old CTM path used.
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     bumpInteract();
-    view = clamped({ ...view, x: view.x - (p1.x - p0.x), y: view.y - (p1.y - p0.y) });
+    let nx = panOffset.x + (e.clientX - prev.x);
+    let ny = panOffset.y + (e.clientY - prev.y);
+    // Clamp the pixel offset to the map bounds (resolved in view space).
+    const cand = clamped({ ...view, x: view.x - nx * dragScale, y: view.y - ny * dragScale });
+    nx = (view.x - cand.x) / dragScale;
+    ny = (view.y - cand.y) / dragScale;
+    // Bake into the viewBox before the overscan runs out (one raster), else keep
+    // sliding the composited layer. The overscan ring is PAN_OS of the viewport
+    // in px = PAN_OS * view.w / dragScale; commit at 70% of it.
+    const limPx = 0.7 * PAN_OS * (view.w / dragScale);
+    if (Math.abs(nx) > limPx || Math.abs(ny) > limPx) {
+      view = cand;
+      panOffset = { x: 0, y: 0 };
+    } else {
+      panOffset = { x: nx, y: ny };
+    }
   }
   function onUp(e: PointerEvent) {
     const wasDrag = moved;
     pointers.delete(e.pointerId);
     if (pointers.size === 0) dragging = false;
+    // Bake any live transform-pan into the viewBox, then drop the transform.
+    if (panOffset.x || panOffset.y) {
+      view = clamped({ ...view, x: view.x - panOffset.x * dragScale, y: view.y - panOffset.y * dragScale });
+      panOffset = { x: 0, y: 0 };
+    }
     if (!wasDrag) {
       // Map building: a tap anywhere on the grid positions the next tile.
       if (canBuild) {
@@ -1178,7 +1224,8 @@
       class="map"
       class:grabbing={dragging}
       bind:this={svgEl}
-      viewBox="{view.x} {view.y} {view.w} {view.h}"
+      viewBox="{vb.x} {vb.y} {vb.w} {vb.h}"
+      style="transform: translate({panOffset.x}px, {panOffset.y}px)"
       role="application"
       aria-label="1889 Shikoku map (drag to pan, scroll to zoom)"
       onpointerdown={onDown}
@@ -1747,15 +1794,22 @@
   .deep {
     fill: #1b6075;
   }
+  /* The SVG is rendered with a PAN_OS (35%) overscan ring on every side (its
+     viewBox is expanded to match), so a drag can slide real content in from
+     beyond the visible edge. .sea (overflow:hidden) clips it back to the
+     viewport, and clipping also confines pointer hit-testing to the visible
+     area. will-change promotes it to its own layer so panning is a pure
+     compositor translate (no re-raster). */
   .map {
-    position: relative;
-  }
-  .map {
-    width: 100%;
-    height: 100%;
+    position: absolute;
+    left: -35%;
+    top: -35%;
+    width: 170%;
+    height: 170%;
     display: block;
     touch-action: none;
     cursor: grab;
+    will-change: transform;
   }
   .map.grabbing {
     cursor: grabbing;
