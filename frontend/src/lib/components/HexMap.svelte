@@ -1232,17 +1232,22 @@
       <g class="coast" aria-hidden="true">
         {#each WAVE_LEADS as lead (lead)}
           {#each coast.edges as s, i (i)}
-            <line
-              class="foam"
-              x1={s.x1}
-              y1={s.y1}
-              x2={s.x2}
-              y2={s.y2}
-              stroke-width="2.3"
-              stroke-dasharray="8 6"
-              vector-effect="non-scaling-stroke"
-              style="--ox:{s.ox.toFixed(1)}px; --oy:{s.oy.toFixed(1)}px; animation-duration:{s.speed.toFixed(2)}s; animation-delay:{(-(s.phase + lead) * s.speed).toFixed(2)}s"
-            />
+            <!-- static translate to the ocean centre; the line's local origin is
+                 then that centre, so a plain scale() animation (no custom-property
+                 transforms -> no per-frame style recalc) spawns it there. -->
+            <g transform="translate({s.ox.toFixed(1)} {s.oy.toFixed(1)})">
+              <line
+                class="foam"
+                x1={(s.x1 - s.ox).toFixed(1)}
+                y1={(s.y1 - s.oy).toFixed(1)}
+                x2={(s.x2 - s.ox).toFixed(1)}
+                y2={(s.y2 - s.oy).toFixed(1)}
+                stroke-width="2.3"
+                stroke-dasharray="8 6"
+                vector-effect="non-scaling-stroke"
+                style="animation-duration:{s.speed.toFixed(2)}s; animation-delay:{(-(s.phase + lead) * s.speed).toFixed(2)}s"
+              />
+            </g>
           {/each}
         {/each}
       </g>
@@ -1779,18 +1784,24 @@
   @media (min-width: 920px) {
     .coast .foam {
       opacity: 0;
+      /* the wrapping <g> is translated to the ocean centre, so the line's local
+         origin IS that centre: a plain scale() about (0,0) spawns the wave there
+         and grows it to the shore. No custom-property transforms -> the keyframe
+         is a static value the compositor can interpolate without style recalc. */
+      transform-box: view-box;
+      transform-origin: 0 0;
       /* duration + (negative) delay are per segment, set inline */
       animation: wavepulse 7s linear infinite;
     }
   }
-  /* scale the shore-edge line about the ocean hex centre (--ox, --oy): the
+  /* scale the shore-edge line about its local origin (the ocean hex centre): the
      wave spawns at HALF the distance to the shore (clamped: never nearer the
-     centre than 50%), its endpoints ride the centre->vertex triangle sides,
-     and it lands exactly on the shore edge as it fades */
+     centre than 50%), its endpoints ride the centre->vertex triangle sides, and
+     it lands exactly on the shore edge as it fades. */
   @keyframes wavepulse {
     0% {
       opacity: 0;
-      transform: translate(var(--ox), var(--oy)) scale(0.5) translate(calc(-1 * var(--ox)), calc(-1 * var(--oy)));
+      transform: scale(0.5);
     }
     30% {
       opacity: 0.55;
@@ -1800,7 +1811,7 @@
     }
     100% {
       opacity: 0;
-      transform: translate(var(--ox), var(--oy)) scale(1) translate(calc(-1 * var(--ox)), calc(-1 * var(--oy)));
+      transform: scale(1);
     }
   }
   @media (prefers-reduced-motion: reduce) {
