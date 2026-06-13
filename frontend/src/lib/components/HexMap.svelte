@@ -5,7 +5,7 @@
   import type { HexDef, PathPart, TileColor } from '$lib/data/types';
   import { HEX_SIZE, APOTHEM, hexCenter, hexPolygon, edgeMidpoint } from '$lib/hexgeo';
   import { mapView } from '$lib/config/mapView';
-  import { WATER_LOOP_S, waterFrameUris } from '$lib/config/waterArt';
+  import { WATER_FRAMES, WATER_STATIC, TILE_W, TILE_H } from '$lib/config/waterArt';
   import { game } from '$lib/game/sandbox.svelte';
   import { anim } from '$lib/game/anim.svelte';
   import { routing } from '$lib/game/routing.svelte';
@@ -656,7 +656,20 @@
 
   // Water lives on composited CSS layers behind the SVG (opacity-only fades on
   // the GPU): animating it inside the SVG forced full-scene repaints on phones.
-  const WATER_URIS = waterFrameUris();
+  // World-space water (pans and rotates with the map): a deep base, shallow
+  // halos that fade out from every coast into the depths, and a static surface
+  // texture. One frame of the pixel ripples gives surface detail without the
+  // idle SVG repaint cost of an animation.
+  const SHALLOW_R = 2.4 * HEX_SIZE; // how far the shallow band reaches from land
+  const SEATEX = [...WATER_STATIC, ...WATER_FRAMES[0]];
+  // A generous rect (in world units) for the deep base + texture, covering the
+  // map with room to pan; beyond it the .sea deep colour shows through.
+  const seaRect = $derived({
+    x: minX - width,
+    y: minY - height,
+    w: width * 3,
+    h: height * 3
+  });
 
   // Coastline foam: hex edges of the visible map that face the open sea, with an
   // outward normal so we can draw wavy white bands rolling out from the shore
@@ -1029,14 +1042,6 @@
 
 <div class="wrap" class:fill class:paused bind:this={wrap} style="aspect-ratio: {wrapAspect}">
   <div class="sea">
-    <div class="waterbg" aria-hidden="true">
-      {#each WATER_URIS as uri, i (i)}
-        <div
-          class="wframe"
-          style="background-image:url(&quot;{uri}&quot;); animation-delay:{(i - WATER_URIS.length) * (WATER_LOOP_S / WATER_URIS.length)}s"
-        ></div>
-      {/each}
-    </div>
     <svg
       class="map"
       class:grabbing={dragging}
@@ -1053,11 +1058,34 @@
       <defs>
         <clipPath id="hexclip"><polygon points={poly} /></clipPath>
         <clipPath id="cityclip"><circle r="12.5" /></clipPath>
+        <!-- shallow-water halo: light teal at the shore fading to clear (the
+             deep base shows through), giving shallow-near-land / deep-far -->
+        <radialGradient id="shallowgrad">
+          <stop offset="0%" stop-color="#74c1be" stop-opacity="1" />
+          <stop offset="42%" stop-color="#74c1be" stop-opacity="1" />
+          <stop offset="100%" stop-color="#74c1be" stop-opacity="0" />
+        </radialGradient>
+        <!-- static surface texture (one ripple frame, no animation) -->
+        <pattern id="seatex" patternUnits="userSpaceOnUse" width={TILE_W * 2} height={TILE_H * 2}>
+          <g transform="scale(2)" opacity="0.5">
+            {#each SEATEX as [x, y, w, h, c]}
+              <rect {x} {y} width={w} height={h} fill={c} />
+            {/each}
+          </g>
+        </pattern>
       </defs>
-
 
       <!-- everything on the board rotates as a group around the board centre -->
       <g transform="rotate({$rotAnim} {rotPivot.x} {rotPivot.y})">
+      <!-- deep-water base + panning surface texture (under the shallows) -->
+      <rect class="deep" x={seaRect.x} y={seaRect.y} width={seaRect.w} height={seaRect.h} />
+      <rect x={seaRect.x} y={seaRect.y} width={seaRect.w} height={seaRect.h} fill="url(#seatex)" />
+      <!-- shallow halo around each land hex (fades out into the deep) -->
+      <g class="shallows" aria-hidden="true">
+        {#each visiblePlaced as h (h.coord)}
+          <circle cx={h.cx} cy={h.cy} r={SHALLOW_R} fill="url(#shallowgrad)" />
+        {/each}
+      </g>
       <!-- shoreline foam: wavy white bands following the coast (under the land) -->
       <g class="coast" aria-hidden="true">
         {#each FOAM_BANDS as band (band.off)}
@@ -1499,40 +1527,12 @@
     position: relative;
     border-radius: 12px;
     overflow: hidden;
-    background-color: #74c1be;
+    /* deep-ocean base; world-space shallows + texture layer over it in the SVG */
+    background-color: #1b6075;
     height: 100%;
   }
-  .waterbg {
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-  }
-  .wframe {
-    position: absolute;
-    inset: 0;
-    background-repeat: repeat;
-    background-size: 80px 56px; /* 2x for a chunkier pixel look */
-    opacity: 0;
-    will-change: opacity;
-    animation: wfade 6s linear infinite; /* WATER_LOOP_S */
-  }
-  /* one 1/6 slot visible per frame, 0.45s crossfades (see waterArt.ts) */
-  @keyframes wfade {
-    0% {
-      opacity: 0;
-    }
-    7.5% {
-      opacity: 1;
-    }
-    16.67% {
-      opacity: 1;
-    }
-    24.17% {
-      opacity: 0;
-    }
-    100% {
-      opacity: 0;
-    }
+  .deep {
+    fill: #1b6075;
   }
   .map {
     position: relative;
