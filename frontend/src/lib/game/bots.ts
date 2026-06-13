@@ -15,6 +15,8 @@ import {
   configFor,
   pickBuildPlacement,
   mergerActivePlayer,
+  mergePartners,
+  availableMajors,
   adaptiveHomes,
   type GameAction,
   type GameState
@@ -184,8 +186,22 @@ export function botAction(s: GameState, level: BotLevel): GameAction | null {
   if (s.round === 'merger' && s.merger) {
     const me = mergerActivePlayer(s);
     if (!me) return null;
-    // Conservative bots: decline cross-player proposals, never initiate.
+    // A bot never lets another player merge one of its minors: deny every proposal.
     if (s.merger.pending) return { type: 'decline_merge', player: me };
+    // On its own turn a bot always merges two minors it solely controls (it is
+    // president of both): the front minor with any partner it can trace a route to
+    // whose president is also this bot, into the first free major. No permission
+    // from another player is needed, so the merge resolves immediately.
+    const sym = s.merger.queue[s.merger.index];
+    const majors = availableMajors(s);
+    if (sym && majors.length) {
+      const partner = mergePartners(s, sym).find(
+        (p) => s.corporations.find((c) => c.sym === p)?.president === me
+      );
+      if (partner) {
+        return { type: 'propose_merge', player: me, from: sym, to: partner, major: majors[0] };
+      }
+    }
     return { type: 'pass', player: me };
   }
   if (s.round === 'auction' && s.auction) {
