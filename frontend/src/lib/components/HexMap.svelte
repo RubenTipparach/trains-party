@@ -680,7 +680,11 @@
     h = (h ^ (h >> 13)) * 1274126177;
     return ((h ^ (h >> 16)) >>> 0) / 4294967295;
   }
-  type CoastEdge = { x1: number; y1: number; x2: number; y2: number; nx: number; ny: number; phase: number; speed: number };
+  type CoastEdge = {
+    x1: number; y1: number; x2: number; y2: number; // the shared shore edge
+    ox: number; oy: number; // the bordering ocean hex centre (wave origin)
+    phase: number; speed: number;
+  };
   const coast = $derived.by(() => {
     const have = new Set(visiblePlaced.map((p) => p.coord));
     const edges: CoastEdge[] = [];
@@ -709,68 +713,22 @@
           y1,
           x2,
           y2,
-          nx,
-          ny,
+          ox: ncx, // the ocean hex centre beyond this edge
+          oy: ncy,
           phase: segRand(mx, my, 1),
           speed: 6 + 4 * segRand(mx, my, 2) // slow: 6-10s per wave cycle
         });
       }
     }
-    const key = (x: number, y: number) => `${Math.round(x)},${Math.round(y)}`;
-    const vmap = new Map<string, number[]>();
-    edges.forEach((ed, i) => {
-      for (const [x, y] of [
-        [ed.x1, ed.y1],
-        [ed.x2, ed.y2]
-      ]) {
-        const k = key(x, y);
-        const a = vmap.get(k) ?? [];
-        a.push(i);
-        vmap.set(k, a);
-      }
-    });
-    return { edges, vmap, key };
+    return { edges };
   });
-  /** Miter-offset a coast vertex outward by d, blending the normals of the edges
-   * meeting there so neighbouring band segments share one corner point. */
-  function miter(x: number, y: number, nx: number, ny: number, d: number) {
-    let mx = nx;
-    let my = ny;
-    for (const i of coast.vmap.get(coast.key(x, y)) ?? []) {
-      const o = coast.edges[i];
-      if (o.nx === nx && o.ny === ny) continue; // same direction (or self): no corner
-      mx += o.nx;
-      my += o.ny;
-    }
-    const ml = Math.hypot(mx, my) || 1;
-    mx /= ml;
-    my /= ml;
-    const len = d / Math.max(0.4, mx * nx + my * ny); // clamp the miter spike
-    return { x: x + mx * len, y: y + my * len };
-  }
-  /** Offset every coast edge outward by d, returning clean non-overlapping segments. */
-  function bandSegs(d: number) {
-    return coast.edges.map((ed) => {
-      const a = miter(ed.x1, ed.y1, ed.nx, ed.ny, d);
-      const b = miter(ed.x2, ed.y2, ed.nx, ed.ny, d);
-      // inward drift vector (the normals point out to sea)
-      return { x1: a.x, y1: a.y, x2: b.x, y2: b.y, phase: ed.phase, speed: ed.speed, tx: -ed.nx * WAVE_TRAVEL, ty: -ed.ny * WAVE_TRAVEL };
-    });
-  }
-  // Foam waves: flat dashed crests in the shallow band, between each sea-facing
-  // edge and the open-water hex beyond it. The crests originate out at the water
-  // hex centre (~one apothem past the shore) and roll IN toward the beach,
-  // breaking as they land - the outer band pulses first, the shore band last.
-  // `peak` tapers at both ends (forming at sea, dissipating on the sand).
-  // `lead` is the band's head start as a fraction of the segment's own cycle:
-  // the sea band runs ahead, the shore band trails, so the crest rolls inward.
-  // Each line also physically glides shoreward by WAVE_TRAVEL over its cycle.
-  const WAVE_BANDS = [
-    { off: 8, w: 2.4, dash: '7 5', peak: 0.34, lead: 0 }, // breaks at the shore (last)
-    { off: 19, w: 2.2, dash: '6 7', peak: 0.6, lead: 0.22 },
-    { off: 30, w: 1.9, dash: '5 9', peak: 0.36, lead: 0.44 } // forms out at sea (first)
-  ];
-  const WAVE_TRAVEL = 11; // world units a wave line drifts toward the shore
+  // Waves, per the design algorithm: for each ocean hex bordering the map, for
+  // each shared edge, a wave SPAWNS AT THE OCEAN HEX CENTRE and travels to that
+  // edge, its endpoints riding the triangle (centre -> edge vertices). That is
+  // exactly the shore edge segment scaled about the ocean centre from ~0 to 1,
+  // so each wave is one line + one scale-about-origin animation. Two waves per
+  // edge, half a cycle apart, keep the surf continuous.
+  const WAVE_LEADS = [0, 0.5];
 
   function endPoint(e: number | 'center') {
     return e === 'center' ? { x: 0, y: 0 } : edgeMidpoint(0, 0, e);
@@ -1145,22 +1103,23 @@
           <circle cx={h.cx} cy={h.cy} r={SHALLOW_R} fill="url(#shallowgrad)" />
         {/each}
       </g>
-      <!-- shoreline foam waves: flat miter-joined bands rolling in to the shore,
-           every segment on its own slow clock (random phase + speed). Negative
-           delays start mid-cycle, so the water is always in motion. -->
+      <!-- shoreline waves: spawn at each bordering ocean hex centre and travel
+           to the shared shore edge, endpoints confined to the centre->edge
+           triangle (the line scales about the ocean centre). Per-edge random
+           phase + speed; negative delays keep the surf always mid-motion. -->
       <g class="coast" aria-hidden="true">
-        {#each WAVE_BANDS as band (band.off)}
-          {#each bandSegs(band.off) as s, i (i)}
+        {#each WAVE_LEADS as lead (lead)}
+          {#each coast.edges as s, i (i)}
             <line
               class="foam"
               x1={s.x1}
               y1={s.y1}
               x2={s.x2}
               y2={s.y2}
-              stroke-width={band.w}
-              stroke-dasharray={band.dash}
+              stroke-width="2.3"
+              stroke-dasharray="8 6"
               vector-effect="non-scaling-stroke"
-              style="--peak:{band.peak}; --tx:{s.tx.toFixed(1)}px; --ty:{s.ty.toFixed(1)}px; animation-duration:{s.speed.toFixed(2)}s; animation-delay:{(-(s.phase + band.lead) * s.speed).toFixed(2)}s"
+              style="--ox:{s.ox.toFixed(1)}px; --oy:{s.oy.toFixed(1)}px; animation-duration:{s.speed.toFixed(2)}s; animation-delay:{(-(s.phase + lead) * s.speed).toFixed(2)}s"
             />
           {/each}
         {/each}
@@ -1628,11 +1587,8 @@
     fill: none;
     stroke: #ffffff;
     stroke-linecap: round;
-    /* grow from the segment's own midpoint (the diagram: small -> large) */
-    transform-box: fill-box;
-    transform-origin: center;
-    /* phones: static foam (per-segment SVG animation would repaint the scene) */
-    opacity: calc(var(--peak, 0.5) * 0.6);
+    /* phones: static foam at the shore (per-segment SVG animation repaints) */
+    opacity: 0.3;
   }
   @media (min-width: 920px) {
     .coast .foam {
@@ -1641,31 +1597,29 @@
       animation: wavepulse 7s linear infinite;
     }
   }
-  /* a wide, soft pulse that GLIDES shoreward and GROWS as it goes: the line
-     starts small out at sea, drifts by (--tx, --ty) toward the beach, and
-     stretches to full span as it lands (stroke width stays constant via
-     non-scaling-stroke) */
+  /* scale the shore-edge line about the ocean hex centre (--ox, --oy): the
+     wave spawns tiny at the centre, its endpoints ride the centre->vertex
+     triangle sides, and it lands exactly on the shore edge as it fades */
   @keyframes wavepulse {
     0% {
       opacity: 0;
-      transform: translate(0px, 0px) scale(0.45);
+      transform: translate(var(--ox), var(--oy)) scale(0.12) translate(calc(-1 * var(--ox)), calc(-1 * var(--oy)));
     }
-    25% {
-      opacity: var(--peak, 0.5);
+    30% {
+      opacity: 0.55;
     }
-    60% {
-      opacity: var(--peak, 0.5);
+    75% {
+      opacity: 0.5;
     }
-    90%,
     100% {
       opacity: 0;
-      transform: translate(var(--tx, 0px), var(--ty, 0px)) scale(1);
+      transform: translate(var(--ox), var(--oy)) scale(1) translate(calc(-1 * var(--ox)), calc(-1 * var(--oy)));
     }
   }
   @media (prefers-reduced-motion: reduce) {
     .coast .foam {
       animation: none;
-      opacity: calc(var(--peak, 0.5) * 0.6);
+      opacity: 0.3;
     }
   }
   .homeres {
