@@ -850,6 +850,17 @@
     }
   });
   let dragging = $state(false);
+  // True while actively panning/zooming. During interaction we drop the most
+  // raster-heavy detail (animated foam, ground texture, coord labels) and switch
+  // the SVG to fast rasterisation, then restore full detail when the view settles
+  // - the viewBox churn is what re-rasterises the whole scene each frame.
+  let interacting = $state(false);
+  let settleTimer = 0;
+  function bumpInteract() {
+    interacting = true;
+    clearTimeout(settleTimer);
+    settleTimer = window.setTimeout(() => (interacting = false), 180);
+  }
   // Whole-map rotation (rotate button). It is applied to the map CONTENT inside
   // the SVG, around the board centre - the water and the viewBox stay screen
   // aligned, and per-hex art/text counter-rotates so it reads right side up.
@@ -919,6 +930,7 @@
     const tick = (now: number) => {
       const k = Math.min(1, (now - t0) / dur);
       const e = 1 - Math.pow(1 - k, 3); // easeOutCubic
+      bumpInteract();
       view = {
         x: start.x + (goal.x - start.x) * e,
         y: start.y + (goal.y - start.y) * e,
@@ -972,6 +984,7 @@
   }
 
   function zoomAt(clientX: number, clientY: number, factor: number) {
+    bumpInteract();
     const p = clientToSvg(clientX, clientY);
     const fx = (p.x - view.x) / view.w;
     const fy = (p.y - view.y) / view.h;
@@ -981,6 +994,7 @@
   }
   /** Zoom toward the viewport centre, animated (used by the +/- buttons). */
   function zoomCenter(factor: number) {
+    bumpInteract();
     const fx = 0.5;
     const fy = 0.5;
     const px = view.x + fx * view.w;
@@ -1065,6 +1079,7 @@
     const p0 = clientToSvg(prev.x, prev.y);
     const p1 = clientToSvg(e.clientX, e.clientY);
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    bumpInteract();
     view = clamped({ ...view, x: view.x - (p1.x - p0.x), y: view.y - (p1.y - p0.y) });
   }
   function onUp(e: PointerEvent) {
@@ -1157,7 +1172,7 @@
   }
 </script>
 
-<div class="wrap" class:fill class:paused bind:this={wrap} style="aspect-ratio: {wrapAspect}">
+<div class="wrap" class:fill class:paused class:interacting bind:this={wrap} style="aspect-ratio: {wrapAspect}">
   <div class="sea">
     <svg
       class="map"
@@ -1250,7 +1265,7 @@
                sandy beach speckle on coastal hexes. Counter-rotated so the
                grass blades stay upright when the board is turned. -->
           {#if isPlainLand(h)}
-            <g transform="rotate({-$rotAnim})">
+            <g class="groundtex" transform="rotate({-$rotAnim})">
               {#if coast.coastalLand.has(h.coord)}
                 {#each sandDots(h.coord) as d (d.x)}
                   <circle cx={d.x} cy={d.y} r={d.r} fill="#cdba81" />
@@ -1681,6 +1696,17 @@
   /* A full-screen modal covers the map: stop painting it (and its water
      animation) entirely while hidden. */
   .wrap.paused .sea {
+    display: none;
+  }
+  /* While panning/zooming, the viewBox churn re-rasterises the whole scene each
+     frame, so shed the most raster-heavy detail and use fast rasterisation; it
+     all returns the instant the view settles. */
+  .wrap.interacting .map {
+    shape-rendering: optimizeSpeed;
+  }
+  .wrap.interacting .coast,
+  .wrap.interacting .groundtex,
+  .wrap.interacting .coordlbl {
     display: none;
   }
   /* As a background the right edge hosts the panel shell, so park the controls
