@@ -752,7 +752,8 @@
     return coast.edges.map((ed) => {
       const a = miter(ed.x1, ed.y1, ed.nx, ed.ny, d);
       const b = miter(ed.x2, ed.y2, ed.nx, ed.ny, d);
-      return { x1: a.x, y1: a.y, x2: b.x, y2: b.y, phase: ed.phase, speed: ed.speed };
+      // inward drift vector (the normals point out to sea)
+      return { x1: a.x, y1: a.y, x2: b.x, y2: b.y, phase: ed.phase, speed: ed.speed, tx: -ed.nx * WAVE_TRAVEL, ty: -ed.ny * WAVE_TRAVEL };
     });
   }
   // Foam waves: flat dashed crests in the shallow band, between each sea-facing
@@ -762,13 +763,13 @@
   // `peak` tapers at both ends (forming at sea, dissipating on the sand).
   // `lead` is the band's head start as a fraction of the segment's own cycle:
   // the sea band runs ahead, the shore band trails, so the crest rolls inward.
+  // Each line also physically glides shoreward by WAVE_TRAVEL over its cycle.
   const WAVE_BANDS = [
-    { off: 6, w: 2.4, dash: '7 5', peak: 0.3, lead: 0 }, // breaks at the shore (last)
-    { off: 13, w: 2.3, dash: '6 6', peak: 0.52, lead: 0.14 },
-    { off: 20, w: 2.2, dash: '6 7', peak: 0.62, lead: 0.28 },
-    { off: 27, w: 2.0, dash: '5 8', peak: 0.5, lead: 0.42 },
-    { off: 34, w: 1.8, dash: '5 9', peak: 0.34, lead: 0.56 } // forms at the water-hex centre (first)
+    { off: 8, w: 2.4, dash: '7 5', peak: 0.34, lead: 0 }, // breaks at the shore (last)
+    { off: 19, w: 2.2, dash: '6 7', peak: 0.6, lead: 0.22 },
+    { off: 30, w: 1.9, dash: '5 9', peak: 0.36, lead: 0.44 } // forms out at sea (first)
   ];
+  const WAVE_TRAVEL = 11; // world units a wave line drifts toward the shore
 
   function endPoint(e: number | 'center') {
     return e === 'center' ? { x: 0, y: 0 } : edgeMidpoint(0, 0, e);
@@ -1150,7 +1151,7 @@
               y2={s.y2}
               stroke-width={band.w}
               stroke-dasharray={band.dash}
-              style="--peak:{band.peak}; animation-duration:{s.speed.toFixed(2)}s; animation-delay:{(-(s.phase + band.lead) * s.speed).toFixed(2)}s"
+              style="--peak:{band.peak}; --tx:{s.tx.toFixed(1)}px; --ty:{s.ty.toFixed(1)}px; animation-duration:{s.speed.toFixed(2)}s; animation-delay:{(-(s.phase + band.lead) * s.speed).toFixed(2)}s"
             />
           {/each}
         {/each}
@@ -1627,20 +1628,23 @@
       animation: wavepulse 7s linear infinite;
     }
   }
-  /* a wide, soft pulse: long plateau + gentle ramps keep the motion continuous */
+  /* a wide, soft pulse that also GLIDES shoreward: the line drifts by
+     (--tx, --ty) - one band gap toward the beach - while fading in and out */
   @keyframes wavepulse {
     0% {
       opacity: 0;
+      transform: translate(0px, 0px);
     }
     25% {
       opacity: var(--peak, 0.5);
     }
-    55% {
+    60% {
       opacity: var(--peak, 0.5);
     }
-    85%,
+    90%,
     100% {
       opacity: 0;
+      transform: translate(var(--tx, 0px), var(--ty, 0px));
     }
   }
   @media (prefers-reduced-motion: reduce) {
