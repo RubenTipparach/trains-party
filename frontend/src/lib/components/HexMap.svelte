@@ -653,6 +653,7 @@
   const height = $derived(bounds.h);
 
   const poly = hexPolygon(0, 0);
+  const STAR = 'M 0.00 -8.00 L 2.00 -2.75 L 7.61 -2.47 L 3.23 1.05 L 4.70 6.47 L 0.00 3.40 L -4.70 6.47 L -3.23 1.05 L -7.61 -2.47 L -2.00 -2.75 Z'; // Capital City star marker
 
   // Water lives on composited CSS layers behind the SVG (opacity-only fades on
   // the GPU): animating it inside the SVG forced full-scene repaints on phones.
@@ -1243,6 +1244,7 @@
               {#if def && def.cities > 0}
                 <circle r="13" class="city" />
                 {#if def.revenue > 0}<text class="rev" y="-17" text-anchor="middle">{def.revenue}</text>{/if}
+                {#if h.cities?.[0]?.capital}<path class="capstar" d={STAR} />{/if}
               {:else if def && def.towns > 0}
                 <rect x="-9" y="-4" width="18" height="8" rx="2" class="town" transform="rotate(30)" />
                 {#if def.revenue > 0}<text class="rev" y="-15" text-anchor="middle">{def.revenue}</text>{/if}
@@ -1265,7 +1267,10 @@
                   <circle r="13" class="city" />
                 {/if}
                 {#if c.revenue > 0}<text class="rev" y="-17" text-anchor="middle">{c.revenue}</text>{/if}
-                {#if c.slots === 1 && !HOME.has(h.coord)}
+                {#if c.capital}
+                  <!-- Capital City: a star instead of the skyline -->
+                  <path class="capstar" d={STAR} />
+                {:else if c.slots === 1 && !HOME.has(h.coord)}
                   <g clip-path="url(#cityclip)">
                     {#each skyline(h.coord) as b}
                       <rect x={b.x} y={9 - b.h} width={b.w} height={b.h} fill="#43566a" />
@@ -1990,6 +1995,12 @@
     fill: #fbfbf7;
     stroke: #2b2b2b;
     stroke-width: 2;
+  }
+  .capstar {
+    fill: #f5c542;
+    stroke: #1c2a36;
+    stroke-width: 1.2;
+    stroke-linejoin: round;
   }
   .town {
     fill: #1b1b1b;

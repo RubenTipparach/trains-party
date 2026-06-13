@@ -147,6 +147,9 @@ export interface MajorDef {
 export interface CityPart {
   revenue: number;
   slots: number;
+  /** RoLA: a Capital City (placed via a Capital Project tile during map build).
+   * Marked with a star; there are exactly three on the board. */
+  capital?: boolean;
 }
 
 export interface TownPart {

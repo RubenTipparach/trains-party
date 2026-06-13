@@ -132,26 +132,35 @@ function rng(seed: number): () => number {
 
 const CONTENT: Record<string, () => Omit<HexDef, 'coord'>> = {
   city: () => ({ color: 'white', cities: [{ revenue: 0, slots: 1 }], towns: [], paths: [], icons: [] }),
+  // Capital City (Capital Project tile): a starred city. Exactly three exist.
+  // (slots/revenue are placeholders pending the physical overlay-tile numbers.)
+  capital: () => ({ color: 'white', cities: [{ revenue: 0, slots: 2, capital: true }], towns: [], paths: [], icons: [] }),
   town: () => ({ color: 'white', cities: [], towns: [{ revenue: 0 }], paths: [], icons: [] }),
   mountain: () => ({ color: 'white', cities: [], towns: [], paths: [], icons: [], terrain: ['mountain'], upgradeCost: 40 }),
   water: () => ({ color: 'white', cities: [], towns: [], paths: [], icons: [], terrain: ['water'], upgradeCost: 40 }),
   blank: () => ({ color: 'white', cities: [], towns: [], paths: [], icons: [] })
 };
 
+/** The three Capital City Project tiles, per the rulebook. */
+export const CAPITAL_COUNT = 3;
+
 /**
  * A deterministic pool of tri-hex tiles. Guarantees at least `minorCount` city
- * hexes (so every minor can be seated a home after the map is built).
+ * hexes (so every minor can be seated a home after the map is built) and exactly
+ * three Capital Cities (the Capital Project tiles).
  */
 export function generateTriHexPool(seed: number, players: number, minorCount: number): TriHex[] {
   const rnd = rng(seed || 1);
   const poolSize = 11 + players; // ~14-16 tiles -> 42-48 hexes
   const total = poolSize * 3;
+  const capitals = CAPITAL_COUNT;
   const cities = minorCount + 4;
   const towns = Math.round(total * 0.12);
   const mountains = Math.round(total * 0.16);
   const water = Math.round(total * 0.08);
-  const blanks = Math.max(0, total - cities - towns - mountains - water);
+  const blanks = Math.max(0, total - capitals - cities - towns - mountains - water);
   const flat: string[] = [
+    ...Array(capitals).fill('capital'),
     ...Array(cities).fill('city'),
     ...Array(towns).fill('town'),
     ...Array(mountains).fill('mountain'),
