@@ -51,7 +51,6 @@
   <div class="matrix">
     <div class="mhead">
       <h3>Minor companies</h3>
-      <span class="hint">Launch the bottom of a column - the next one reveals.</span>
     </div>
     <div class="cols">
       {#each matrix as col, i (i)}
@@ -126,10 +125,6 @@
   .mhead h3 {
     margin: 0;
     font-size: 0.95rem;
-  }
-  .hint {
-    font-size: 0.76rem;
-    color: var(--muted);
   }
   .cols {
     display: grid;
