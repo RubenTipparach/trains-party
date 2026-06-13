@@ -77,7 +77,7 @@ export function initialState(
   seats: Seat[],
   title: string = DEFAULT_TITLE,
   rulesVersion: string = RULES_VERSION,
-  opts: { seed?: number; mapMode?: 'auto' | 'manual' } = {}
+  opts: { seed?: number; mapMode?: 'auto' | 'manual'; hostileMergers?: boolean } = {}
 ): GameState {
   const cfg = configFor(title);
   const n = seats.length;
@@ -208,6 +208,7 @@ export function initialState(
     mapMode,
     mapBuild,
     minorMatrix,
+    hostileMergers: rola ? !!opts.hostileMergers : undefined,
     log: [
       rola
         ? 'Stock round 1 begins; minors may launch'

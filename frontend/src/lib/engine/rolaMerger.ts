@@ -18,7 +18,13 @@ import { configFor } from './registry';
 import { network } from './track';
 import { stampPrice, currentPrice } from './stock';
 import { advanceCycleAfterOrs, discardOverLimit } from './operating';
-import { GameError, type CorporationState, type GameAction, type GameState } from './types';
+import {
+  GameError,
+  type CorporationState,
+  type GameAction,
+  type GameState,
+  type MergerState
+} from './types';
 
 function corp(s: GameState, sym: string): CorporationState {
   const c = s.corporations.find((x) => x.sym === sym);
@@ -40,6 +46,17 @@ function stockOrder(s: GameState, syms: string[]): string[] {
   });
 }
 
+/** The new major's starting market cell: average of the two minor prices,
+ *  rounded down onto the ladder. Drives both the major's price and the
+ *  hostile-vote "would my shares gain value?" test. */
+function mergedPriceCell(s: GameState, aSym: string, bSym: string): { idx: number; price: number } {
+  const avg = Math.floor((currentPrice(s, corp(s, aSym)) + currentPrice(s, corp(s, bSym))) / 2);
+  const ladder = configFor(s.title).market[0];
+  let idx = 1;
+  for (let i = 1; i < ladder.length; i++) if (ladder[i].price <= avg) idx = i;
+  return { idx, price: ladder[idx].price };
+}
+
 /** Start the merger round if the title mergers and the green phase has begun. */
 export function maybeStartMergerRound(s: GameState): boolean {
   const cfg = configFor(s.title);
@@ -58,10 +75,12 @@ export function maybeStartMergerRound(s: GameState): boolean {
   return true;
 }
 
-/** The player who must act: the pending target's president, else the proposer. */
+/** The player who must act: the next unvoted shareholder during a hostile vote,
+ *  else the pending target's president, else the proposer at the queue front. */
 export function mergerActivePlayer(s: GameState): string | null {
   const m = s.merger;
   if (!m) return null;
+  if (m.vote) return m.vote.voters.find((id) => !(id in m.vote!.ballots)) ?? null;
   if (m.pending) return corp(s, m.pending.to).president;
   const sym = m.queue[m.index];
   return sym ? corp(s, sym).president : null;
@@ -119,13 +138,10 @@ function doMerge(s: GameState, aSym: string, bSym: string, majorSym: string): vo
   major.president = best?.id ?? null;
 
   // Price: average of the two, rounded down onto the ladder.
-  const avg = Math.floor((currentPrice(s, a) + currentPrice(s, b)) / 2);
-  const ladder = configFor(s.title).market[0];
-  let idx = 1;
-  for (let i = 1; i < ladder.length; i++) if (ladder[i].price <= avg) idx = i;
-  major.parPrice = ladder[idx].price;
+  const cell = mergedPriceCell(s, aSym, bSym);
+  major.parPrice = cell.price;
   major.priceRow = 0;
-  major.priceCol = idx;
+  major.priceCol = cell.idx;
   stampPrice(s, major);
 
   // Hubs merge (one per hex; duplicates return), treasuries and trains combine.
@@ -168,11 +184,73 @@ function advanceQueue(s: GameState): void {
   if (m.index >= m.queue.length) endMergerRound(s);
 }
 
+/** Hostile-mergers variant: open a share vote on a refused cross-player proposal.
+ *  The proposer's holdings are pre-counted `for`; every other holder of either
+ *  minor must still vote. With no other shareholders, the vote resolves at once. */
+function startVote(
+  s: GameState,
+  m: MergerState,
+  from: string,
+  to: string,
+  major: string,
+  proposer: string
+): void {
+  const voters = s.players
+    .filter((p) => (p.shares[from] ?? 0) > 0 || (p.shares[to] ?? 0) > 0)
+    .map((p) => p.id)
+    .filter((id) => id !== proposer);
+  m.vote = { from, to, major, ballots: { [proposer]: 'for' }, voters };
+  s.log.push(`${from} makes a hostile bid to merge ${to} into ${major}; shareholders vote`);
+  if (voters.every((id) => id in m.vote!.ballots)) resolveVote(s, m);
+}
+
+/** Tally a completed hostile vote, then merge or reject. Treasury (IPO) shares
+ *  abstain; each minor's pooled shares vote with that minor's value change (up
+ *  = for, down = against, unchanged = abstain); a player's ballot carries their
+ *  combined holdings in both minors. A strict majority `for` forces the merge. */
+function resolveVote(s: GameState, m: MergerState): void {
+  const v = m.vote!;
+  const newPrice = mergedPriceCell(s, v.from, v.to).price;
+  let forPct = 0;
+  let againstPct = 0;
+  for (const sym of [v.from, v.to]) {
+    const c = corp(s, sym);
+    if (!c.poolShares) continue;
+    const price = currentPrice(s, c);
+    if (newPrice > price) forPct += c.poolShares;
+    else if (newPrice < price) againstPct += c.poolShares;
+  }
+  for (const p of s.players) {
+    const w = (p.shares[v.from] ?? 0) + (p.shares[v.to] ?? 0);
+    if (!w) continue;
+    if (v.ballots[p.id] === 'for') forPct += w;
+    else if (v.ballots[p.id] === 'against') againstPct += w;
+  }
+  const { from, to, major } = v;
+  m.vote = null;
+  if (forPct > againstPct) {
+    s.log.push(`Hostile merger of ${from} and ${to} carries ${forPct}% to ${againstPct}%`);
+    doMerge(s, from, to, major);
+    advanceQueue(s);
+  } else {
+    m.declined.push(pairKey(from, to));
+    s.log.push(`Hostile merger of ${from} with ${to} fails ${forPct}% to ${againstPct}%`);
+  }
+}
+
 export function applyMerger(s: GameState, action: GameAction): void {
   const m = s.merger;
   if (!m) throw new GameError('no merger round in progress');
   const active = mergerActivePlayer(s);
   if (action.player !== active) throw new GameError(`it is ${pname(s, active)}'s turn`);
+
+  if (m.vote) {
+    // A hostile share vote is open: the active shareholder casts their ballot.
+    if (action.type !== 'cast_merge_vote') throw new GameError('cast your merger vote first');
+    m.vote.ballots[action.player] = action.vote;
+    if (m.vote.voters.every((id) => id in m.vote!.ballots)) resolveVote(s, m);
+    return;
+  }
 
   if (m.pending) {
     // The target's president answers a cross-player proposal.
@@ -206,6 +284,8 @@ export function applyMerger(s: GameState, action: GameAction): void {
       if (target.president === action.player) {
         doMerge(s, sym, action.to, action.major);
         advanceQueue(s);
+      } else if (s.hostileMergers) {
+        startVote(s, m, sym, action.to, action.major, action.player);
       } else {
         m.pending = { from: sym, to: action.to, major: action.major };
         s.log.push(`${sym} proposes merging with ${action.to} into ${action.major}`);

@@ -151,6 +151,19 @@ export interface MergerState {
   declined: string[];
   /** A cross-player proposal awaiting the target president's answer. */
   pending: { from: string; to: string; major: string } | null;
+  /**
+   * Hostile-mergers variant only: a cross-player proposal resolved by a share
+   * vote instead of the target president's consent. `ballots` maps a player id
+   * to their cast vote (the proposer is pre-recorded `for`); `voters` lists the
+   * remaining eligible players (holders of either minor) who must still vote.
+   */
+  vote?: {
+    from: string;
+    to: string;
+    major: string;
+    ballots: Record<string, 'for' | 'against'>;
+    voters: string[];
+  } | null;
 }
 
 export interface GameState {
@@ -195,6 +208,9 @@ export interface GameState {
   cycle?: number;
   /** Merger round state (RoLA), when one is in progress. */
   merger?: MergerState | null;
+  /** Hostile-mergers variant: a refused cross-player merger is settled by a
+   *  share vote rather than the target president alone. Set at game creation. */
+  hostileMergers?: boolean;
   /** Suburb tokens on the board: hex -> owning company sym (Suburban). */
   suburbs?: Record<string, string>;
   /** Trains discarded to the bank pool (over-limit), buyable at printed price. */
@@ -251,6 +267,8 @@ export type GameAction =
   | { type: 'propose_merge'; player: string; from: string; to: string; major: string }
   | { type: 'accept_merge'; player: string }
   | { type: 'decline_merge'; player: string }
+  // Hostile-mergers variant: a shareholder casts their vote on a pending hostile bid.
+  | { type: 'cast_merge_vote'; player: string; vote: 'for' | 'against' }
   | { type: 'issue'; player: string; corp: string }
   | { type: 'redeem'; player: string; corp: string }
   | { type: 'emr_sell'; player: string; corp: string; count: number }

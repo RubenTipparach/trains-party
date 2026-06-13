@@ -186,6 +186,8 @@ export function botAction(s: GameState, level: BotLevel): GameAction | null {
   if (s.round === 'merger' && s.merger) {
     const me = mergerActivePlayer(s);
     if (!me) return null;
+    // Hostile-mergers variant: a bot always votes its shares against the bid.
+    if (s.merger.vote) return { type: 'cast_merge_vote', player: me, vote: 'against' };
     // A bot never lets another player merge one of its minors: deny every proposal.
     if (s.merger.pending) return { type: 'decline_merge', player: me };
     // On its own turn a bot always merges two minors it solely controls (it is

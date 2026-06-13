@@ -189,6 +189,82 @@ describe('RoLA merger round', () => {
     expect(s.cycle).toBe(2);
   });
 
+  /** A connected, cross-president proposal under the hostile-mergers variant. */
+  function toHostile(): { s: GameState; from: string; to: string } {
+    const s = toMerger();
+    s.hostileMergers = true;
+    const from = s.merger!.queue[s.merger!.index];
+    const to = from === 'AG' ? 'EA' : 'AG';
+    const a = s.corporations.find((c) => c.sym === from)!;
+    const b = s.corporations.find((c) => c.sym === to)!;
+    b.tokenHexes = [a.tokenHexes[0]]; // connected so the merge is legal
+    b.president = 'p2'; // different president -> proposal is hostile
+    return { s, from, to };
+  }
+
+  it('hostile mergers: a player-share majority forces a refused merger through', () => {
+    let { s, from, to } = toHostile();
+    const a = s.corporations.find((c) => c.sym === from)!;
+    const b = s.corporations.find((c) => c.sym === to)!;
+    // p1 (proposer) holds 40% from + 20% to = 60 'for'; p2 holds 40% to = 40 'against'.
+    s.players[0].shares = { [from]: 40, [to]: 20 };
+    s.players[1].shares = { [to]: 40 };
+    a.ipoShares = 60;
+    a.poolShares = 0;
+    b.ipoShares = 40;
+    b.poolShares = 0;
+
+    s = apply(s, { type: 'propose_merge', player: 'p1', from, to, major: 'Con' });
+    expect(s.merger?.vote).toBeTruthy(); // a vote opens instead of an immediate merge
+    s = apply(s, { type: 'cast_merge_vote', player: 'p2', vote: 'against' });
+
+    const con = s.corporations.find((c) => c.sym === 'Con')!;
+    expect(con.floated).toBe(true); // 60 for > 40 against -> merged over p2's objection
+    expect(con.mergedFrom?.sort()).toEqual(['AG', 'EA']);
+  });
+
+  it('hostile mergers: the share vote can reject a proposal', () => {
+    let { s, from, to } = toHostile();
+    const a = s.corporations.find((c) => c.sym === from)!;
+    const b = s.corporations.find((c) => c.sym === to)!;
+    s.players[0].shares = { [from]: 40 }; // 40 'for'
+    s.players[1].shares = { [to]: 60 }; // 60 'against'
+    a.ipoShares = 60;
+    a.poolShares = 0;
+    b.ipoShares = 40;
+    b.poolShares = 0;
+
+    s = apply(s, { type: 'propose_merge', player: 'p1', from, to, major: 'Con' });
+    s = apply(s, { type: 'cast_merge_vote', player: 'p2', vote: 'against' });
+
+    expect(s.round).toBe('merger'); // still in the round, no merge
+    expect(s.corporations.find((c) => c.sym === 'Con')!.floated).toBe(false);
+    expect(s.merger!.vote).toBeNull();
+    expect(s.merger!.declined).toContain([from, to].sort().join('|'));
+  });
+
+  it('hostile mergers: pooled shares vote with their value change, treasury abstains', () => {
+    let { s, from, to } = toHostile();
+    const a = s.corporations.find((c) => c.sym === from)!;
+    const b = s.corporations.find((c) => c.sym === to)!;
+    // player votes tie 40-40
+    s.players[0].shares = { [from]: 40 };
+    s.players[1].shares = { [to]: 40 };
+    // prices: from 60, to 80 -> merged averages to 70; from's pool (60) gains -> 'for'.
+    a.priceCol = 6;
+    b.priceCol = 8;
+    a.poolShares = 20; // 20% pool votes 'for' (value rises 60 -> 70)
+    a.ipoShares = 40; // 40% treasury abstains
+    b.poolShares = 0;
+    b.ipoShares = 60;
+
+    s = apply(s, { type: 'propose_merge', player: 'p1', from, to, major: 'Con' });
+    s = apply(s, { type: 'cast_merge_vote', player: 'p2', vote: 'against' });
+
+    // for = 40 (p1) + 20 (from pool) = 60; against = 40 (p2). The pool breaks the tie.
+    expect(s.corporations.find((c) => c.sym === 'Con')!.floated).toBe(true);
+  });
+
   it('prices the major at the rounded-down average on the ladder', () => {
     let s = toMerger();
     const proposer = s.merger!.queue[s.merger!.index];

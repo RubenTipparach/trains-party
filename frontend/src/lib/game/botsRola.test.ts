@@ -58,6 +58,20 @@ describe('RoLA bot merger behaviour', () => {
     expect(s.merger).toBeNull(); // queue drained -> round over
   });
 
+  it('votes its shares against an open hostile bid', () => {
+    const s = toMerger();
+    s.hostileMergers = true;
+    const ag = s.corporations.find((c) => c.sym === 'AG')!;
+    const ea = s.corporations.find((c) => c.sym === 'EA')!;
+    ea.president = 'p2';
+    ea.tokenHexes = [ag.tokenHexes[0]];
+    // p1 proposed (pre-counted for); p2 is the remaining shareholder to vote
+    s.players[1].shares = { EA: 40 };
+    s.merger!.vote = { from: 'AG', to: 'EA', major: 'Con', ballots: { p1: 'for' }, voters: ['p2'] };
+
+    expect(botAction(s, 'normal')).toEqual({ type: 'cast_merge_vote', player: 'p2', vote: 'against' });
+  });
+
   it('declines a cross-player proposal targeting a bot-controlled minor', () => {
     const s = toMerger();
     // p1 owns both; pretend p2 controls EA so the proposal needs p2's permission
