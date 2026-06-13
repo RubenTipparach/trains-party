@@ -14,9 +14,7 @@ export type Px = [number, number, number, number, string];
 
 export const TILE_W = 40;
 export const TILE_H = 28;
-// Deep-ocean base; the shallow band hugging the coast keeps the old light teal.
-export const WATER_BASE = '#5da4ad';
-export const WATER_SHALLOW = '#74c1be';
+export const WATER_BASE = '#74c1be';
 /** Seconds for one full 6-frame loop (1 frame per second). */
 export const WATER_LOOP_S = 6;
 /** Seconds of crossfade between consecutive frames (gentle, not poppy). */
@@ -81,27 +79,4 @@ export function waterFrameUris(): string[] {
     const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='${TILE_W}' height='${TILE_H}'><rect width='${TILE_W}' height='${TILE_H}' fill='${WATER_BASE}'/>${rects}</svg>`;
     return `data:image/svg+xml,${encodeURIComponent(svg)}`;
   });
-}
-
-/** Subtle Civ-style hex grid for the open sea, as one repeating SVG data URI. */
-export function waterHexGridUri(): string {
-  const R = 16;
-  const H = Math.sqrt(3) * R; // tile height; width = 3R
-  const hex = (cx: number, cy: number) =>
-    Array.from({ length: 6 }, (_, k) => {
-      const a = (Math.PI / 180) * (60 * k);
-      return `${(cx + R * Math.cos(a)).toFixed(2)},${(cy + R * Math.sin(a)).toFixed(2)}`;
-    }).join(' ');
-  const centers = [
-    [0, 0],
-    [3 * R, 0],
-    [1.5 * R, H / 2],
-    [0, H],
-    [3 * R, H]
-  ];
-  const polys = centers
-    .map(([x, y]) => `<polygon points='${hex(x, y)}' fill='none' stroke='rgba(255,255,255,0.09)' stroke-width='1.4'/>`)
-    .join('');
-  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='${3 * R}' height='${H.toFixed(3)}'>${polys}</svg>`;
-  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
 }
