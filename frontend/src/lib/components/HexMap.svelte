@@ -121,8 +121,16 @@
     tokenMode = false,
     runMode = false,
     fill = false,
-    paused = false
-  }: { layMode?: boolean; tokenMode?: boolean; runMode?: boolean; fill?: boolean; paused?: boolean } = $props();
+    paused = false,
+    liftControls = false
+  }: {
+    layMode?: boolean;
+    tokenMode?: boolean;
+    runMode?: boolean;
+    fill?: boolean;
+    paused?: boolean;
+    liftControls?: boolean;
+  } = $props();
   const lays = $derived(layMode ? trackLays(game.state) : []);
   const layHexes = $derived(new Set(lays.map((l) => l.hex)));
   const tokenHexes = $derived(tokenMode ? new Set(tokenPlays(game.state).map((t) => t.hex)) : new Set<string>());
@@ -1028,8 +1036,13 @@
     rotation += mapView.rotationStepDeg;
     rotAnim.set(rotation);
   }
+  // Fullscreen the whole board UI (the .board-root ancestor), not just the map,
+  // so the panels/toolbar come along.
+  function fsTarget(): HTMLElement {
+    return (wrap?.closest('.board-root') as HTMLElement | null) ?? wrap;
+  }
   function toggleFullscreen() {
-    if (!document.fullscreenElement) wrap?.requestFullscreen?.().catch(() => {});
+    if (!document.fullscreenElement) fsTarget()?.requestFullscreen?.().catch(() => {});
     else document.exitFullscreen?.().catch(() => {});
   }
 
@@ -1188,7 +1201,7 @@
       zoomAt(e.clientX, e.clientY, e.deltaY > 0 ? mapView.wheelZoomFactor : 1 / mapView.wheelZoomFactor);
     };
     svgEl.addEventListener('wheel', onWheel, { passive: false });
-    const onFs = () => (isFullscreen = document.fullscreenElement === wrap);
+    const onFs = () => (isFullscreen = !!document.fullscreenElement);
     document.addEventListener('fullscreenchange', onFs);
     return () => {
       if (raf) cancelAnimationFrame(raf);
@@ -1218,7 +1231,7 @@
   }
 </script>
 
-<div class="wrap" class:fill class:paused class:interacting bind:this={wrap} style="aspect-ratio: {wrapAspect}">
+<div class="wrap" class:fill class:paused class:interacting class:liftctrl={liftControls} bind:this={wrap} style="aspect-ratio: {wrapAspect}">
   <div class="sea">
     <svg
       class="map"
@@ -1750,17 +1763,6 @@
   .wrap.paused .sea {
     display: none;
   }
-  /* While panning/zooming, the viewBox churn re-rasterises the whole scene each
-     frame, so shed the most raster-heavy detail and use fast rasterisation; it
-     all returns the instant the view settles. */
-  .wrap.interacting .map {
-    shape-rendering: optimizeSpeed;
-  }
-  .wrap.interacting .coast,
-  .wrap.interacting .groundtex,
-  .wrap.interacting .coordlbl {
-    display: none;
-  }
   /* As a background the right edge hosts the panel shell, so park the controls
      bottom-left where they stay reachable. */
   .wrap.fill .controls {
@@ -1768,20 +1770,10 @@
     left: 14px;
     bottom: 14px;
   }
-  /* In fullscreen the wrap fills the screen; ignore the inline aspect-ratio. */
-  .wrap:fullscreen {
-    width: 100vw;
-    height: 100vh;
-    aspect-ratio: auto !important;
-    background: #0c1620;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .wrap:fullscreen .sea {
-    width: 100%;
-    height: 100%;
-    border-radius: 0;
+  /* lift the controls clear of the operating bottom sheet (mobile) so its drag
+     handle / status header never sits under them. */
+  .wrap.fill.liftctrl .controls {
+    bottom: 58px;
   }
   .sea {
     position: relative;
@@ -1832,21 +1824,21 @@
     fill: none;
     stroke: #ffffff;
     stroke-linecap: round;
-    /* phones: static foam at the shore (per-segment SVG animation repaints) */
-    opacity: 0.3;
+    opacity: 0;
+    /* the wrapping <g> is translated to the ocean centre, so the line's local
+       origin IS that centre: a plain scale() about (0,0) spawns the wave there
+       and grows it to the shore. No custom-property transforms -> the keyframe
+       is a static value the compositor can interpolate without style recalc. */
+    transform-box: view-box;
+    transform-origin: 0 0;
+    /* duration + (negative) delay are per segment, set inline */
+    animation: wavepulse 7s linear infinite;
   }
-  @media (min-width: 920px) {
-    .coast .foam {
-      opacity: 0;
-      /* the wrapping <g> is translated to the ocean centre, so the line's local
-         origin IS that centre: a plain scale() about (0,0) spawns the wave there
-         and grows it to the shore. No custom-property transforms -> the keyframe
-         is a static value the compositor can interpolate without style recalc. */
-      transform-box: view-box;
-      transform-origin: 0 0;
-      /* duration + (negative) delay are per segment, set inline */
-      animation: wavepulse 7s linear infinite;
-    }
+  /* While panning/zooming, freeze the surf (rather than hiding it) so the map
+     layer stays static and the pan composites without re-rastering for the
+     animation. The foam stays visible - no blink - and resumes on settle. */
+  .wrap.interacting .coast .foam {
+    animation-play-state: paused;
   }
   /* scale the shore-edge line about its local origin (the ocean hex centre): the
      wave spawns at HALF the distance to the shore (clamped: never nearer the

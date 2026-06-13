@@ -49,10 +49,36 @@
 
   let isMobile = $state(false);
 
+  // Mobile op-sheet height (% of viewport). Players drag the handle to set the
+  // map/sheet split to taste; persisted so it sticks across rounds and reloads.
+  let sheetH = $state(50);
+  let sheetDragging = $state(false);
+  function onSheetDown(e: PointerEvent) {
+    sheetDragging = true;
+    (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+  }
+  function onSheetMove(e: PointerEvent) {
+    if (!sheetDragging) return;
+    const pct = (1 - e.clientY / window.innerHeight) * 100;
+    sheetH = Math.max(24, Math.min(86, pct));
+  }
+  function onSheetUp(e: PointerEvent) {
+    if (!sheetDragging) return;
+    sheetDragging = false;
+    (e.currentTarget as Element).releasePointerCapture?.(e.pointerId);
+    try {
+      localStorage.setItem('tp.sheetH', String(Math.round(sheetH)));
+    } catch {
+      /* private mode: keep the in-memory value */
+    }
+  }
+
   // Init animation prefs and the hotkeys on the client; open the Game panel by
   // default on desktop (it holds the action UI), keep the map clear on mobile.
   onMount(() => {
     anim.init();
+    const saved = Number(localStorage.getItem('tp.sheetH'));
+    if (saved >= 24 && saved <= 86) sheetH = saved;
     const mq = window.matchMedia('(min-width: 920px)');
     if (mq.matches) active = 'game';
     isMobile = !mq.matches;
@@ -176,13 +202,20 @@
 </svelte:head>
 
 {#if ready}
-<div class="board-root" class:theme-rola={isRola} class:opdock={opPanel}>
+<div
+  class="board-root"
+  class:theme-rola={isRola}
+  class:opdock={opPanel}
+  class:sheetdrag={sheetDragging}
+  style="--sheeth:{sheetH}%"
+>
   <!-- the map: full-screen, always on, the board's background. On desktop the
        open panel pushes it over so the board re-centres in the visible space. -->
   <div class="maplayer" class:squeezed={!!active}>
     <HexMap
       fill
       paused={mapPaused}
+      liftControls={isMobile && opPanel}
       layMode={game.canAct && opv?.step === 'track'}
       tokenMode={game.canAct && opv?.step === 'token'}
       runMode={game.canAct && opv?.step === 'run'}
@@ -233,6 +266,21 @@
          floating pill can hide; on desktop the floating pill stays and this is
          hidden. -->
     <section class="oppanel" aria-label="Current operation">
+      <!-- mobile: drag to set the map/sheet split (resizes the bottom sheet) -->
+      <div
+        class="ophandle"
+        role="separator"
+        aria-label="Drag to resize panel"
+        aria-orientation="horizontal"
+        title="Drag to resize"
+        onpointerdown={onSheetDown}
+        onpointermove={onSheetMove}
+        onpointerup={onSheetUp}
+        onpointercancel={onSheetUp}
+        ondblclick={() => (sheetH = 50)}
+      >
+        <span class="ogrip"></span>
+      </div>
       <div class="opstatus" class:myturn={game.canAct} style="--p:{seatColor(game.active ?? '')}">
         {@render turnStatus()}
       </div>
@@ -500,6 +548,11 @@
     inset: 0;
     overflow: hidden;
     background: var(--bg);
+  }
+  /* fullscreen targets the whole board UI (toolbar + panels come along) */
+  .board-root:fullscreen {
+    width: 100%;
+    height: 100%;
   }
   .maplayer {
     position: absolute;
@@ -885,21 +938,51 @@
   .opstatus {
     display: none;
   }
+  /* drag handle to resize the bottom sheet: mobile only */
+  .ophandle {
+    display: none;
+  }
   @media (max-width: 919px) {
-    /* mobile: a fixed bottom sheet; the map stays live in the top half */
+    /* mobile: a fixed bottom sheet; the map stays live above it. Its height (and
+       the matching map cut-off) is the player-set --sheeth split. */
     .oppanel {
       left: 0;
       right: 0;
       bottom: 0;
-      height: 50%;
+      height: var(--sheeth, 50%);
       border-radius: 14px 14px 0 0;
       border-bottom: none;
     }
-    /* render only the visible half of the map while the sheet is up: the SVG
-       shrinks to the top half, halving what the browser must rasterize (the
-       controls ride along inside it) */
+    /* render only the visible part of the map while the sheet is up: the SVG
+       shrinks to the area above the sheet, cutting what the browser rasterises
+       (the controls ride along inside it). */
     .board-root.opdock .maplayer {
-      bottom: 50%;
+      bottom: var(--sheeth, 50%);
+    }
+    /* while dragging the handle, follow the finger immediately (no easing lag) */
+    .board-root.sheetdrag .maplayer {
+      transition: none;
+    }
+    .ophandle {
+      display: flex;
+      flex: none;
+      align-items: center;
+      justify-content: center;
+      height: 22px;
+      cursor: ns-resize;
+      touch-action: none;
+      background: var(--bg-soft);
+      border-radius: 14px 14px 0 0;
+    }
+    .ogrip {
+      width: 44px;
+      height: 5px;
+      border-radius: 999px;
+      background: var(--muted);
+      opacity: 0.6;
+    }
+    .ophandle:hover .ogrip {
+      opacity: 0.9;
     }
     /* during ORs/MRs the turn status lives in the op-panel header, so hide the
        floating pill and reveal the header bar. */
