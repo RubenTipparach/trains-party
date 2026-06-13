@@ -503,6 +503,33 @@
   const fanFill = (tile: string) => tfill(TILES[tile]?.color ?? 'yellow');
 
   // --- deterministic RNG for procedural city skylines ----------------------
+  // A plain, unbuilt land hex (no city/town/terrain/off-board and not yet laid):
+  // these get the Catan-style grass / sand ground texture.
+  const isPlainLand = (h: Placed) =>
+    h.color === 'white' && h.cities.length === 0 && h.towns.length === 0 && !h.terrain && !h.offboard && !laid(h.coord);
+  /** Grass tufts scattered over an inland land hex (deterministic per coord). */
+  function grassTufts(coord: string): Array<{ x: number; y: number; s: number }> {
+    const r = rngFor(coord + 'g');
+    const n = 7;
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const ang = r() * Math.PI * 2;
+      const dist = Math.sqrt(r()) * (APOTHEM - 8);
+      out.push({ x: Math.cos(ang) * dist, y: Math.sin(ang) * dist - 1, s: 2.6 + r() * 1.8 });
+    }
+    return out;
+  }
+  /** Sand speckle + dune lines for a coastal land hex (deterministic per coord). */
+  function sandDots(coord: string): Array<{ x: number; y: number; r: number }> {
+    const r = rngFor(coord + 's');
+    const out = [];
+    for (let i = 0; i < 9; i++) {
+      const ang = r() * Math.PI * 2;
+      const dist = Math.sqrt(r()) * (APOTHEM - 6);
+      out.push({ x: Math.cos(ang) * dist, y: Math.sin(ang) * dist, r: 0.7 + r() * 0.9 });
+    }
+    return out;
+  }
   function rngFor(seed: string): () => number {
     let h = 2166136261;
     for (let i = 0; i < seed.length; i++) {
@@ -696,6 +723,7 @@
     // ocean. Halos from adjacent coast hexes overlap to cover convex-corner
     // notches smoothly; rendered through a mask so the overlap can't brighten.
     const halos: { cx: number; cy: number }[] = [];
+    const coastalLand = new Set<string>();
     for (const h of visiblePlaced) {
       let coastal = false;
       for (let e = 0; e < 6; e++) {
@@ -732,9 +760,12 @@
           speed: 6 + 4 * segRand(mx, my, 2) // slow: 6-10s per wave cycle
         });
       }
-      if (coastal) halos.push({ cx: h.cx, cy: h.cy });
+      if (coastal) {
+        halos.push({ cx: h.cx, cy: h.cy });
+        coastalLand.add(h.coord);
+      }
     }
-    return { edges, halos };
+    return { edges, halos, coastalLand };
   });
   const HALO_R = 1.7 * HEX_SIZE; // shallow reach from a coastal land hex centre
 
@@ -1213,7 +1244,27 @@
           onpointerenter={(e) => e.pointerType === 'mouse' && pointers.size === 0 && show(e.currentTarget, h.coord, h.name)}
           onpointerleave={(e) => e.pointerType === 'mouse' && !dragging && hide()}
         >
-          <polygon points={poly} class="tile" fill={laid(h.coord) ? tfill(laidDef(h.coord)?.color ?? 'yellow') : tip?.coord === h.coord ? thover(h.color) : tfill(h.color)} stroke="#4a4332" stroke-width="1" />
+          <polygon points={poly} class="tile" fill={laid(h.coord) ? tfill(laidDef(h.coord)?.color ?? 'yellow') : tip?.coord === h.coord ? thover(h.color) : isPlainLand(h) && coast.coastalLand.has(h.coord) ? '#e3d6a4' : tfill(h.color)} stroke="#4a4332" stroke-width="1" />
+
+          <!-- Catan-style ground texture on plain land: grass tufts inland,
+               sandy beach speckle on coastal hexes -->
+          {#if isPlainLand(h)}
+            {#if coast.coastalLand.has(h.coord)}
+              {#each sandDots(h.coord) as d (d.x)}
+                <circle cx={d.x} cy={d.y} r={d.r} fill="#cdba81" />
+              {/each}
+            {:else}
+              {#each grassTufts(h.coord) as g (g.x)}
+                <path
+                  d="M {g.x - g.s} {g.y} q {g.s * 0.5} {-g.s * 1.4} {g.s} 0 M {g.x - g.s * 0.3} {g.y} q {g.s * 0.4} {-g.s * 1.1} {g.s * 0.8} 0"
+                  fill="none"
+                  stroke="#9aa867"
+                  stroke-width="1.1"
+                  stroke-linecap="round"
+                />
+              {/each}
+            {/if}
+          {/if}
 
           {#if layMode && layHexes.has(h.coord)}
             <polygon points={poly} class="layhi" />
