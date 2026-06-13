@@ -1247,23 +1247,26 @@
           <polygon points={poly} class="tile" fill={laid(h.coord) ? tfill(laidDef(h.coord)?.color ?? 'yellow') : tip?.coord === h.coord ? thover(h.color) : isPlainLand(h) && coast.coastalLand.has(h.coord) ? '#e3d6a4' : tfill(h.color)} stroke="#4a4332" stroke-width="1" />
 
           <!-- Catan-style ground texture on plain land: grass tufts inland,
-               sandy beach speckle on coastal hexes -->
+               sandy beach speckle on coastal hexes. Counter-rotated so the
+               grass blades stay upright when the board is turned. -->
           {#if isPlainLand(h)}
-            {#if coast.coastalLand.has(h.coord)}
-              {#each sandDots(h.coord) as d (d.x)}
-                <circle cx={d.x} cy={d.y} r={d.r} fill="#cdba81" />
-              {/each}
-            {:else}
-              {#each grassTufts(h.coord) as g (g.x)}
-                <path
-                  d="M {g.x - g.s} {g.y} q {g.s * 0.5} {-g.s * 1.4} {g.s} 0 M {g.x - g.s * 0.3} {g.y} q {g.s * 0.4} {-g.s * 1.1} {g.s * 0.8} 0"
-                  fill="none"
-                  stroke="#9aa867"
-                  stroke-width="1.1"
-                  stroke-linecap="round"
-                />
-              {/each}
-            {/if}
+            <g transform="rotate({-$rotAnim})">
+              {#if coast.coastalLand.has(h.coord)}
+                {#each sandDots(h.coord) as d (d.x)}
+                  <circle cx={d.x} cy={d.y} r={d.r} fill="#cdba81" />
+                {/each}
+              {:else}
+                {#each grassTufts(h.coord) as g (g.x)}
+                  <path
+                    d="M {g.x - g.s} {g.y} q {g.s * 0.5} {-g.s * 1.4} {g.s} 0 M {g.x - g.s * 0.3} {g.y} q {g.s * 0.4} {-g.s * 1.1} {g.s * 0.8} 0"
+                    fill="none"
+                    stroke="#9aa867"
+                    stroke-width="1.1"
+                    stroke-linecap="round"
+                  />
+                {/each}
+              {/if}
+            </g>
           {/if}
 
           {#if layMode && layHexes.has(h.coord)}
