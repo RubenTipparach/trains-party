@@ -165,6 +165,10 @@
   const opPanel = $derived(
     game.state.round === 'operating' || game.state.round === 'merger'
   );
+  // During an operating/merger round the play screen IS the map plus the always-on
+  // operation panel, so the Game (play) tab opens no independent overlay: selecting
+  // it just shows the board. Other tabs still open over the map as usual.
+  const panelOpen = $derived(!!active && !(active === 'game' && opPanel));
   // A full-screen modal covering the map pauses its renderer (mobile).
   const mapPaused = $derived(isMobile && !!active);
 
@@ -211,7 +215,7 @@
 >
   <!-- the map: full-screen, always on, the board's background. On desktop the
        open panel pushes it over so the board re-centres in the visible space. -->
-  <div class="maplayer" class:squeezed={!!active}>
+  <div class="maplayer" class:squeezed={panelOpen}>
     <HexMap
       fill
       paused={mapPaused}
@@ -290,7 +294,7 @@
     </section>
   {/if}
 
-  {#if active}
+  {#if panelOpen}
     <!-- mobile-only scrim behind the modal -->
     <button class="scrim" aria-label="Close panel" onclick={() => (active = null)} transition:fade={{ duration: 120 }}></button>
   {/if}
@@ -298,7 +302,7 @@
   <!-- the toolbar + panel shell: tabs merge into the open panel. Mobile: a
        horizontal bar at the top that the modal hangs from. Desktop: a vertical
        rail on the panel's left edge, the whole shell docked to the right. -->
-  <div class="shell" class:open={!!active}>
+  <div class="shell" class:open={panelOpen}>
     <nav class="dock" aria-label="Board sections">
       {#each tabs as t, i (t.id)}
         <button
@@ -315,7 +319,7 @@
       {/each}
     </nav>
 
-    {#if active && activeTab}
+    {#if panelOpen && activeTab}
     <aside class="panelhost" transition:fade={{ duration: 140 }} aria-label={activeTab.label}>
       <header class="phead">
         <svg class="picon" viewBox="0 0 24 24">{@html activeTab.icon}</svg>
