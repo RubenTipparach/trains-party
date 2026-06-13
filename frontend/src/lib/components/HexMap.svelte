@@ -530,12 +530,15 @@
     }
     return out;
   }
+  // A little mountain range, back-to-front: two flanking peaks then a taller
+  // central one drawn on top, so they read as an overlapping ridge.
   function peaks(coord: string): Array<{ x: number; s: number }> {
     const r = rngFor(coord + 'm');
-    const n = 2 + Math.floor(r() * 2);
-    const out = [];
-    for (let i = 0; i < n; i++) out.push({ x: -14 + i * 13 + r() * 4, s: 9 + r() * 5 });
-    return out;
+    return [
+      { x: -17 + r() * 2, s: 9 + r() * 3 }, // left (back)
+      { x: 3 + r() * 4, s: 9 + r() * 3 }, // right (back)
+      { x: -9 + r() * 3, s: 14 + r() * 4 } // centre (front)
+    ];
   }
 
   const HOVER: Record<TileColor, string> = {
@@ -1209,15 +1212,25 @@
           <g transform="rotate({-$rotAnim})">
             {#if h.terrain?.includes('mountain')}
               {#each peaks(h.coord) as pk}
-                <path d="M {pk.x} 14 L {pk.x + pk.s / 2} {14 - pk.s} L {pk.x + pk.s} 14 Z" fill="#7d6a47" />
-                <path d="M {pk.x + pk.s / 2} {14 - pk.s} L {pk.x + pk.s} 14 L {pk.x + pk.s * 0.62} 14 Z" fill="#5c4d31" />
+                {@const ax = pk.x + pk.s / 2}
+                {@const ay = 14 - pk.s}
+                <!-- silhouette (lit left face) with an outline for definition -->
                 <path
-                  d="M {pk.x + pk.s / 2} {14 - pk.s} l {pk.s * 0.16} {pk.s * 0.34} l {pk.s * 0.18} -{pk.s * 0.12} l {pk.s * 0.16} {pk.s * 0.2}"
-                  fill="none"
-                  stroke="#efe9da"
-                  stroke-width="1"
-                  opacity="0.8"
+                  d="M {pk.x} 14 L {ax} {ay} L {pk.x + pk.s} 14 Z"
+                  fill="#9c8861"
+                  stroke="#4a4030"
+                  stroke-width="0.9"
+                  stroke-linejoin="round"
                 />
+                <!-- shadowed right face -->
+                <path d="M {ax} {ay} L {pk.x + pk.s} 14 L {ax} 14 Z" fill="#6f5d3c" />
+                {#if pk.s > 11}
+                  <!-- jagged snow cap near the summit -->
+                  <path
+                    d="M {ax - pk.s * 0.26} {ay + pk.s * 0.34} L {ax - pk.s * 0.1} {ay + pk.s * 0.18} L {ax} {ay + pk.s * 0.3} L {ax + pk.s * 0.12} {ay + pk.s * 0.16} L {ax} {ay} L {ax + pk.s * 0.28} {ay + pk.s * 0.34} L {ax + pk.s * 0.14} {ay + pk.s * 0.28} L {ax} {ay + pk.s * 0.4} L {ax - pk.s * 0.14} {ay + pk.s * 0.26} Z"
+                    fill="#f2efe6"
+                  />
+                {/if}
               {/each}
             {/if}
           </g>
