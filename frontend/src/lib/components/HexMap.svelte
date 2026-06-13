@@ -1305,19 +1305,28 @@
                 />
                 <!-- shadowed right face -->
                 <path d="M {ax} {ay} L {pk.x + pk.s} 14 L {ax} 14 Z" fill="#6f5d3c" />
-                <!-- snowy white top (every peak): a cap with a jagged lower edge -->
+                <!-- snow cap: top ~42% of the peak; the lower corners sit exactly
+                     on the slopes (no overhang), the bottom edge is jagged -->
                 <path
-                  d="M {ax - pk.s * 0.42} {ay + pk.s * 0.44} L {ax - pk.s * 0.26} {ay + pk.s * 0.24} L {ax - pk.s * 0.12} {ay + pk.s * 0.38} L {ax} {ay + pk.s * 0.18} L {ax + pk.s * 0.14} {ay + pk.s * 0.36} L {ax + pk.s * 0.3} {ay + pk.s * 0.22} L {ax + pk.s * 0.42} {ay + pk.s * 0.44} L {ax} {ay} Z"
+                  d="M {ax} {ay}
+                     L {ax - pk.s * 0.21} {ay + pk.s * 0.42}
+                     L {ax - pk.s * 0.1} {ay + pk.s * 0.36}
+                     L {ax - pk.s * 0.05} {ay + pk.s * 0.46}
+                     L {ax} {ay + pk.s * 0.34}
+                     L {ax + pk.s * 0.05} {ay + pk.s * 0.46}
+                     L {ax + pk.s * 0.1} {ay + pk.s * 0.36}
+                     L {ax + pk.s * 0.21} {ay + pk.s * 0.42}
+                     Z"
                   fill="#f7f5ef"
                   stroke="#d3d8d4"
                   stroke-width="0.4"
                   stroke-linejoin="round"
                 />
-                <!-- shade the snow's right slope so the cap reads 3D -->
+                <!-- shade the snow's right half so the cap reads 3D (stays inside) -->
                 <path
-                  d="M {ax} {ay} L {ax + pk.s * 0.42} {ay + pk.s * 0.44} L {ax + pk.s * 0.14} {ay + pk.s * 0.36} Z"
+                  d="M {ax} {ay} L {ax + pk.s * 0.21} {ay + pk.s * 0.42} L {ax + pk.s * 0.07} {ay + pk.s * 0.3} Z"
                   fill="#dadfe2"
-                  opacity="0.85"
+                  opacity="0.8"
                 />
               {/each}
             {/if}
