@@ -657,8 +657,7 @@
   // Water lives on composited CSS layers behind the SVG (opacity-only fades on
   // the GPU): animating it inside the SVG forced full-scene repaints on phones.
   // World-space water (pans and rotates with the map): a deep base and shallow
-  // halos that step down from every coast into the depths (posterized bands).
-  const SHALLOW_R = 2.4 * HEX_SIZE; // how far the shallow band reaches from land
+  // wedges that step down from every coast into the depths.
   // A generous rect (in world units) for the deep base, covering the map with
   // room to pan; beyond it the .sea deep colour shows through.
   const seaRect = $derived({
@@ -681,7 +680,8 @@
     return ((h ^ (h >> 16)) >>> 0) / 4294967295;
   }
   type CoastEdge = {
-    x1: number; y1: number; x2: number; y2: number; // the shared shore edge
+    x1: number; y1: number; x2: number; y2: number; // the shore edge (padded, for waves)
+    rx1: number; ry1: number; rx2: number; ry2: number; // raw shore edge (for the shallow wedge)
     ox: number; oy: number; // the bordering ocean hex centre (wave origin)
     phase: number; speed: number;
   };
@@ -716,6 +716,10 @@
           y1: y1 + (my - y1) * PADF,
           x2: x2 + (mx - x2) * PADF,
           y2: y2 + (my - y2) * PADF,
+          rx1: x1, // raw shore-edge vertices (for the shallow gradient triangle)
+          ry1: y1,
+          rx2: x2,
+          ry2: y2,
           ox: ncx, // the ocean hex centre beyond this edge
           oy: ncy,
           phase: segRand(mx, my, 1),
@@ -1087,12 +1091,15 @@
             <rect {x} {y} width={w} height={h} fill={c} />
           {/each}
         </pattern>
-        <!-- shallow-water halo: light teal at the shore fading smoothly to clear
-             (the deep base shows through), giving shallow-near-land / deep-far -->
-        <radialGradient id="shallowgrad">
-          <stop offset="0%" stop-color="#74c1be" stop-opacity="1" />
-          <stop offset="42%" stop-color="#74c1be" stop-opacity="1" />
-          <stop offset="100%" stop-color="#74c1be" stop-opacity="0" />
+        <!-- shallow water: ONE shared radial gradient centred at the origin
+             (transparent in deep water -> light teal at the shore). Each coast
+             triangle is drawn in a group translated to its ocean-hex centre, so
+             this single def paints every wedge at the right spot - batched, and
+             only at the coast (the same triangle system as the waves). -->
+        <radialGradient id="shallowgrad" gradientUnits="userSpaceOnUse" cx="0" cy="0" r={HEX_SIZE}>
+          <stop offset="0%" stop-color="#74c1be" stop-opacity="0" />
+          <stop offset="55%" stop-color="#74c1be" stop-opacity="0" />
+          <stop offset="100%" stop-color="#74c1be" stop-opacity="0.9" />
         </radialGradient>
       </defs>
 
@@ -1100,10 +1107,16 @@
       <g transform="rotate({$rotAnim} {rotPivot.x} {rotPivot.y})">
       <!-- deep-water base (under the shallows) -->
       <rect class="deep" x={seaRect.x} y={seaRect.y} width={seaRect.w} height={seaRect.h} />
-      <!-- shallow halo around each land hex (steps out into the deep) -->
+      <!-- shallow water: one triangle per coast edge (ocean centre -> shore edge),
+           each translated to its ocean-hex centre so the shared origin-centred
+           gradient lands shallow at the shore and fades to deep toward the sea -->
       <g class="shallows" aria-hidden="true">
-        {#each visiblePlaced as h (h.coord)}
-          <circle cx={h.cx} cy={h.cy} r={SHALLOW_R} fill="url(#shallowgrad)" />
+        {#each coast.edges as e, i (i)}
+          <polygon
+            points="{e.rx1 - e.ox} {e.ry1 - e.oy} {e.rx2 - e.ox} {e.ry2 - e.oy} 0 0"
+            fill="url(#shallowgrad)"
+            transform="translate({e.ox} {e.oy})"
+          />
         {/each}
       </g>
       <!-- shoreline waves: spawn at each bordering ocean hex centre and travel
