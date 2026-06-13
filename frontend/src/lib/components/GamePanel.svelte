@@ -58,20 +58,9 @@
 </script>
 
 <div class="game">
-  <!-- round / phase tracker (RoLA shows the rulebook cycle: SR / OR1 / OR2 / MR) -->
-  {#if isCycleGame}
-    <div class="tracker">
-      <span class="cyc">Cycle {Math.min(game.state.cycle ?? 1, totalCycles)}/{totalCycles}</span>
-      <div class="track-pill sr" class:on={cyclePos === 0} class:done={cyclePos > 0}>SR</div>
-      <span class="arrow">→</span>
-      <div class="track-pill or" class:on={cyclePos === 1} class:done={cyclePos > 1}>OR1</div>
-      <span class="arrow">→</span>
-      <div class="track-pill or" class:on={cyclePos === 2} class:done={cyclePos > 2}>OR2</div>
-      <span class="arrow">→</span>
-      <div class="track-pill mr" class:on={cyclePos === 3}>MR</div>
-      <span class="phase">Phase {game.state.phase}</span>
-    </div>
-  {:else}
+  <!-- round / phase tracker. RoLA's cycle tracker floats on the map
+       (RoundTracker); here we show the linear 1889 SR/OR tracker. -->
+  {#if !isCycleGame}
     <div class="tracker">
       <div class="track-pill" class:on={game.state.round === 'auction'} style="--c:#1b1b1b">ISR</div>
       <span class="arrow">→</span>
@@ -254,20 +243,6 @@
   }
   .track-pill.or {
     --c: #b5784a;
-  }
-  .track-pill.mr {
-    --c: #9b6fb0;
-  }
-  .track-pill.done {
-    opacity: 0.85;
-    text-decoration: line-through;
-  }
-  .cyc {
-    font: 700 0.74rem ui-monospace, monospace;
-    color: var(--rail);
-    border: 1px solid var(--rail-deep);
-    border-radius: 999px;
-    padding: 0.2rem 0.55rem;
   }
   .track-pill.on {
     opacity: 1;

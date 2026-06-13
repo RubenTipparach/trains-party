@@ -8,6 +8,7 @@
   import CompanyCard from '$lib/components/CompanyCard.svelte';
   import CompanyLogo from '$lib/components/CompanyLogo.svelte';
   import GamePanel from '$lib/components/GamePanel.svelte';
+  import RoundTracker from '$lib/components/RoundTracker.svelte';
   import OperatingPanel from '$lib/components/OperatingPanel.svelte';
   import MergerPanel from '$lib/components/MergerPanel.svelte';
   import Spreadsheet from '$lib/components/Spreadsheet.svelte';
@@ -192,6 +193,11 @@
   <div class="roomchip">
     <span class="rtitle">{meta.title}</span>
     {#if game.code}<span class="rcode">Room {game.code.toUpperCase()}</span>{/if}
+  </div>
+
+  <!-- floating cycle/round tracker (RoLA): the board-style visual aid -->
+  <div class="trackerfloat" class:shifted={!!active}>
+    <RoundTracker />
   </div>
 
   <!-- always-visible turn status -->
@@ -585,6 +591,30 @@
     height: 26px;
     background: var(--line);
     margin: 0 2px;
+  }
+
+  /* ---- floating cycle/round tracker ---- */
+  .trackerfloat {
+    position: absolute;
+    z-index: 11;
+    left: 10px;
+    bottom: 64px;
+    transform: scale(0.92);
+    transform-origin: bottom left;
+  }
+  @media (max-width: 919px) {
+    /* mobile: tuck it top-left, smaller, out of the way of the dock/pill */
+    .trackerfloat {
+      top: 60px;
+      bottom: auto;
+      left: 6px;
+      transform: scale(0.8);
+      transform-origin: top left;
+    }
+    /* hide while a full panel/sheet covers the map */
+    .board-root .trackerfloat.shifted {
+      display: none;
+    }
   }
 
   /* ---- room identity chip ---- */
