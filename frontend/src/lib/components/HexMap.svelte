@@ -9,6 +9,7 @@
   import { game } from '$lib/game/sandbox.svelte';
   import { anim } from '$lib/game/anim.svelte';
   import { routing } from '$lib/game/routing.svelte';
+  import { locate } from '$lib/game/locate.svelte';
   import { TILES, rotatePaths, trackLays, tokenPlays, corpRoutes, routeThroughStops, tileSupply, exhaustedTilesOnHex, configFor, placementCoords, isLegalPlacement } from '$lib/engine';
   import TileGraphic from './TileGraphic.svelte';
 
@@ -909,6 +910,24 @@
     animateView({ x: c.x - targetW / 2, y: c.y - targetH / 2, w: targetW, h: targetH });
   }
 
+  // "Find on the map": the entities panel requests a fly-to (panSeq bumps) and a
+  // hover ping (locate.hex). Centre on the requested hex and keep a brief ping.
+  let pingSeq = 0;
+  $effect(() => {
+    const seq = locate.panSeq;
+    const hex = locate.panHex;
+    if (seq !== pingSeq && hex && activeMap[hex]) {
+      pingSeq = seq;
+      centerOn(hex);
+      locate.hex = hex;
+      const mark = seq;
+      setTimeout(() => {
+        if (locate.panSeq === mark) locate.hex = null;
+      }, 2200);
+    }
+  });
+  const pingAt = $derived(locate.hex && activeMap[locate.hex] ? hexCenter(locate.hex) : null);
+
   /** Map a client point to screen-aligned SVG (viewBox) coordinates. */
   function clientToSvg(clientX: number, clientY: number): { x: number; y: number } {
     const ctm = svgEl.getScreenCTM();
@@ -1152,6 +1171,14 @@
       {:else}
         <rect class="deep" x={seaRect.x} y={seaRect.y} width={seaRect.w} height={seaRect.h} />
       {/if}
+      <!-- locate ping: radiating circle around a hex (hover/click in Entities) -->
+      {#if pingAt}
+        <g class="ping" transform="translate({pingAt.x} {pingAt.y})">
+          <circle class="ping1" r="14" />
+          <circle class="ping2" r="14" />
+          <circle class="pingdot" r="6" />
+        </g>
+      {/if}
       <!-- shoreline waves: spawn at each bordering ocean hex centre and travel
            to the shared shore edge, endpoints confined to the centre->edge
            triangle (the line scales about the ocean centre). Per-edge random
@@ -1224,13 +1251,20 @@
                 />
                 <!-- shadowed right face -->
                 <path d="M {ax} {ay} L {pk.x + pk.s} 14 L {ax} 14 Z" fill="#6f5d3c" />
-                {#if pk.s > 11}
-                  <!-- jagged snow cap near the summit -->
-                  <path
-                    d="M {ax - pk.s * 0.26} {ay + pk.s * 0.34} L {ax - pk.s * 0.1} {ay + pk.s * 0.18} L {ax} {ay + pk.s * 0.3} L {ax + pk.s * 0.12} {ay + pk.s * 0.16} L {ax} {ay} L {ax + pk.s * 0.28} {ay + pk.s * 0.34} L {ax + pk.s * 0.14} {ay + pk.s * 0.28} L {ax} {ay + pk.s * 0.4} L {ax - pk.s * 0.14} {ay + pk.s * 0.26} Z"
-                    fill="#f2efe6"
-                  />
-                {/if}
+                <!-- snowy white top (every peak): a cap with a jagged lower edge -->
+                <path
+                  d="M {ax - pk.s * 0.42} {ay + pk.s * 0.44} L {ax - pk.s * 0.26} {ay + pk.s * 0.24} L {ax - pk.s * 0.12} {ay + pk.s * 0.38} L {ax} {ay + pk.s * 0.18} L {ax + pk.s * 0.14} {ay + pk.s * 0.36} L {ax + pk.s * 0.3} {ay + pk.s * 0.22} L {ax + pk.s * 0.42} {ay + pk.s * 0.44} L {ax} {ay} Z"
+                  fill="#f7f5ef"
+                  stroke="#d3d8d4"
+                  stroke-width="0.4"
+                  stroke-linejoin="round"
+                />
+                <!-- shade the snow's right slope so the cap reads 3D -->
+                <path
+                  d="M {ax} {ay} L {ax + pk.s * 0.42} {ay + pk.s * 0.44} L {ax + pk.s * 0.14} {ay + pk.s * 0.36} Z"
+                  fill="#dadfe2"
+                  opacity="0.85"
+                />
               {/each}
             {/if}
           </g>
@@ -2008,6 +2042,38 @@
     fill: #fbfbf7;
     stroke: #2b2b2b;
     stroke-width: 2;
+  }
+  .ping {
+    pointer-events: none;
+  }
+  .ping circle {
+    fill: none;
+  }
+  .pingdot {
+    fill: #f5c542;
+    stroke: #1c2a36;
+    stroke-width: 1.5;
+  }
+  .ping1,
+  .ping2 {
+    stroke: #f5c542;
+    stroke-width: 3;
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: pingpulse 1.6s ease-out infinite;
+  }
+  .ping2 {
+    animation-delay: 0.8s;
+  }
+  @keyframes pingpulse {
+    0% {
+      transform: scale(0.5);
+      opacity: 0.9;
+    }
+    100% {
+      transform: scale(2.6);
+      opacity: 0;
+    }
   }
   .capstar {
     fill: #f5c542;

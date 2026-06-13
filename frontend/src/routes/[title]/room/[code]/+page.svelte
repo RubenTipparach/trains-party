@@ -23,6 +23,7 @@
   import { CORPORATIONS, COMPANIES } from '$lib/data/g1889';
   import type { TileColor } from '$lib/data/types';
   import { anim } from '$lib/game/anim.svelte';
+  import { pingHex, flyToHex } from '$lib/game/locate.svelte';
   import { GAMES } from '$lib/data/games';
   import { page } from '$app/stores';
 
@@ -395,11 +396,23 @@
                   <h3>Minor companies <span class="count">{cfg.minors?.length ?? 0}</span></h3>
                   <div class="cards">
                     {#each cfg.minors ?? [] as m (m.sym)}
+                      {@const home = game.state.corporations.find((c) => c.sym === m.sym)?.coordinates || ''}
                       <div class="entcard" style="--c:{m.color}">
                         <div class="enthead">
-                          <CompanyLogo sym={m.sym} color={m.color} size={26} />
+                          <button
+                            class="locate"
+                            class:disabled={!home}
+                            title={home ? `Find ${m.sym} home (${home})` : 'No home placed yet'}
+                            aria-label="Find {m.sym} on the map"
+                            onmouseenter={() => home && pingHex(home)}
+                            onmouseleave={() => pingHex(null)}
+                            onclick={() => { if (home) { active = isMobile ? null : active; flyToHex(home); } }}
+                          >
+                            <CompanyLogo sym={m.sym} color={m.color} size={26} />
+                          </button>
                           <span class="entsym">{m.sym}</span>
                           <span class="entname">{m.name}</span>
+                          {#if home}<span class="enthome">{home}</span>{/if}
                         </div>
                         <p class="entdesc">{m.desc}</p>
                       </div>
@@ -1048,6 +1061,32 @@
     font-weight: 800;
     color: var(--c);
     letter-spacing: 0.02em;
+  }
+  .locate {
+    border: none;
+    background: transparent;
+    padding: 0;
+    margin: 0;
+    cursor: pointer;
+    border-radius: 50%;
+    line-height: 0;
+    transition: transform 120ms ease, box-shadow 120ms ease;
+  }
+  .locate:hover:not(.disabled) {
+    transform: scale(1.12);
+    box-shadow: 0 0 0 2px var(--c);
+  }
+  .locate.disabled {
+    cursor: default;
+    opacity: 0.5;
+  }
+  .enthome {
+    margin-left: auto;
+    font: 700 0.68rem ui-monospace, monospace;
+    color: var(--muted);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 0.05rem 0.4rem;
   }
   .entname {
     font-weight: 600;
