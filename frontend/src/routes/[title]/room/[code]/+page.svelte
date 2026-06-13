@@ -598,9 +598,15 @@
     position: absolute;
     z-index: 11;
     left: 10px;
-    bottom: 64px;
-    transform: scale(0.92);
+    bottom: 14px;
+    transform: scale(0.9);
     transform-origin: bottom left;
+  }
+  @media (min-width: 920px) {
+    /* desktop: sit to the right of the bottom-left zoom controls (~54px wide) */
+    .trackerfloat {
+      left: 64px;
+    }
   }
   @media (max-width: 919px) {
     /* mobile: tuck it top-left, smaller, out of the way of the dock/pill */
