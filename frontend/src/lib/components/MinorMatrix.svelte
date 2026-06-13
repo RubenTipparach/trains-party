@@ -5,6 +5,7 @@
   import { game } from '$lib/game/sandbox.svelte';
   import { parForBid, rolaStockLegalActions, currencyFor, adaptiveHomes, configFor } from '$lib/engine';
   import CompanyLogo from './CompanyLogo.svelte';
+  import MapChoiceModal from './MapChoiceModal.svelte';
 
   const CURRENCY = $derived(currencyFor(game.title));
   const matrix = $derived(game.state.minorMatrix ?? []);
@@ -28,15 +29,13 @@
     if (auction && raiseBid < auction.minRaise) raiseBid = auction.minRaise;
   });
 
-  // Adaptive chooses an empty basic-city home as it launches.
+  // Adaptive chooses an empty basic-city home as it launches: picked on a modal map.
   const homes = $derived(adaptiveHomes(game.state));
-  let homeSel = $state('');
-  $effect(() => {
-    if (!homeSel || !homes.includes(homeSel)) homeSel = homes[0] ?? '';
-  });
+  let picking = $state<string | null>(null); // minor sym whose home is being chosen
   const minorDef = (sym: string) => configFor(game.title).minors?.find((m) => m.sym === sym);
   const descOf = (sym: string) => minorDef(sym)?.desc ?? '';
   const isAdaptive = (sym: string) => minorDef(sym)?.ability?.type === 'choose_home';
+  const nameOf = (sym: string) => game.state.corporations.find((c) => c.sym === sym)?.name ?? sym;
 
   function initiate() {
     game.act({ type: 'initiate_auction', player: me, bid: openBid });
@@ -48,7 +47,15 @@
     game.act({ type: 'pass', player: me });
   }
   function launchPick(sym: string) {
-    game.act({ type: 'launch', player: me, corp: sym, ...(isAdaptive(sym) ? { home: homeSel } : {}) });
+    if (isAdaptive(sym)) {
+      picking = sym; // open the map to choose a home, then launch
+      return;
+    }
+    game.act({ type: 'launch', player: me, corp: sym });
+  }
+  function chooseHome(hex: string) {
+    if (picking) game.act({ type: 'launch', player: me, corp: picking, home: hex });
+    picking = null;
   }
   // For a column: the unlaunched minors, available first (bottom), upcoming above.
   const column = (col: string[]) => {
@@ -116,15 +123,8 @@
               {/if}
               {#if game.canAct && auction?.iWon && available(sym)}
                 <div class="launch">
-                  {#if isAdaptive(sym)}
-                    <label>home
-                      <select bind:value={homeSel}>
-                        {#each homes as h (h)}<option value={h}>{h}</option>{/each}
-                      </select>
-                    </label>
-                  {/if}
-                  <button class="go" disabled={isAdaptive(sym) && !homeSel} onclick={() => launchPick(sym)}>
-                    Launch for {CURRENCY}{auction.highBid}
+                  <button class="go" onclick={() => launchPick(sym)}>
+                    {isAdaptive(sym) ? 'Choose home & launch' : `Launch for ${CURRENCY}${auction.highBid}`}
                   </button>
                 </div>
               {:else}
@@ -138,6 +138,15 @@
       {/each}
     </div>
   </div>
+{/if}
+
+{#if picking}
+  <MapChoiceModal
+    title="Choose {nameOf(picking)}'s home"
+    hexes={homes}
+    onchoose={chooseHome}
+    oncancel={() => (picking = null)}
+  />
 {/if}
 
 <style>
@@ -283,10 +292,6 @@
     flex-wrap: wrap;
     gap: 0.4rem;
     padding: 0.45rem 0.55rem;
-  }
-  .launch label {
-    font-size: 0.78rem;
-    color: var(--muted);
   }
   .go {
     border: none;
