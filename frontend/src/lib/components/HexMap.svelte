@@ -5,6 +5,7 @@
   import type { HexDef, PathPart, TileColor } from '$lib/data/types';
   import { HEX_SIZE, APOTHEM, hexCenter, hexPolygon, edgeMidpoint } from '$lib/hexgeo';
   import { mapView } from '$lib/config/mapView';
+  import { WATER_BASE, WATER_STATIC, WATER_FRAMES, TILE_W, TILE_H } from '$lib/config/waterArt';
   import { game } from '$lib/game/sandbox.svelte';
   import { anim } from '$lib/game/anim.svelte';
   import { routing } from '$lib/game/routing.svelte';
@@ -1118,6 +1119,13 @@
       <defs>
         <clipPath id="hexclip"><polygon points={poly} /></clipPath>
         <clipPath id="cityclip"><circle r="12.5" /></clipPath>
+        <!-- buildable water hexes (lakes / rivers): the classic pixel water -->
+        <pattern id="lakepx" patternUnits="userSpaceOnUse" width={TILE_W} height={TILE_H}>
+          <rect width={TILE_W} height={TILE_H} fill={WATER_BASE} />
+          {#each [...WATER_STATIC, ...WATER_FRAMES[0]] as [x, y, w, h, c]}
+            <rect {x} {y} width={w} height={h} fill={c} />
+          {/each}
+        </pattern>
         <!-- shallow-water halo: light teal at the shore fading smoothly to clear
              (the deep base shows through), giving shallow-near-land / deep-far -->
         <radialGradient id="shallowgrad">
@@ -1151,6 +1159,7 @@
               y2={s.y2}
               stroke-width={band.w}
               stroke-dasharray={band.dash}
+              vector-effect="non-scaling-stroke"
               style="--peak:{band.peak}; --tx:{s.tx.toFixed(1)}px; --ty:{s.ty.toFixed(1)}px; animation-duration:{s.speed.toFixed(2)}s; animation-delay:{(-(s.phase + band.lead) * s.speed).toFixed(2)}s"
             />
           {/each}
@@ -1182,16 +1191,17 @@
           {/if}
 
           {#if h.terrain?.includes('water')}
-            <polygon points={poly} fill="#2f6f96" opacity="0.32" />
+            {#if h.terrain.includes('mountain')}
+              <!-- river crossing (1889 H5/I6): land with a water build cost -->
+              <polygon points={poly} fill="#2f6f96" opacity="0.32" />
+            {:else}
+              <!-- true water hex (RoLA lakes, bridgeable): the classic pixel water -->
+              <polygon points={poly} fill="url(#lakepx)" />
+            {/if}
           {/if}
 
           <!-- terrain art counter-rotates so it stays right side up -->
           <g transform="rotate({-$rotAnim})">
-            {#if h.terrain?.includes('water')}
-              {#each [-7, 1, 9] as wy}
-                <path d="M -13 {wy} q 4 -3 8 0 q 4 3 8 0 q 4 -3 8 0" class="wave" />
-              {/each}
-            {/if}
             {#if h.terrain?.includes('mountain')}
               {#each peaks(h.coord) as pk}
                 <path d="M {pk.x} 14 L {pk.x + pk.s / 2} {14 - pk.s} L {pk.x + pk.s} 14 Z" fill="#7d6a47" />
@@ -1618,6 +1628,9 @@
     fill: none;
     stroke: #ffffff;
     stroke-linecap: round;
+    /* grow from the segment's own midpoint (the diagram: small -> large) */
+    transform-box: fill-box;
+    transform-origin: center;
     /* phones: static foam (per-segment SVG animation would repaint the scene) */
     opacity: calc(var(--peak, 0.5) * 0.6);
   }
@@ -1628,12 +1641,14 @@
       animation: wavepulse 7s linear infinite;
     }
   }
-  /* a wide, soft pulse that also GLIDES shoreward: the line drifts by
-     (--tx, --ty) - one band gap toward the beach - while fading in and out */
+  /* a wide, soft pulse that GLIDES shoreward and GROWS as it goes: the line
+     starts small out at sea, drifts by (--tx, --ty) toward the beach, and
+     stretches to full span as it lands (stroke width stays constant via
+     non-scaling-stroke) */
   @keyframes wavepulse {
     0% {
       opacity: 0;
-      transform: translate(0px, 0px);
+      transform: translate(0px, 0px) scale(0.45);
     }
     25% {
       opacity: var(--peak, 0.5);
@@ -1644,7 +1659,7 @@
     90%,
     100% {
       opacity: 0;
-      transform: translate(var(--tx, 0px), var(--ty, 0px));
+      transform: translate(var(--tx, 0px), var(--ty, 0px)) scale(1);
     }
   }
   @media (prefers-reduced-motion: reduce) {
@@ -1970,12 +1985,6 @@
   @keyframes stoppulse {
     0%, 100% { opacity: 0.35; }
     50% { opacity: 0.95; }
-  }
-  .wave {
-    fill: none;
-    stroke: #cfeaff;
-    stroke-width: 1;
-    opacity: 0.5;
   }
   .city {
     fill: #fbfbf7;
