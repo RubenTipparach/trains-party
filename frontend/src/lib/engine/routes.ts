@@ -16,7 +16,7 @@
  * Map and train data come from the title config (by `state.title`).
  */
 
-import { configFor } from './registry';
+import { configFor, rolaAbility } from './registry';
 import { hexesFor } from './board';
 import { neighbor } from './track';
 import { TILES, rotatePaths, type TileEnd } from './tiles';
@@ -73,7 +73,12 @@ function offboardRevenue(s: GameState, revenue: Record<string, number>, diesel: 
  * Revenue of a hex's centre for the current phase (0 if it is not a stop).
  * `diesel` selects the diesel offboard tier (set when a D-train runs the route).
  */
-function centreRevenue(s: GameState, hex: string, diesel = false): number {
+function centreRevenue(s: GameState, hex: string, diesel = false, corp?: CorporationState): number {
+  // Suburban: +bonus for each of the running company's trains through a suburb.
+  const suburb = corp && s.suburbs?.[hex] === corp.sym ? 10 : 0;
+  return baseCentreRevenue(s, hex, diesel) + suburb;
+}
+function baseCentreRevenue(s: GameState, hex: string, diesel = false): number {
   const laid = s.tiles?.[hex];
   if (laid) {
     const def = TILES[laid.id];
@@ -184,7 +189,9 @@ function bestRouteFrom(
     if (stops.length >= maxStops) return;
     // Token blocking: a city full of other corporations' tokens may be a route
     // endpoint (recorded above) but cannot be passed through, so stop extending.
-    if (hex !== start && blocksThrough(s, corp, hex)) return;
+    // (Overnight glides arrive here WITHOUT the hex counted as a stop, and may
+    // keep going - skipped blocked cities count nothing and earn nothing.)
+    if (hex !== start && blocksThrough(s, corp, hex) && stops[stops.length - 1] === hex) return;
 
     // From the centre, take any segment touching 'c' to reach an edge.
     for (const seg of hexSegments(s, hex)) {
@@ -221,9 +228,17 @@ function bestRouteFrom(
       const segs2 = withAdd(segs, sid);
       if (other === 'c') {
         // reached a centre: it becomes a stop
-        const rev = centreRevenue(s, hex, diesel);
+        const rev = centreRevenue(s, hex, diesel, corp);
         if (rev <= 0 && !hasCentre(s, hex)) continue;
         walk(hex, [...stops, hex], revenue + rev, segs2, links);
+        // Overnight: may instead skip a blocked city entirely (no stop, no
+        // revenue) and continue tracing past it.
+        if (
+          blocksThrough(s, corp, hex) &&
+          rolaAbility(s.title, corp, 'skip_blocked_cities')
+        ) {
+          walk(hex, stops, revenue, segs2, links);
+        }
       } else {
         // pass through to the next hex
         const edge = other as number;
@@ -236,7 +251,7 @@ function bestRouteFrom(
     }
   }
 
-  walk(start, [start], centreRevenue(s, start, diesel), new Set(), new Set());
+  walk(start, [start], centreRevenue(s, start, diesel, corp), new Set(), new Set());
   return best;
 }
 
@@ -249,10 +264,14 @@ function withAdd(set: Set<string>, v: string): Set<string> {
 /** Best set of routes for a corporation's trains (greedy, longest train first). */
 export function corpRoutes(s: GameState, corp: CorporationState): { routes: Route[]; revenue: number } {
   const tokenCities = corp.tokenHexes.filter((h) => isCity(s, h));
-  if (tokenCities.length === 0 || corp.trains.length === 0) return { routes: [], revenue: 0 };
+  // Resourceful: rusted trains get one final run before they are discarded.
+  const roster = [...corp.trains, ...(corp.rustedTrains ?? [])];
+  if (tokenCities.length === 0 || roster.length === 0) return { routes: [], revenue: 0 };
 
   const trainDefs = configFor(s.title).trains;
-  const trains = [...corp.trains].sort((a, b) => trainMaxStops(trainDefs, b) - trainMaxStops(trainDefs, a));
+  const trains = [...roster].sort((a, b) => trainMaxStops(trainDefs, b) - trainMaxStops(trainDefs, a));
+  // Express: +1 stop while the company owns a single train.
+  const expressBoost = roster.length === 1 && rolaAbility(s.title, corp, 'boost_stop_if_single_train') ? 1 : 0;
 
   const usedSegs = new Set<string>();
   const usedLinks = new Set<string>();
@@ -260,7 +279,7 @@ export function corpRoutes(s: GameState, corp: CorporationState): { routes: Rout
   let revenue = 0;
 
   for (const train of trains) {
-    const maxStops = trainMaxStops(trainDefs, train);
+    const maxStops = trainMaxStops(trainDefs, train) + expressBoost;
     const diesel = isDiesel(trainDefs, train);
     let pick: { route: Route; segs: Set<string>; links: Set<string> } | null = null;
     for (const anchor of tokenCities) {
@@ -272,6 +291,18 @@ export function corpRoutes(s: GameState, corp: CorporationState): { routes: Rout
       revenue += pick.route.revenue;
       pick.segs.forEach((x) => usedSegs.add(x));
       pick.links.forEach((x) => usedLinks.add(x));
+    } else if (configFor(s.title).localRoutes) {
+      // RoLA local route: a train that cannot reach a second stop still runs a
+      // single stop inside a hub city (no track used; any number per city).
+      let best: Route | null = null;
+      for (const hub of tokenCities) {
+        const rev = centreRevenue(s, hub, diesel, corp);
+        if (rev > 0 && (!best || rev > best.revenue)) best = { hexes: [hub], revenue: rev, segs: [] };
+      }
+      if (best) {
+        routes.push(best);
+        revenue += best.revenue;
+      }
     }
   }
   return { routes, revenue };
@@ -314,6 +345,12 @@ export function routeThroughStops(
   corp?: CorporationState,
   diesel = false
 ): { route: Route; segs: Set<string>; links: Set<string> } | null {
+  if (stops.length === 1) {
+    if (!configFor(s.title).localRoutes) return null;
+    if (!corp?.tokenHexes.includes(stops[0])) return null; // local runs stay in a hub city
+    const rev = centreRevenue(s, stops[0], diesel, corp);
+    return rev > 0 ? { route: { hexes: [...stops], revenue: rev, segs: [] }, segs: new Set<string>(), links: new Set<string>() } : null;
+  }
   if (stops.length < 2 || stops.length > maxStops) return null;
   const hexes = hexesFor(s);
   // Token blocking: an interior stop full of other corporations' tokens cannot
@@ -377,7 +414,7 @@ export function routeThroughStops(
 
   const segs = new Set<string>();
   const links = new Set<string>();
-  let revenue = centreRevenue(s, stops[0], diesel);
+  let revenue = centreRevenue(s, stops[0], diesel, corp);
   for (let i = 0; i < stops.length - 1; i++) {
     const link = connect(stops[i], stops[i + 1], segs, links);
     if (!link) return null;
@@ -398,7 +435,9 @@ export function revenueForChosenRoutes(s: GameState, corp: CorporationState, rou
   const chosen = routes.filter((r) => r.length >= 2);
   if (chosen.length === 0) return 0;
   const trainDefs = configFor(s.title).trains;
-  const trainsByReach = [...corp.trains].sort((a, b) => trainMaxStops(trainDefs, b) - trainMaxStops(trainDefs, a));
+  const roster = [...corp.trains, ...(corp.rustedTrains ?? [])];
+  const expressBoost = roster.length === 1 && rolaAbility(s.title, corp, 'boost_stop_if_single_train') ? 1 : 0;
+  const trainsByReach = [...roster].sort((a, b) => trainMaxStops(trainDefs, b) - trainMaxStops(trainDefs, a));
   if (chosen.length > trainsByReach.length) throw new GameError('more routes than trains');
   const sorted = [...chosen].sort((a, b) => b.length - a.length);
   const tokenCities = new Set(corp.tokenHexes.filter((h) => isCity(s, h)));
@@ -408,7 +447,7 @@ export function revenueForChosenRoutes(s: GameState, corp: CorporationState, rou
   for (let i = 0; i < sorted.length; i++) {
     const stops = sorted[i];
     const train = trainsByReach[i];
-    const maxStops = trainMaxStops(trainDefs, train);
+    const maxStops = trainMaxStops(trainDefs, train) + expressBoost;
     if (stops.length > maxStops) throw new GameError(`a ${train}-train cannot reach ${stops.length} stops`);
     if (!stops.some((h) => tokenCities.has(h))) throw new GameError('each route must include a tokened city');
     const res = routeThroughStops(s, stops, maxStops, usedSegs, usedLinks, corp, isDiesel(trainDefs, train));

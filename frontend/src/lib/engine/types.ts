@@ -9,7 +9,7 @@ import type { CompanyAbility, HexDef } from '$lib/data/types';
 import type { TriHex } from './triHex';
 export type { CompanyAbility };
 
-export type RoundType = 'auction' | 'mapbuild' | 'stock' | 'operating';
+export type RoundType = 'auction' | 'mapbuild' | 'stock' | 'operating' | 'merger';
 
 export interface PlayerState {
   id: string;
@@ -48,6 +48,12 @@ export interface CorporationState {
   coordinates: string;
   /** RoLA: minor vs major (undefined for 1889 corporations). */
   kind?: 'minor' | 'major';
+  /** Set once the company has completed an OR turn (gates leadoff + selling). */
+  operated?: boolean;
+  /** Major only: the two minors this corporation was merged from (abilities persist). */
+  mergedFrom?: string[];
+  /** Resourceful: rusted trains held for one final run (no limit, unsellable). */
+  rustedTrains?: string[];
   /** RoLA share denomination / dividend percent per share (minor 20, major 10). */
   shareUnit?: number;
   /** RoLA: set when the price reached 0 and the company dissolved. */
@@ -90,12 +96,19 @@ export interface ORState {
   order: string[];
   /** Index of the corporation currently operating. */
   index: number;
-  /** Step within the corporation's turn. */
-  step: 'track' | 'token' | 'run' | 'trains';
+  /** Step within the corporation's turn. RoLA: a newly launched minor's first
+   * turn opens at `leadoff` (an optional train purchase before anything else). */
+  step: 'leadoff' | 'track' | 'token' | 'run' | 'trains';
   /** Which operating round in the current set (1-based). */
   orNumber: number;
   /** Total operating rounds in this set (phase-dependent). */
   orsThisSet: number;
+  /** Yellow tiles laid by the operating company this turn (RoLA allows 2). */
+  yellowLaid?: number;
+  /** The operating company has used its issue/redeem action this turn (RoLA). */
+  issued?: boolean;
+  /** The company upgraded a tile this turn (Agricultural may add one yellow). */
+  upgraded?: boolean;
 }
 
 export interface Bid {
@@ -127,6 +140,17 @@ export interface StockState {
    * id -> set of corp syms.
    */
   soldThisRound: Record<string, string[]>;
+}
+
+export interface MergerState {
+  /** Minor syms entitled to propose, in descending stock order. */
+  queue: string[];
+  /** Index of the minor whose president acts now. */
+  index: number;
+  /** Pairings declined this round ("A|B"), not re-proposable. */
+  declined: string[];
+  /** A cross-player proposal awaiting the target president's answer. */
+  pending: { from: string; to: string; major: string } | null;
 }
 
 export interface GameState {
@@ -167,6 +191,14 @@ export interface GameState {
   /** RoLA minor matrix: columns of minor syms; only the bottom (first unlaunched)
    *  of each column is launchable, revealing the next up the column. */
   minorMatrix?: string[][];
+  /** Current cycle (1-based) when the title plays fixed cycles (RoLA). */
+  cycle?: number;
+  /** Merger round state (RoLA), when one is in progress. */
+  merger?: MergerState | null;
+  /** Suburb tokens on the board: hex -> owning company sym (Suburban). */
+  suburbs?: Record<string, string>;
+  /** Trains discarded to the bank pool (over-limit), buyable at printed price. */
+  trainPool?: string[];
   log: string[];
   /** Set when the bank breaks; the current OR set finishes, then the game ends. */
   endTriggered: boolean;
@@ -181,11 +213,13 @@ export type GameAction =
   | { type: 'bid'; player: string; company: string; price: number }
   | { type: 'par'; player: string; corp: string; price: number }
   // RoLA: launch a minor at `price` (a par space) paying `bid` into its treasury.
-  | { type: 'launch'; player: string; corp: string; bid: number; price?: number }
+  | { type: 'launch'; player: string; corp: string; bid: number; price?: number; home?: string }
   | { type: 'buy'; player: string; corp: string; from: 'ipo' | 'pool' }
   | { type: 'sell'; player: string; corp: string; count: number }
   | { type: 'lay_tile'; player: string; corp: string; hex: string; tile: string; rotation: number }
   | { type: 'place_token'; player: string; corp: string; hex: string }
+  // Suburban: place a suburb token on a reachable basic city (+bonus per run).
+  | { type: 'place_suburb'; player: string; corp: string; hex: string }
   | { type: 'place_tri'; player: string; anchor: string; rotation: number }
   // Run trains. `routes` (optional) is the player's chosen stops per train
   // (ordered revenue-centre hexes); when omitted the engine runs the best routes
@@ -210,6 +244,15 @@ export type GameAction =
   | { type: 'exchange'; player: string; company: string }
   // Emergency money raising: a president forced to fund a mandatory train sells
   // shares to the pool (emr_sell), or declares bankruptcy when nothing can cover it.
+  // RoLA OR step 2: issue one treasury share to the pool (price drops one), or
+  // redeem one pooled share into the treasury at current price (no price move).
+  // RoLA merger round: propose merging two minors into `major`; the target's
+  // president accepts or declines when the presidents differ.
+  | { type: 'propose_merge'; player: string; from: string; to: string; major: string }
+  | { type: 'accept_merge'; player: string }
+  | { type: 'decline_merge'; player: string }
+  | { type: 'issue'; player: string; corp: string }
+  | { type: 'redeem'; player: string; corp: string }
   | { type: 'emr_sell'; player: string; corp: string; count: number }
   | { type: 'declare_bankruptcy'; player: string }
   | { type: 'pass'; player: string };

@@ -47,6 +47,8 @@ export function moveLadder(s: GameState, c: CorporationState, steps: number): nu
     c.priceCol = next;
     stampPrice(s, c);
   }
+  // Token movement rule: reaching the CLOSED space (0) dissolves the company.
+  if (next === 0 && !c.dissolved) dissolve(s, c);
   return next;
 }
 

@@ -168,14 +168,19 @@
   }
   .pm {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0.05rem 0.6rem;
+    grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+    gap: 0.1rem 0.8rem;
     font-size: 0.76rem;
     margin-bottom: 0.4rem;
   }
   .pm div {
     display: flex;
     justify-content: space-between;
+    gap: 0.5rem;
+    min-width: 0;
+  }
+  .pm b {
+    white-space: nowrap;
   }
   .pm span {
     color: var(--muted);

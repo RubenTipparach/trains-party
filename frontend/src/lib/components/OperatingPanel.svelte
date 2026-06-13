@@ -8,11 +8,12 @@
     tokenPlays,
     corporationsCanBuyPrivates,
     specialLayOptions,
-    exchangeOptions
+    exchangeOptions,
+    configFor,
+    suburbOptions
   } from '$lib/engine';
   import { TRAINS, MARKET, CURRENCY, COMPANIES } from '$lib/data/g1889';
   import type { CorporationState } from '$lib/engine';
-  import HexMap from './HexMap.svelte';
   import PrivateChip from './PrivateChip.svelte';
   import MoneyValue from './MoneyValue.svelte';
   import Treasury from './Treasury.svelte';
@@ -52,9 +53,16 @@
   const corpOf = (sym: string) => game.state.corporations.find((c) => c.sym === sym)!;
   function priceOf(c: CorporationState): number | null {
     if (c.priceRow === null || c.priceCol === null) return null;
-    return MARKET[c.priceRow][c.priceCol].price;
+    return configFor(game.title).market[c.priceRow][c.priceCol].price;
   }
-  const trainCost = (name: string) => TRAINS.find((t) => t.name === name)?.price ?? 0;
+  const trainCost = (name: string) =>
+    configFor(game.title).trains.find((t) => t.name === name)?.price ?? 0;
+  // With president funding on (RoLA), treasury + personal cash affords a train.
+  const buyBudget = (c: CorporationState) =>
+    c.cash +
+    (configFor(game.title).presidentMayFund
+      ? (game.state.players.find((p) => p.id === c.president)?.cash ?? 0)
+      : 0);
 
   // Cross-buy: trains the operating corp may buy from the president's other
   // corporations (one entry per selling corp + train type), with a chosen price.
@@ -156,7 +164,7 @@
   <div class="op">
     <!-- operating order -->
     <div class="order">
-      <span class="olabel">OR {v.orNumber}/{v.orsThisSet} · {v.step === 'track' ? 'Lay track' : v.step === 'token' ? 'Place token' : v.step === 'run' ? 'Run trains' : 'Buy trains'}</span>
+      <span class="olabel">OR {v.orNumber}/{v.orsThisSet} · {v.step === 'leadoff' ? 'Leadoff train' : v.step === 'track' ? 'Lay track' : v.step === 'token' ? 'Place token' : v.step === 'run' ? 'Run trains' : 'Buy trains'}</span>
       {#each v.order as sym, i (sym)}
         <span class="opill" class:on={i === v.index} class:done={i < v.index} style="--c:{corpOf(sym).color}">{sym}</span>
       {/each}
@@ -164,16 +172,8 @@
 
     {#if game.error}<p class="err">{game.error}</p>{/if}
 
+    <!-- track / token / route interactions live on the background map -->
     <div class="cols">
-      <!-- the board, with track laying live on it (only interactive on your turn) -->
-      <div class="mapwrap">
-        <HexMap
-          layMode={game.canAct && v.step === 'track'}
-          tokenMode={game.canAct && v.step === 'token'}
-          runMode={game.canAct && v.step === 'run'}
-        />
-      </div>
-
       <!-- the operating corporation + its current action -->
       <aside>
         <div class="cur" style="--c:{c.color}">
@@ -227,13 +227,51 @@
             </div>
           {/if}
 
+          {#if game.canAct && (v.step === 'leadoff' || v.step === 'track' || v.step === 'token') && suburbOptions(game.state, c).length}
+            <div class="act">
+              {#each suburbOptions(game.state, c).slice(0, 6) as hx (hx)}
+                <button class="ghost small" onclick={() => game.act({ type: 'place_suburb', player: c.president!, corp: c.sym, hex: hx })}>
+                  Suburb token on {hx} (+10/run)
+                </button>
+              {/each}
+            </div>
+          {/if}
+
+          {#if game.canAct && (v.canIssue || v.canRedeem)}
+            <div class="act">
+              {#if v.canIssue}
+                <button class="ghost small" onclick={() => game.act({ type: 'issue', player: c.president!, corp: c.sym })}>
+                  Issue a share (+{CURRENCY}{priceOf(c) ?? 0}, price drops)
+                </button>
+              {/if}
+              {#if v.canRedeem}
+                <button class="ghost small" onclick={() => game.act({ type: 'redeem', player: c.president!, corp: c.sym })}>
+                  Redeem a share (-{CURRENCY}{priceOf(c) ?? 0})
+                </button>
+              {/if}
+            </div>
+          {/if}
+
           {#if !game.canAct}
             <p class="waiting" style="--p:{seatColor(c.president ?? '')}">
               {game.isBot(c.president) ? `${pname(c.president)} (bot) is operating ${c.sym}…` : `Waiting for ${pname(c.president)} to operate ${c.sym}…`}
             </p>
+          {:else if v.step === 'leadoff'}
+            <div class="act track">
+              <span class="tlabel">New company: you may buy one train before your turn</span>
+            </div>
+            <div class="act">
+              {#if v.canBuyTrain && buyBudget(c) >= trainCost(v.canBuyTrain)}
+                <button onclick={() => game.act({ type: 'buy_train', player: c.president!, corp: c.sym, train: v.canBuyTrain! })}>
+                  Buy {v.canBuyTrain}-train ({CURRENCY}{trainCost(v.canBuyTrain)}){c.cash < trainCost(v.canBuyTrain) ? ' · you cover ' + (trainCost(v.canBuyTrain) - c.cash) : ''}
+                </button>
+              {/if}
+              <button class="ghost" onclick={() => game.act({ type: 'pass', player: c.president! })}>Skip leadoff</button>
+            </div>
+            <p class="hint">A leadoff train is bought at face value from the stack and can run this same turn.</p>
           {:else if v.step === 'track'}
             <div class="act track">
-              <span class="tlabel">Tap a <em>highlighted</em> hex to lay track ({lays.length} legal)</span>
+              <span class="tlabel">{v.yellowLaid > 0 ? 'You may lay one more yellow tile' : 'Tap a'} {#if v.yellowLaid === 0}<em>highlighted</em> hex to lay track{/if} ({lays.length} legal)</span>
             </div>
             {#if layTileSummary.length}
               <div class="laysummary">
@@ -336,9 +374,9 @@
                 <div class="runrev"><span class="norun">{c.sym} has no train and can run. It must buy one.</span></div>
               {/if}
               <div class="act">
-                {#if v.canBuyTrain && c.cash >= trainCost(v.canBuyTrain)}
+                {#if v.canBuyTrain && buyBudget(c) >= trainCost(v.canBuyTrain)}
                   <button onclick={() => game.act({ type: 'buy_train', player: c.president!, corp: c.sym, train: v.canBuyTrain! })}>
-                    Buy {v.canBuyTrain}-train ({CURRENCY}{trainCost(v.canBuyTrain)})
+                    Buy {v.canBuyTrain}-train ({CURRENCY}{trainCost(v.canBuyTrain)}){c.cash < trainCost(v.canBuyTrain) ? ' · you cover ' + (trainCost(v.canBuyTrain) - c.cash) : ''}
                   </button>
                 {/if}
                 {#if !v.mustBuy}
@@ -422,14 +460,6 @@
     grid-template-columns: 1fr;
     gap: 1rem;
     align-items: start;
-  }
-  @media (min-width: 880px) {
-    .cols {
-      grid-template-columns: minmax(0, 1.6fr) minmax(280px, 1fr);
-    }
-  }
-  .mapwrap {
-    min-width: 0;
   }
   aside {
     display: flex;

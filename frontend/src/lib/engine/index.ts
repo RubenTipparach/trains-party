@@ -13,6 +13,7 @@
 
 import { GameError, type GameAction, type GameState } from './types';
 import { configFor } from './registry';
+import { applyMerger, mergerActivePlayer } from './rolaMerger';
 import { applyAuction, auctionActivePlayer, minBid } from './auction';
 import { applyStock, applyExchange } from './stock';
 import { applyRolaStock } from './rolaRound';
@@ -50,6 +51,10 @@ export { hexesFor } from './board';
 export { legalPlacements, placementCoords, isLegalPlacement, generateTriHexPool, BUILD_CENTER } from './triHex';
 export type { Placement, TriHex } from './triHex';
 export { mapBuildActivePlayer, pickBuildPlacement } from './mapbuild';
+export { mergePartners, availableMajors } from './rolaMerger';
+export { adaptiveHomes } from './rolaRound';
+export { suburbOptions } from './operating';
+export { mergerActivePlayer };
 
 /** Apply one action, returning the next state. Pure: the input is not mutated. */
 export function apply(state: GameState, action: GameAction): GameState {
@@ -79,6 +84,9 @@ export function apply(state: GameState, action: GameAction): GameState {
     case 'operating':
       applyOperating(s, action);
       break;
+    case 'merger':
+      applyMerger(s, action);
+      break;
     default:
       throw new GameError(`round '${s.round}' is not implemented yet`);
   }
@@ -98,6 +106,7 @@ export function activePlayer(state: GameState): string | null {
   if (state.round === 'stock' && state.stock) return state.players[state.current].id;
   if (state.round === 'operating') return operatingActivePlayer(state);
   if (state.round === 'mapbuild') return mapBuildActivePlayer(state);
+  if (state.round === 'merger') return mergerActivePlayer(state);
   return null;
 }
 

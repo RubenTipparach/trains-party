@@ -9,7 +9,8 @@
  * refinements; for now any unlaunched minor is launchable by the active player.
  */
 
-import { configFor } from './registry';
+import { configFor, rolaAbility } from './registry';
+import { hexesFor } from './board';
 import { currentPrice } from './stock';
 import { launchMinor, sellPriceMove, soldOutMove, parForBid, MIN_LAUNCH_BID } from './rolaStock';
 import { startOperatingRound } from './operating';
@@ -57,11 +58,19 @@ function endTurn(s: GameState): void {
   st.bought = false;
 }
 
-function doLaunch(s: GameState, id: string, sym: string, bid: number): void {
+function doLaunch(s: GameState, id: string, sym: string, bid: number, home?: string): void {
   const st = s.stock!;
   if (st.bought) throw new GameError('only one launch/buy per turn');
   const c = corp(s, sym);
   if (!availableMinors(s).includes(sym)) throw new GameError(`${sym} is not at the bottom of its matrix column`);
+  // Adaptive: chooses any empty basic-city home as it launches.
+  if (rolaAbility(s.title, c, 'choose_home')) {
+    if (!home || !adaptiveHomes(s).includes(home)) {
+      throw new GameError(`${sym} must choose an empty basic-city home to launch`);
+    }
+    c.coordinates = home;
+    s.log.push(`${sym} establishes its home at ${home}`);
+  }
   launchMinor(s, c, id, bid); // validates kind/bid/affordability, derives par, sets treasury + 40% cert
   st.bought = true;
   st.acted = true;
@@ -77,13 +86,14 @@ function doBuy(s: GameState, id: string, sym: string, from: 'ipo' | 'pool'): voi
   if (c.parPrice === null) throw new GameError(`${sym} has not launched`);
   const p = player(s, id);
   const unit = unitOf(c);
-  let cost: number;
+  // RoLA has no IPO: unsold shares ARE the treasury (partial cap). Both kinds
+  // sell at the CURRENT price; a treasury share pays the company, a bank-pool
+  // share pays the bank.
+  const cost = currentPrice(s, c);
   if (from === 'ipo') {
-    if (c.ipoShares < unit) throw new GameError(`no IPO shares of ${sym}`);
-    cost = c.parPrice;
+    if (c.ipoShares < unit) throw new GameError(`no treasury shares of ${sym}`);
   } else {
     if (c.poolShares < unit) throw new GameError(`no pool shares of ${sym}`);
-    cost = currentPrice(s, c);
   }
   if (holds(p, sym) + unit > HOLD_CAP) throw new GameError(`hold limit (${HOLD_CAP}%) reached for ${sym}`);
   if (p.cash < cost) throw new GameError(`${id} cannot afford a share of ${sym} (${cost})`);
@@ -92,9 +102,10 @@ function doBuy(s: GameState, id: string, sym: string, from: 'ipo' | 'pool'): voi
   else c.poolShares -= unit;
   p.shares[sym] = holds(p, sym) + unit;
   p.cash -= cost;
-  s.bank += cost;
+  if (from === 'ipo') c.cash += cost; // treasury share: the company gets the money
+  else s.bank += cost;
   maybeTakePresidency(s, c, id);
-  s.log.push(`${pname(s, id)} buys ${unit}% of ${sym} from ${from} for ${cost}`);
+  s.log.push(`${pname(s, id)} buys ${unit}% of ${sym} from ${from === 'ipo' ? 'the treasury' : 'the pool'} for ${cost}`);
   st.bought = true;
   st.acted = true;
   st.passes = 0;
@@ -106,6 +117,7 @@ export function maxRolaSell(s: GameState, id: string, sym: string): number {
   const c = corp(s, sym);
   const p = player(s, id);
   if (c.priceCol === null || !c.floated) return 0;
+  if (!c.operated) return 0; // rulebook: cannot sell a company that has not operated
   const unit = unitOf(c);
   const have = holds(p, sym);
   const poolRoom = POOL_CAP - c.poolShares;
@@ -170,7 +182,7 @@ export function applyRolaStock(s: GameState, action: GameAction): void {
 
   switch (action.type) {
     case 'launch':
-      doLaunch(s, action.player, action.corp, action.bid);
+      doLaunch(s, action.player, action.corp, action.bid, action.home);
       break;
     case 'buy':
       doBuy(s, action.player, action.corp, action.from);
@@ -243,11 +255,27 @@ export function rolaStockLegalActions(s: GameState): RolaStockLegal {
         }
       } else if (c.parPrice !== null) {
         const unit = unitOf(c);
-        if (c.ipoShares >= unit && holds(p, c.sym) + unit <= HOLD_CAP && p.cash >= (c.parPrice ?? 0)) buyIpo.push(c.sym);
+        if (c.ipoShares >= unit && holds(p, c.sym) + unit <= HOLD_CAP && p.cash >= currentPrice(s, c)) buyIpo.push(c.sym);
         if (c.poolShares >= unit && holds(p, c.sym) + unit <= HOLD_CAP && p.cash >= currentPrice(s, c)) buyPool.push(c.sym);
       }
     }
     if (maxRolaSell(s, id, c.sym) > 0) sell.push(c.sym);
   }
   return { player: id, canPass: true, launch, buyIpo, buyPool, sell };
+}
+
+/** Empty basic-city spots an Adaptive launch may choose as its home. */
+export function adaptiveHomes(s: GameState): string[] {
+  const hexes = hexesFor(s);
+  const taken = new Set(s.corporations.filter((c) => !c.dissolved).map((c) => c.coordinates));
+  return Object.entries(hexes)
+    .filter(
+      ([coord, h]) =>
+        (h.cities?.length ?? 0) > 0 &&
+        !h.label &&
+        !taken.has(coord) &&
+        !s.corporations.some((c) => c.tokenHexes.includes(coord))
+    )
+    .map(([coord]) => coord)
+    .sort();
 }

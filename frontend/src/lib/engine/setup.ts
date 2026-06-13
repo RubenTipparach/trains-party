@@ -21,7 +21,14 @@ export interface Seat {
 function rolaCorporations(cfg: GameConfig): CorporationState[] {
   const make =
     (kind: 'minor' | 'major', shareUnit: number) =>
-    (c: { sym: string; name: string; color: string; tokens: number; homeCoord?: string }): CorporationState => ({
+    (c: {
+      sym: string;
+      name: string;
+      color: string;
+      tokens: number;
+      homeCoord?: string;
+      ability?: { type: string; placeCost?: number };
+    }): CorporationState => ({
       sym: c.sym,
       name: c.name,
       color: c.color,
@@ -39,7 +46,8 @@ function rolaCorporations(cfg: GameConfig): CorporationState[] {
       trains: [],
       companies: [],
       tokenHexes: [],
-      tokens: Array.from({ length: c.tokens }, () => 0),
+      // The home token is free; extra tokens (Expansive) cost their printed price.
+      tokens: Array.from({ length: c.tokens }, (_, i) => (i === 0 ? 0 : (c.ability?.placeCost ?? 0))),
       stackSeq: 0
     });
   return [
@@ -122,7 +130,16 @@ export function initialState(
         stackSeq: 0
       }));
 
-  const depot = cfg.trains.map((t) => ({ name: t.name, remaining: t.num }));
+  // Train supply: extras flagged extraForPlayers only ship with that many
+  // players, and a Short (fixed-4-cycle) game removes one of each train except
+  // the 7/∞ pile. Unlimited piles (num < 0) are never adjusted.
+  const short = (cfg.cyclesByPlayers?.[seats.length] ?? 6) <= 4 && !!cfg.cyclesByPlayers;
+  const depot = cfg.trains.map((t) => {
+    let n = t.num;
+    if (n > 0 && t.extraForPlayers && seats.length < t.extraForPlayers) n -= 1;
+    if (n > 0 && short && t.name !== '7') n -= 1;
+    return { name: t.name, remaining: n };
+  });
 
   // RoLA: procedurally build the runtime map from the seed. Minors take their
   // generated home cities; without a seed the fixed starter map (config) is used.
@@ -173,6 +190,7 @@ export function initialState(
     round: mapBuild ? 'mapbuild' : rola ? 'stock' : 'auction',
     phase: '2',
     srCount: rola ? 1 : 0,
+    cycle: cfg.cyclesByPlayers ? 1 : undefined,
     orSet: 0,
     priority: 0,
     current: 0,

@@ -1,18 +1,17 @@
 /**
  * Deterministic procedural map generator for Railways of the Lost Atlas.
  *
- * RoLA's board is assembled from tri-hex tiles; until we have the real tile art
- * this builds a rules-valid synthetic map from a seed: a connected blob of hexes
- * on the standard flat-top doubled-coordinate grid ((col+row) even), seeded with
- * the published feature mix (12 minor home cities, extra cities, towns, mountains,
- * water, and off-board Distant Destinations). Same seed -> same map, so it fits
- * the deterministic engine (the seed is part of the game's setup inputs).
- *
- * `Auto` mode uses this directly; `Manual` mode will let players place tri-hex
- * groups, but reuses the same hex content model.
+ * RoLA's board is assembled from TRI-HEX tiles (pieces covering three mutually
+ * adjacent hexes), shared with Manual mode (engine/triHex.ts). Auto mode draws
+ * the same deterministic tri-hex pool - including the three Capital Project tiles
+ * and enough cities to seat every minor - and lays each tile at a rules-valid,
+ * compact placement (>= 3 shared edges), then drops in off-board Distant
+ * Destinations along the coast. Same seed -> same map (the seed is part of the
+ * game's setup inputs).
  */
 
 import type { HexDef } from '$lib/data/types';
+import { generateTriHexPool, legalPlacements, parseCoord } from './triHex';
 
 // edge index -> [dCol, dRow] (matches engine/track.ts EDGE_DELTA).
 const EDGE: ReadonlyArray<readonly [number, number]> = [
@@ -54,116 +53,92 @@ interface Cell {
  */
 export function generateRolaMap(seed: number, minors: string[], players = 4): GeneratedMap {
   const rnd = rng(seed || 1);
-  const pick = <T>(arr: T[]): T => arr[Math.floor(rnd() * arr.length)];
+  const pool = generateTriHexPool(seed, players, minors.length);
 
-  // 1. Grow a connected blob from a central hex.
-  const target = 26 + players * 3 + minors.length; // ~50 hexes
-  const start: Cell = { c: 7, r: 9 }; // col H, row 9 -> (7+9) even
-  const set = new Map<string, Cell>([[keyOf(start.c, start.r), start]]);
-  let guard = 0;
-  while (set.size < target && guard++ < 20000) {
-    const base = pick([...set.values()]);
-    const [dc, dr] = pick(EDGE as unknown as Array<[number, number]>);
-    const c = base.c + dc;
-    const r = base.r + dr;
-    if (c < 0 || r < 1) continue;
-    const k = keyOf(c, r);
-    if (!set.has(k)) set.set(k, { c, r });
-  }
-
-  const cells = [...set.values()];
-  const neighbours = (cell: Cell): string[] =>
-    EDGE.map(([dc, dr]) => keyOf(cell.c + dc, cell.r + dr)).filter((k) => set.has(k));
-  const edgeIndexTo = (cell: Cell): number =>
-    EDGE.findIndex(([dc, dr]) => set.has(keyOf(cell.c + dc, cell.r + dr)));
-
-  // 2. Classify: perimeter cells (fewest neighbours) host off-board areas; the
-  //    interior hosts homes/cities/towns/terrain.
-  const interior = cells.filter((c) => neighbours(c).length >= 4);
-  const perimeter = cells.filter((c) => neighbours(c).length < 4 && neighbours(c).length > 0);
-  // Deterministic shuffle.
-  const shuffle = <T>(a: T[]): T[] => {
-    const out = [...a];
-    for (let i = out.length - 1; i > 0; i--) {
-      const j = Math.floor(rnd() * (i + 1));
-      [out[i], out[j]] = [out[j], out[i]];
+  // Coord -> pixel-ish centre, for "compactness" scoring (keeps the map blobby).
+  const px = (coord: string) => {
+    const { col, row } = parseCoord(coord);
+    return { x: col * 1.5, y: row };
+  };
+  const CENTRE = px('J11');
+  const centroidDist = (coords: string[]) => {
+    let sx = 0;
+    let sy = 0;
+    for (const c of coords) {
+      const p = px(c);
+      sx += p.x;
+      sy += p.y;
     }
-    return out;
+    const cx = sx / coords.length - CENTRE.x;
+    const cy = sy / coords.length - CENTRE.y;
+    return Math.hypot(cx, cy);
   };
 
-  const homeCells = shuffle(interior.length >= minors.length ? interior : cells).slice(0, minors.length);
-  const homeKeys = new Set(homeCells.map((c) => keyOf(c.c, c.r)));
-  const offCells = shuffle(perimeter).slice(0, 3);
-  const offKeys = new Set(offCells.map((c) => keyOf(c.c, c.r)));
+  // 1. Lay every tri-hex tile at a legal placement, preferring compact spots
+  //    (one of the few most-central legal placements, chosen by the seed).
+  const map: Record<string, HexDef> = {};
+  for (const tile of pool) {
+    const places = legalPlacements(map);
+    if (places.length === 0) break;
+    const scored = places
+      .map((p) => ({ p, d: centroidDist(p.coords) }))
+      .sort((a, b) => a.d - b.d);
+    const topK = scored.slice(0, Math.min(scored.length, 4));
+    const choice = topK[Math.floor(rnd() * topK.length)].p;
+    choice.coords.forEach((coord, i) => {
+      map[coord] = { coord, ...structuredClone(tile.cells[i]) };
+    });
+  }
 
-  const remaining = shuffle(cells.filter((c) => !homeKeys.has(keyOf(c.c, c.r)) && !offKeys.has(keyOf(c.c, c.r))));
-  const take = (n: number) => remaining.splice(0, n);
-  const cityCells = take(Math.round(cells.length * 0.12));
-  const townCells = take(Math.round(cells.length * 0.1));
-  const mountainCells = take(Math.round(cells.length * 0.18));
-  const waterCells = take(Math.round(cells.length * 0.1));
-  const cityKeys = new Set(cityCells.map((c) => keyOf(c.c, c.r)));
-  const townKeys = new Set(townCells.map((c) => keyOf(c.c, c.r)));
-  const mtnKeys = new Set(mountainCells.map((c) => keyOf(c.c, c.r)));
-  const waterKeys = new Set(waterCells.map((c) => keyOf(c.c, c.r)));
+  const coords = Object.keys(map);
+  const nbCount = (coord: string) => {
+    const { col, row } = parseCoord(coord);
+    return EDGE.reduce((n, [dc, dr]) => n + (map[keyOf(col + dc, row + dr)] ? 1 : 0), 0);
+  };
+  const edgeIndexToLand = (coord: string) => {
+    const { col, row } = parseCoord(coord);
+    return EDGE.findIndex(([dc, dr]) => map[keyOf(col + dc, row + dr)]);
+  };
 
+  // 2. Distant Destinations: turn a few blank coastal hexes (fewest neighbours)
+  //    into off-board red areas with a path back toward the land.
   const ddTiers = [
     { yellow: 30, green: 40, brown: 50, gray: 60 },
     { yellow: 20, green: 30, brown: 40, gray: 50 },
     { yellow: 30, green: 50, brown: 70, gray: 90 }
   ];
-
-  // 3. Build HexDef records.
-  const hexByCoord: Record<string, HexDef> = {};
-  const base = (coord: string, color: HexDef['color']): HexDef => ({
-    coord,
-    color,
-    cities: [],
-    towns: [],
-    paths: [],
-    icons: []
+  const blanks = coords.filter((c) => {
+    const h = map[c];
+    return h.cities.length === 0 && h.towns.length === 0 && !h.terrain && !h.offboard;
   });
-  for (const cell of cells) {
-    const coord = keyOf(cell.c, cell.r);
-    if (offKeys.has(coord)) {
-      const h = base(coord, 'red');
-      const tier = ddTiers[offCells.findIndex((o) => keyOf(o.c, o.r) === coord) % ddTiers.length];
-      h.offboard = { revenue: tier };
-      const e = edgeIndexTo(cell);
-      if (e >= 0) h.paths.push({ a: e, b: 'center' });
-      hexByCoord[coord] = h;
-    } else if (homeKeys.has(coord) || cityKeys.has(coord)) {
-      const h = base(coord, 'white');
-      h.cities.push({ revenue: 0, slots: 1 });
-      hexByCoord[coord] = h;
-    } else if (townKeys.has(coord)) {
-      const h = base(coord, 'white');
-      h.towns.push({ revenue: 0 });
-      hexByCoord[coord] = h;
-    } else if (mtnKeys.has(coord)) {
-      const h = base(coord, 'white');
-      h.terrain = ['mountain'];
-      h.upgradeCost = 40;
-      hexByCoord[coord] = h;
-    } else if (waterKeys.has(coord)) {
-      const h = base(coord, 'white');
-      h.terrain = ['water'];
-      h.upgradeCost = 40;
-      hexByCoord[coord] = h;
-    } else {
-      hexByCoord[coord] = base(coord, 'white');
-    }
+  const perimeter = blanks
+    .map((c) => ({ c, n: nbCount(c) }))
+    .filter((x) => x.n > 0 && x.n <= 3)
+    .sort((a, b) => a.n - b.n || (rnd() - 0.5));
+  for (let i = 0; i < Math.min(3, perimeter.length); i++) {
+    const coord = perimeter[i].c;
+    const h = map[coord];
+    h.color = 'red';
+    h.offboard = { revenue: ddTiers[i % ddTiers.length] };
+    const e = edgeIndexToLand(coord);
+    if (e >= 0) h.paths.push({ a: e, b: 'center' });
   }
 
-  // 4. Map each minor to a home coordinate + name the home hexes.
+  // 3. Seat each minor on a (non-capital) city hex and name it.
+  const homeCells = coords.filter((c) => map[c].cities.some((ci) => !ci.capital) && !map[c].offboard);
+  // shuffle deterministically
+  for (let i = homeCells.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [homeCells[i], homeCells[j]] = [homeCells[j], homeCells[i]];
+  }
   const minorHomes: Record<string, string> = {};
-  homeCells.forEach((cell, i) => {
-    const coord = keyOf(cell.c, cell.r);
-    if (minors[i]) {
-      minorHomes[minors[i]] = coord;
-      hexByCoord[coord].name = minors[i];
+  minors.forEach((sym, i) => {
+    const coord = homeCells[i];
+    if (coord) {
+      minorHomes[sym] = coord;
+      map[coord].name = sym;
     }
   });
 
-  return { hexByCoord, minorHomes };
+  return { hexByCoord: map, minorHomes };
 }

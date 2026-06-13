@@ -2,10 +2,8 @@
   import { game } from '$lib/game/sandbox.svelte';
   import AuctionPanel from './AuctionPanel.svelte';
   import StockPanel from './StockPanel.svelte';
-  import OperatingPanel from './OperatingPanel.svelte';
-  import HexMap from './HexMap.svelte';
   import { PHASES } from '$lib/data/g1889';
-  import { currencyFor } from '$lib/engine';
+  import { currencyFor, configFor } from '$lib/engine';
   const CURRENCY = $derived(currencyFor(game.title));
 
   const SEAT = ['#f5c542', '#3fb6a8', '#e0655c', '#9b8cf0', '#7cc36b', '#e8923a'];
@@ -22,6 +20,7 @@
     if (s.round === 'auction') return 'ISR';
     if (s.round === 'mapbuild') return 'MAP';
     if (s.round === 'stock') return `SR ${s.srCount}`;
+    if (s.round === 'merger') return 'MR';
     return s.or ? `OR ${s.orSet}.${s.or.orNumber}` : 'OR';
   });
   const roundName = $derived(
@@ -31,9 +30,22 @@
         ? 'Building the Map'
         : game.state.round === 'stock'
           ? 'Stock Round'
-          : 'Operating Round'
+          : game.state.round === 'merger'
+            ? 'Merger Round'
+            : 'Operating Round'
   );
   const orCount = $derived(PHASES.find((p) => p.name === game.state.phase)?.operatingRounds ?? 1);
+  // RoLA cycle tracker: SR -> OR1 -> OR2 -> MR, repeated for a fixed cycle count.
+  const totalCycles = $derived(configFor(game.title).cyclesByPlayers?.[game.state.players.length] ?? 0);
+  const isCycleGame = $derived(totalCycles > 0);
+  // Position within the current cycle: 0=SR, 1=OR1, 2=OR2, 3=MR (and 4=done).
+  const cyclePos = $derived.by(() => {
+    const s = game.state;
+    if (s.round === 'stock') return 0;
+    if (s.round === 'operating') return s.or?.orNumber ?? 1;
+    if (s.round === 'merger') return 3;
+    return -1; // auction / mapbuild: the cycle has not started
+  });
   // The OR set that follows the current stock round is "OR <srCount>"; while
   // operating, use the live orSet. (orSet only updates when the OR starts.)
   const orSetNum = $derived(game.state.round === 'operating' ? game.state.orSet : game.state.srCount);
@@ -46,19 +58,22 @@
 </script>
 
 <div class="game">
-  <!-- round / phase tracker -->
-  <div class="tracker">
-    <div class="track-pill" class:on={game.state.round === 'auction'} style="--c:#1b1b1b">ISR</div>
-    <span class="arrow">→</span>
-    <div class="track-pill sr" class:on={game.state.round === 'stock'}>SR {Math.max(1, game.state.srCount)}</div>
-    <span class="arrow">→</span>
-    {#each Array(orCount) as _, i}
-      <div class="track-pill or" class:on={game.state.round === 'operating' && game.state.or?.orNumber === i + 1}>
-        OR {Math.max(1, orSetNum)}.{i + 1}
-      </div>
-    {/each}
-    <span class="phase">Phase {game.state.phase}</span>
-  </div>
+  <!-- round / phase tracker. RoLA's cycle tracker floats on the map
+       (RoundTracker); here we show the linear 1889 SR/OR tracker. -->
+  {#if !isCycleGame}
+    <div class="tracker">
+      <div class="track-pill" class:on={game.state.round === 'auction'} style="--c:#1b1b1b">ISR</div>
+      <span class="arrow">→</span>
+      <div class="track-pill sr" class:on={game.state.round === 'stock'}>SR {Math.max(1, game.state.srCount)}</div>
+      <span class="arrow">→</span>
+      {#each Array(orCount) as _, i}
+        <div class="track-pill or" class:on={game.state.round === 'operating' && game.state.or?.orNumber === i + 1}>
+          OR {Math.max(1, orSetNum)}.{i + 1}
+        </div>
+      {/each}
+      <span class="phase">Phase {game.state.phase}</span>
+    </div>
+  {/if}
 
   <!-- status (tints to the active player's seat colour when it's your turn) -->
   <div class="status" class:myturn={game.canAct} style="--p:{seatColor(game.active ?? '')}">
@@ -100,17 +115,15 @@
     {#if game.state.round === 'auction'}
       <AuctionPanel />
     {:else if game.state.round === 'mapbuild'}
-      <div class="buildwrap">
-        <p class="buildlead">
-          Lay tri-hex tiles to build the map. On your turn, click the board to position the next
-          tile ({game.state.mapBuild?.pool.length ?? 0} left) - green outline = legal - then rotate and place it.
-        </p>
-        <div class="mapwrap"><HexMap /></div>
-      </div>
+      <p class="buildlead">
+        Lay tri-hex tiles to build the map. On your turn, click the map behind this panel to
+        position the next tile ({game.state.mapBuild?.pool.length ?? 0} left) - green outline =
+        legal - then rotate and place it.
+      </p>
     {:else if game.state.round === 'stock'}
       <StockPanel />
     {:else}
-      <OperatingPanel />
+      <p class="buildlead">The current operation runs in its own panel along the bottom of the screen.</p>
     {/if}
   </div>
 
@@ -331,8 +344,5 @@
     color: #c8d2dc;
     font-size: 0.88rem;
     line-height: 1.5;
-  }
-  .mapwrap {
-    min-width: 0;
   }
 </style>
