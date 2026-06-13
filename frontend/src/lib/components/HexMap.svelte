@@ -732,6 +732,40 @@
     return { edges, halos };
   });
   const HALO_R = 1.7 * HEX_SIZE; // shallow reach from a coastal land hex centre
+
+  // The deep base + shallow halos only change when the COASTLINE changes (board
+  // build / intro), never on pan/zoom/rotate. So bake them to a bitmap once per
+  // coast change and blit it (the GPU just transforms the image): no per-frame
+  // re-rasterising of the mask. `lighten` compositing clamps overlapping halos
+  // exactly like the SVG mask did.
+  let waterUrl = $state('');
+  $effect(() => {
+    const halos = coast.halos;
+    const r = { ...seaRect };
+    if (typeof document === 'undefined' || !(r.w > 0)) return;
+    const scale = Math.min(1.5, 1700 / Math.max(r.w, r.h));
+    const cv = document.createElement('canvas');
+    cv.width = Math.max(1, Math.round(r.w * scale));
+    cv.height = Math.max(1, Math.round(r.h * scale));
+    const ctx = cv.getContext('2d');
+    if (!ctx) return;
+    ctx.scale(scale, scale);
+    ctx.translate(-r.x, -r.y); // world coords -> canvas
+    ctx.fillStyle = '#1b6075'; // deep base
+    ctx.fillRect(r.x, r.y, r.w, r.h);
+    ctx.globalCompositeOperation = 'lighten'; // overlaps clamp to the lighter (teal)
+    for (const hl of halos) {
+      const g = ctx.createRadialGradient(hl.cx, hl.cy, 0, hl.cx, hl.cy, HALO_R);
+      g.addColorStop(0, 'rgba(116,193,190,0.9)'); // #74c1be
+      g.addColorStop(0.52, 'rgba(116,193,190,0.9)');
+      g.addColorStop(1, 'rgba(116,193,190,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(hl.cx, hl.cy, HALO_R, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    waterUrl = cv.toDataURL();
+  });
   // Waves, per the design algorithm: for each ocean hex bordering the map, for
   // each shared edge, a wave SPAWNS AT THE OCEAN HEX CENTRE and travels to that
   // edge, its endpoints riding the triangle (centre -> edge vertices). That is
@@ -1094,36 +1128,26 @@
             <rect {x} {y} width={w} height={h} fill={c} />
           {/each}
         </pattern>
-        <!-- shallow water: a halo around every COASTAL land hex (batched - no
-             interior hexes). The halos paint a MASK (white near the shore ->
-             clear out in the deep); where halos overlap the mask clamps at
-             white instead of brightening, and convex-corner notches fill
-             smoothly from the two neighbouring coast hexes' halos. -->
-        <radialGradient id="halograd">
-          <stop offset="0%" stop-color="#fff" stop-opacity="1" />
-          <stop offset="52%" stop-color="#fff" stop-opacity="1" />
-          <stop offset="100%" stop-color="#fff" stop-opacity="0" />
-        </radialGradient>
-        <mask id="shallowmask" maskUnits="userSpaceOnUse" x={seaRect.x} y={seaRect.y} width={seaRect.w} height={seaRect.h}>
-          {#each coast.halos as hl, i (i)}
-            <circle cx={hl.cx} cy={hl.cy} r={HALO_R} fill="url(#halograd)" />
-          {/each}
-        </mask>
+        <!-- shallow water is baked to a bitmap (see waterUrl) and blitted below;
+             the radial halo + mask defs are kept for the canvas profile only. -->
       </defs>
 
       <!-- everything on the board rotates as a group around the board centre -->
       <g transform="rotate({$rotAnim} {rotPivot.x} {rotPivot.y})">
-      <!-- deep-water base (under the shallows) -->
-      <rect class="deep" x={seaRect.x} y={seaRect.y} width={seaRect.w} height={seaRect.h} />
-      <!-- shallow water: one teal fill revealed through the coastal-halo mask -->
-      <rect
-        class="shallow"
-        x={seaRect.x}
-        y={seaRect.y}
-        width={seaRect.w}
-        height={seaRect.h}
-        mask="url(#shallowmask)"
-      />
+      <!-- deep base + shallow band, baked once per coast change and blitted
+           (a plain deep rect shows until the first bake completes) -->
+      {#if waterUrl}
+        <image
+          href={waterUrl}
+          x={seaRect.x}
+          y={seaRect.y}
+          width={seaRect.w}
+          height={seaRect.h}
+          preserveAspectRatio="none"
+        />
+      {:else}
+        <rect class="deep" x={seaRect.x} y={seaRect.y} width={seaRect.w} height={seaRect.h} />
+      {/if}
       <!-- shoreline waves: spawn at each bordering ocean hex centre and travel
            to the shared shore edge, endpoints confined to the centre->edge
            triangle (the line scales about the ocean centre). Per-edge random
@@ -1576,10 +1600,6 @@
   }
   .deep {
     fill: #1b6075;
-  }
-  .shallow {
-    fill: #74c1be;
-    opacity: 0.9;
   }
   .map {
     position: relative;
