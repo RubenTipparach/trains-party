@@ -672,21 +672,18 @@
   // MITER join at each shared vertex, so adjacent segments meet at one point
   // instead of crossing - the bands never overlap. Derived from the visible
   // tiles, so it grows with the assembly intro and follows the island outline.
-  // Each coastal hex gets a stable phase bucket from its coordinate, so stretches
-  // of shore wave out of sync instead of all pulsing together (the per-hex roll
-  // stays coherent - the whole hex's wave train just shifts by its bucket phase).
-  const PHASE_BUCKETS = [0, 0.9, 1.7, 2.5];
-  function bucketOf(coord: string): number {
-    let h = 0;
-    for (const c of coord) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-    return h % PHASE_BUCKETS.length;
+  // Per-segment phase and speed (stable coordinate hashes): every stretch of
+  // shore rolls on its own slow clock, so the coast never pulses in unison.
+  function segRand(x: number, y: number, salt: number): number {
+    let h = (Math.round(x) * 374761393 + Math.round(y) * 668265263 + salt * 974711) >>> 0;
+    h = (h ^ (h >> 13)) * 1274126177;
+    return ((h ^ (h >> 16)) >>> 0) / 4294967295;
   }
-  type CoastEdge = { x1: number; y1: number; x2: number; y2: number; nx: number; ny: number; bucket: number };
+  type CoastEdge = { x1: number; y1: number; x2: number; y2: number; nx: number; ny: number; phase: number; speed: number };
   const coast = $derived.by(() => {
     const have = new Set(visiblePlaced.map((p) => p.coord));
     const edges: CoastEdge[] = [];
     for (const h of visiblePlaced) {
-      const bucket = bucketOf(h.coord);
       for (let e = 0; e < 6; e++) {
         const na = (Math.PI / 180) * (90 + 60 * e);
         const nx = Math.cos(na);
@@ -700,14 +697,21 @@
         }
         const a1 = (Math.PI / 180) * (60 * (e + 1));
         const a2 = (Math.PI / 180) * (60 * (e + 2));
+        const x1 = h.cx + HEX_SIZE * Math.cos(a1);
+        const y1 = h.cy + HEX_SIZE * Math.sin(a1);
+        const x2 = h.cx + HEX_SIZE * Math.cos(a2);
+        const y2 = h.cy + HEX_SIZE * Math.sin(a2);
+        const mx = (x1 + x2) / 2;
+        const my = (y1 + y2) / 2;
         edges.push({
-          x1: h.cx + HEX_SIZE * Math.cos(a1),
-          y1: h.cy + HEX_SIZE * Math.sin(a1),
-          x2: h.cx + HEX_SIZE * Math.cos(a2),
-          y2: h.cy + HEX_SIZE * Math.sin(a2),
+          x1,
+          y1,
+          x2,
+          y2,
           nx,
           ny,
-          bucket
+          phase: segRand(mx, my, 1),
+          speed: 6 + 4 * segRand(mx, my, 2) // slow: 6-10s per wave cycle
         });
       }
     }
@@ -748,7 +752,7 @@
     return coast.edges.map((ed) => {
       const a = miter(ed.x1, ed.y1, ed.nx, ed.ny, d);
       const b = miter(ed.x2, ed.y2, ed.nx, ed.ny, d);
-      return { x1: a.x, y1: a.y, x2: b.x, y2: b.y, bucket: ed.bucket };
+      return { x1: a.x, y1: a.y, x2: b.x, y2: b.y, phase: ed.phase, speed: ed.speed };
     });
   }
   // Foam waves: flat dashed crests in the shallow band, between each sea-facing
@@ -756,12 +760,14 @@
   // hex centre (~one apothem past the shore) and roll IN toward the beach,
   // breaking as they land - the outer band pulses first, the shore band last.
   // `peak` tapers at both ends (forming at sea, dissipating on the sand).
+  // `lead` is the band's head start as a fraction of the segment's own cycle:
+  // the sea band runs ahead, the shore band trails, so the crest rolls inward.
   const WAVE_BANDS = [
-    { off: 6, w: 2.4, dash: '7 5', peak: 0.3, delay: 2.0 }, // breaks at the shore (last)
-    { off: 13, w: 2.3, dash: '6 6', peak: 0.52, delay: 1.5 },
-    { off: 20, w: 2.2, dash: '6 7', peak: 0.62, delay: 1.0 },
-    { off: 27, w: 2.0, dash: '5 8', peak: 0.5, delay: 0.5 },
-    { off: 34, w: 1.8, dash: '5 9', peak: 0.34, delay: 0 } // forms at the water-hex centre (first)
+    { off: 6, w: 2.4, dash: '7 5', peak: 0.3, lead: 0 }, // breaks at the shore (last)
+    { off: 13, w: 2.3, dash: '6 6', peak: 0.52, lead: 0.14 },
+    { off: 20, w: 2.2, dash: '6 7', peak: 0.62, lead: 0.28 },
+    { off: 27, w: 2.0, dash: '5 8', peak: 0.5, lead: 0.42 },
+    { off: 34, w: 1.8, dash: '5 9', peak: 0.34, lead: 0.56 } // forms at the water-hex centre (first)
   ];
 
   function endPoint(e: number | 'center') {
@@ -1130,17 +1136,22 @@
           <circle cx={h.cx} cy={h.cy} r={SHALLOW_R} fill="url(#shallowgrad)" />
         {/each}
       </g>
-      <!-- shoreline foam waves: flat miter-joined bands rolling in to the shore.
-           Bands are split by phase bucket so different shores wave out of sync. -->
+      <!-- shoreline foam waves: flat miter-joined bands rolling in to the shore,
+           every segment on its own slow clock (random phase + speed). Negative
+           delays start mid-cycle, so the water is always in motion. -->
       <g class="coast" aria-hidden="true">
         {#each WAVE_BANDS as band (band.off)}
-          {@const segs = bandSegs(band.off)}
-          {#each PHASE_BUCKETS as ph, bi (bi)}
-            <g class="wave" style="--peak:{band.peak}; animation-delay:{band.delay + ph}s">
-              {#each segs.filter((s) => s.bucket === bi) as s, i (i)}
-                <line class="foam" x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2} stroke-width={band.w} stroke-dasharray={band.dash} />
-              {/each}
-            </g>
+          {#each bandSegs(band.off) as s, i (i)}
+            <line
+              class="foam"
+              x1={s.x1}
+              y1={s.y1}
+              x2={s.x2}
+              y2={s.y2}
+              stroke-width={band.w}
+              stroke-dasharray={band.dash}
+              style="--peak:{band.peak}; animation-duration:{s.speed.toFixed(2)}s; animation-delay:{(-(s.phase + band.lead) * s.speed).toFixed(2)}s"
+            />
           {/each}
         {/each}
       </g>
@@ -1606,31 +1617,36 @@
     fill: none;
     stroke: #ffffff;
     stroke-linecap: round;
+    /* phones: static foam (per-segment SVG animation would repaint the scene) */
+    opacity: calc(var(--peak, 0.5) * 0.6);
   }
-  /* each band pulses; staggered delays make a crest roll shoreward. Opacity-only
-     on a handful of grouped layers, so it composites cheaply (no idle repaint
-     of the map contents). */
-  .wave {
-    opacity: 0;
-    will-change: opacity;
-    animation: wavepulse 3s linear infinite;
+  @media (min-width: 920px) {
+    .coast .foam {
+      opacity: 0;
+      /* duration + (negative) delay are per segment, set inline */
+      animation: wavepulse 7s linear infinite;
+    }
   }
+  /* a wide, soft pulse: long plateau + gentle ramps keep the motion continuous */
   @keyframes wavepulse {
     0% {
       opacity: 0;
     }
-    35% {
+    25% {
       opacity: var(--peak, 0.5);
     }
-    70%,
+    55% {
+      opacity: var(--peak, 0.5);
+    }
+    85%,
     100% {
       opacity: 0;
     }
   }
   @media (prefers-reduced-motion: reduce) {
-    .wave {
+    .coast .foam {
       animation: none;
-      opacity: calc(var(--peak, 0.5) * 0.7);
+      opacity: calc(var(--peak, 0.5) * 0.6);
     }
   }
   .homeres {
