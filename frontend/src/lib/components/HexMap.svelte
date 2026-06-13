@@ -658,6 +658,46 @@
   // the GPU): animating it inside the SVG forced full-scene repaints on phones.
   const WATER_URIS = waterFrameUris();
 
+  // Coastline foam: hex edges of the visible map that face the open sea, with an
+  // outward normal so we can draw wavy white bands rolling out from the shore
+  // (the look of the reference beach art). Derived from the visible tiles, so it
+  // grows with the assembly intro and follows the island outline.
+  const coastEdges = $derived.by(() => {
+    const have = new Set(visiblePlaced.map((p) => p.coord));
+    const out: { x1: number; y1: number; x2: number; y2: number; nx: number; ny: number }[] = [];
+    for (const h of visiblePlaced) {
+      for (let e = 0; e < 6; e++) {
+        const na = (Math.PI / 180) * (90 + 60 * e);
+        const nx = Math.cos(na);
+        const ny = Math.sin(na);
+        const cx = h.cx + 2 * APOTHEM * nx;
+        const cy = h.cy + 2 * APOTHEM * ny;
+        const nb = hexAt(cx, cy);
+        if (nb && have.has(nb)) {
+          const c = hexCenter(nb);
+          if (Math.hypot(c.x - cx, c.y - cy) < 1) continue; // a real land neighbour: not coast
+        }
+        const a1 = (Math.PI / 180) * (60 * (e + 1));
+        const a2 = (Math.PI / 180) * (60 * (e + 2));
+        out.push({
+          x1: h.cx + HEX_SIZE * Math.cos(a1),
+          y1: h.cy + HEX_SIZE * Math.sin(a1),
+          x2: h.cx + HEX_SIZE * Math.cos(a2),
+          y2: h.cy + HEX_SIZE * Math.sin(a2),
+          nx,
+          ny
+        });
+      }
+    }
+    return out;
+  });
+  // Three foam bands rolling out to sea (offset, width, dash, opacity).
+  const FOAM_BANDS = [
+    { off: 3, w: 2.6, dash: '7 5', op: 0.6 },
+    { off: 9, w: 2.1, dash: '5 8', op: 0.32 },
+    { off: 15, w: 1.7, dash: '4 10', op: 0.18 }
+  ];
+
   function endPoint(e: number | 'center') {
     return e === 'center' ? { x: 0, y: 0 } : edgeMidpoint(0, 0, e);
   }
@@ -1018,6 +1058,23 @@
 
       <!-- everything on the board rotates as a group around the board centre -->
       <g transform="rotate({$rotAnim} {rotPivot.x} {rotPivot.y})">
+      <!-- shoreline foam: wavy white bands following the coast (under the land) -->
+      <g class="coast" aria-hidden="true">
+        {#each FOAM_BANDS as band (band.off)}
+          {#each coastEdges as ce, i (i)}
+            <line
+              class="foam"
+              x1={ce.x1 + ce.nx * band.off}
+              y1={ce.y1 + ce.ny * band.off}
+              x2={ce.x2 + ce.nx * band.off}
+              y2={ce.y2 + ce.ny * band.off}
+              stroke-width={band.w}
+              stroke-dasharray={band.dash}
+              opacity={band.op}
+            />
+          {/each}
+        {/each}
+      </g>
       {#each visiblePlaced as h (h.coord)}
         <g
           class="hex"
@@ -1503,6 +1560,11 @@
     color: #1b1b1b;
     font: 700 0.82rem ui-sans-serif, sans-serif;
     cursor: pointer;
+  }
+  .coast .foam {
+    fill: none;
+    stroke: #ffffff;
+    stroke-linecap: round;
   }
   .homeres {
     opacity: 0.38;
