@@ -835,6 +835,24 @@
   let view = $state({ x: 0, y: 0, w: 100, h: 100 });
   let fittedOnce = false;
   let buildFitted = false;
+  // Rendered width of the map area, in CSS px (tracked live). The fit zoom uses
+  // it so a hex lands at a legible on-screen size on any device: a fixed-world
+  // fit makes hexes ~4x smaller on a phone than on a desktop, which is why the
+  // per-hex icons (tokens, skylines) were unreadable on mobile.
+  let viewportW = $state(0);
+  $effect(() => {
+    if (!wrap) return;
+    if (wrap.clientWidth) viewportW = wrap.clientWidth;
+    const ro = new ResizeObserver((es) => {
+      const w = es[es.length - 1].contentRect.width;
+      if (w) viewportW = w;
+    });
+    ro.observe(wrap);
+    return () => ro.disconnect();
+  });
+  // Keep a fitted hex at least this many CSS px wide so its icon stays readable.
+  const LEGIBLE_HEX_PX = 92;
+  const HEX_W = 2 * HEX_SIZE; // flat-top hex world width
   // Map building starts framed at ~11 hexes around the seed tiles; the pan/zoom
   // bounds are the fixed RoLA frame, so the camera never jumps as the map grows.
   const BUILD_VIEW = 17 * HEX_SIZE;
@@ -851,9 +869,24 @@
         view = { x: cx - BUILD_VIEW / 2, y: cy - h / 2, w: BUILD_VIEW, h };
         buildFitted = true;
       }
-    } else if (!fittedOnce) {
-      // Fit the placed tiles (not the whole sea frame) so the board fills the view.
-      view = { x: extMinX, y: extMinY, w: extMaxX - extMinX, h: extMaxY - extMinY };
+    } else if (!fittedOnce && viewportW > 0) {
+      // Fit the placed tiles (not the whole sea frame) so the board fills the
+      // view, but never so far out that hexes shrink below a legible size: on a
+      // narrow screen, zoom in to the board centre instead (the player can zoom
+      // out for the overview). Desktop fits the whole board as before.
+      const fw = extMaxX - extMinX;
+      const fh = extMaxY - extMinY;
+      const cap = (HEX_W * viewportW) / LEGIBLE_HEX_PX;
+      if (fw > cap) {
+        const k = cap / fw;
+        const cx = extMinX + fw / 2;
+        const cy = extMinY + fh / 2;
+        const w = cap;
+        const h = fh * k;
+        view = clamped({ x: cx - w / 2, y: cy - h / 2, w, h });
+      } else {
+        view = { x: extMinX, y: extMinY, w: fw, h: fh };
+      }
       fittedOnce = true;
     }
   });
