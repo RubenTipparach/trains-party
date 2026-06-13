@@ -26,8 +26,9 @@
   $effect(() => {
     if (!homeSel || !homes.includes(homeSel)) homeSel = homes[0] ?? '';
   });
-  const isAdaptive = (sym: string) =>
-    configFor(game.title).minors?.find((m) => m.sym === sym)?.ability?.type === 'choose_home';
+  const minorDef = (sym: string) => configFor(game.title).minors?.find((m) => m.sym === sym);
+  const descOf = (sym: string) => minorDef(sym)?.desc ?? '';
+  const isAdaptive = (sym: string) => minorDef(sym)?.ability?.type === 'choose_home';
   function launch(sym: string) {
     if (!sel || sel.sym !== sym) return;
     game.act({
@@ -57,7 +58,7 @@
         {@const c = column(col)}
         <div class="col">
           {#each [...c.upcoming].reverse() as sym (sym)}
-            <div class="chip up" title="Up next">
+            <div class="chip up" title={descOf(sym) || 'Up next'}>
               <CompanyLogo {sym} color={corp(sym).color} size={16} />
               <span class="csym" style="color:{corp(sym).color}">{corp(sym).sym}</span>
               <span class="cname">{corp(sym).name}</span>
@@ -72,6 +73,9 @@
                 <span class="csym">{corp(sym).sym}</span>
                 <span class="cname">{corp(sym).name}</span>
               </div>
+              {#if descOf(sym)}
+                <p class="cdesc">{descOf(sym)}</p>
+              {/if}
               {#if game.canAct && canLaunch(sym)}
                 {#if sel?.sym === sym}
                   <div class="launch">
@@ -191,6 +195,13 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .cdesc {
+    margin: 0;
+    padding: 0.4rem 0.55rem 0.1rem;
+    font-size: 0.76rem;
+    line-height: 1.3;
+    color: var(--muted);
   }
   .launch {
     display: flex;
