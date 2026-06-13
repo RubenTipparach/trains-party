@@ -708,11 +708,14 @@
         const y2 = h.cy + HEX_SIZE * Math.sin(a2);
         const mx = (x1 + x2) / 2;
         const my = (y1 + y2) / 2;
+        // pad the endpoints in toward the midpoint so neighbouring waves never
+        // touch at shared triangle corners (the pad scales with the wave)
+        const PADF = 0.14;
         edges.push({
-          x1,
-          y1,
-          x2,
-          y2,
+          x1: x1 + (mx - x1) * PADF,
+          y1: y1 + (my - y1) * PADF,
+          x2: x2 + (mx - x2) * PADF,
+          y2: y2 + (my - y2) * PADF,
           ox: ncx, // the ocean hex centre beyond this edge
           oy: ncy,
           phase: segRand(mx, my, 1),
@@ -1598,12 +1601,13 @@
     }
   }
   /* scale the shore-edge line about the ocean hex centre (--ox, --oy): the
-     wave spawns tiny at the centre, its endpoints ride the centre->vertex
-     triangle sides, and it lands exactly on the shore edge as it fades */
+     wave spawns at HALF the distance to the shore (clamped: never nearer the
+     centre than 50%), its endpoints ride the centre->vertex triangle sides,
+     and it lands exactly on the shore edge as it fades */
   @keyframes wavepulse {
     0% {
       opacity: 0;
-      transform: translate(var(--ox), var(--oy)) scale(0.12) translate(calc(-1 * var(--ox)), calc(-1 * var(--oy)));
+      transform: translate(var(--ox), var(--oy)) scale(0.5) translate(calc(-1 * var(--ox)), calc(-1 * var(--oy)));
     }
     30% {
       opacity: 0.55;
