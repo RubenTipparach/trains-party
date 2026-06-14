@@ -808,7 +808,9 @@ export function operatingView(s: GameState): OperatingView | null {
     index: s.or.index,
     orNumber: s.or.orNumber,
     orsThisSet: s.or.orsThisSet,
-    canBuyTrain: cheapest ? cheapest.name : null,
+    // Only offer a plain buy when below the train limit (a company at its limit
+    // can still take a new train via a trade-in - that is surfaced separately).
+    canBuyTrain: cheapest && c.trains.length < trainLimit(s, c) ? cheapest.name : null,
     dieselAvailable,
     dieselPrice: diesel?.price ?? 0,
     dieselTradeIns,

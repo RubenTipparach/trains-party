@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { apply, initialState, trackLays } from './index';
+import { apply, initialState, trackLays, operatingView } from './index';
 import { launchViaAuction } from './rolaTestUtil';
 import type { GameState } from './types';
 
@@ -27,6 +27,15 @@ describe('RoLA leadoff train + issue/redeem + two yellow lays', () => {
     expect(AG(s).trains).toEqual(['2']);
     expect(AG(s).cash).toBe(60); // 160 bid - 100 train, paid from the treasury
     expect(s.or!.step).toBe('track'); // one leadoff train, then the normal turn
+  });
+
+  it('enforces the minor train limit (2 in the early phases)', () => {
+    const s = toOperating();
+    AG(s).trains = ['2', '2']; // phase 2: a minor may hold at most 2 trains
+    AG(s).cash = 1000;
+    s.or!.step = 'trains';
+    expect(operatingView(s)!.canBuyTrain).toBeNull(); // no buy offered at the limit
+    expect(() => apply(s, { type: 'buy_train', player: 'p1', corp: 'AG', train: '2' })).toThrow(/limit/i);
   });
 
   it('does not let the president fund an optional train buy (only emergencies)', () => {
