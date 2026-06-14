@@ -370,6 +370,7 @@
       const frame = (now: number) => {
         if (anim.token !== tok) {
           cleanup();
+          anim.end(tok); // already-skipped is a no-op, but keep the flag in sync
           resolve(false);
           return; // skipped
         }
@@ -399,6 +400,7 @@
         }
         if (t >= 1) {
           cleanup();
+          anim.end(tok); // clear the pacing flag so the Skip button hides
           resolve(true);
           return;
         }
