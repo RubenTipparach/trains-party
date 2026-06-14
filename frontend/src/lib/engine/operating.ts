@@ -238,6 +238,8 @@ function doRun(s: GameState, c: CorporationState, revenue: number, mode: 'pay' |
     s.log.push(`${c.sym}'s rusted ${c.rustedTrains.join(', ')}-train(s) are discarded after their final run`);
     c.rustedTrains = [];
   }
+  // Record this run for the company card (gross revenue + dividend handling).
+  c.lastRun = { revenue, mode };
   const linear = configFor(s.title).marketKind === 'linear';
   if (mode === 'pay' && revenue > 0) {
     // Each holder is paid in proportion to the percent they hold (so this works

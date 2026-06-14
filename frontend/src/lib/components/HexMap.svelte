@@ -952,6 +952,22 @@
   // same size in every title regardless of how large the RoLA frame is.
   const MIN_W = $derived((framed ? SHIKOKU.w : width) * mapView.minZoomFraction);
   const MAX_W = $derived(eW * mapView.maxZoomFraction); // farthest out: the whole (rotated) frame
+  // The placed-tiles (land) extent in screen-aligned view space, under the current
+  // rotation: the bounding box of the four rotated land corners. Panning clamps the
+  // CAMERA CENTRE to this (not the whole rectangle to the sea frame), so the player
+  // can centre the viewport over any board hex - edge land included - and no further
+  // out into empty sea.
+  const landViewBounds = $derived.by(() => {
+    const corners = [
+      mapToView({ x: extMinX, y: extMinY }),
+      mapToView({ x: extMaxX, y: extMinY }),
+      mapToView({ x: extMinX, y: extMaxY }),
+      mapToView({ x: extMaxX, y: extMaxY })
+    ];
+    const cx = corners.map((c) => c.x);
+    const cy = corners.map((c) => c.y);
+    return { minX: Math.min(...cx), maxX: Math.max(...cx), minY: Math.min(...cy), maxY: Math.max(...cy) };
+  });
   const pointers = new Map<number, { x: number; y: number }>();
   let moved = false;
   let downPos = { x: 0, y: 0 }; // pointer-down screen position (drag-vs-tap threshold)
@@ -982,12 +998,25 @@
   // fan of options (which sits outside the chosen hex) stays reachable.
   function clamped(v: { x: number; y: number; w: number; h: number }) {
     let { x, y, w, h } = v;
-    // (While building, the fixed RoLA frame already gives generous panning room.)
     const m = (layHex ? mapView.layFanMargin : mapView.edgeMargin) * HEX_SIZE;
-    if (w >= eW + 2 * m) x = eMinX - (w - eW) / 2;
-    else x = Math.min(Math.max(x, eMinX - m), eMinX + eW - w + m);
-    if (h >= eH + 2 * m) y = eMinY - (h - eH) / 2;
-    else y = Math.min(Math.max(y, eMinY - m), eMinY + eH - h + m);
+    // While building, keep the generous fixed-frame containment (the camera holds
+    // still as tiles land). Otherwise clamp the CAMERA CENTRE to the land extent so
+    // panning stops when the middle of the (panel-adjusted) viewport reaches the
+    // board edge, and the rectangle is free to overhang into the surrounding sea.
+    if (layHex || building) {
+      if (w >= eW + 2 * m) x = eMinX - (w - eW) / 2;
+      else x = Math.min(Math.max(x, eMinX - m), eMinX + eW - w + m);
+      if (h >= eH + 2 * m) y = eMinY - (h - eH) / 2;
+      else y = Math.min(Math.max(y, eMinY - m), eMinY + eH - h + m);
+      return { x, y, w, h };
+    }
+    const b = landViewBounds;
+    // If the view already covers the whole land on an axis, keep it centred there;
+    // otherwise constrain the camera centre to the land span (+ a small margin).
+    if (w >= b.maxX - b.minX) x = (b.minX + b.maxX) / 2 - w / 2;
+    else x = Math.min(Math.max(x + w / 2, b.minX - m), b.maxX + m) - w / 2;
+    if (h >= b.maxY - b.minY) y = (b.minY + b.maxY) / 2 - h / 2;
+    else y = Math.min(Math.max(y + h / 2, b.minY - m), b.maxY + m) - h / 2;
     return { x, y, w, h };
   }
   function clampView() {
@@ -1165,31 +1194,27 @@
     // converts between them - the same scale the old CTM path used.
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     bumpInteract();
-    let nx = panOffset.x + (e.clientX - prev.x);
-    let ny = panOffset.y + (e.clientY - prev.y);
-    // Resolve the would-be view against the map bounds so a drag stops dead at the
-    // map edge (in view space, converted back to pixels).
-    const cand = clamped({ ...view, x: view.x - nx * dragScale, y: view.y - ny * dragScale });
-    nx = (view.x - cand.x) / dragScale;
-    ny = (view.y - cand.y) / dragScale;
-    // The SVG is rendered with a PAN_OS overscan ring, so the composited transform
-    // can only travel that far before it would expose un-rendered area. Rather than
-    // clamping the offset there (a hard "rubber band" wall that stops following the
-    // finger mid-drag, then needs a fresh stroke), fold the surplus into the viewBox
-    // and keep the live transform inside the ring. Re-rastering happens only when a
-    // drag crosses the ring boundary, not every frame, so most of the pan stays a
-    // cheap composite while a long drag keeps tracking the pointer continuously.
     const maxPx = PAN_OS * (view.w / dragScale);
-    let bx = 0;
-    let by = 0;
-    if (nx > maxPx) { bx = nx - maxPx; nx = maxPx; }
-    else if (nx < -maxPx) { bx = nx + maxPx; nx = -maxPx; }
-    if (ny > maxPx) { by = ny - maxPx; ny = maxPx; }
-    else if (ny < -maxPx) { by = ny + maxPx; ny = -maxPx; }
-    if (bx || by) {
-      view = clamped({ ...view, x: view.x - bx * dragScale, y: view.y - by * dragScale });
+    // Desired total visual offset, continuing from the live transform.
+    const nx = panOffset.x + (e.clientX - prev.x);
+    const ny = panOffset.y + (e.clientY - prev.y);
+    // Resolve where the camera wants to sit, clamped to the map bounds, then read
+    // back how far it can actually travel from the current baked view (in pixels).
+    const want = clamped({ ...view, x: view.x - nx * dragScale, y: view.y - ny * dragScale });
+    const tx = (view.x - want.x) / dragScale;
+    const ty = (view.y - want.y) / dragScale;
+    // The SVG renders only a PAN_OS overscan ring, so the composited transform can
+    // travel at most that far; bake whatever surplus is needed into the viewBox and
+    // keep the live transform inside the ring. Splitting it this way keeps the
+    // content glued to the finger with no snap (total = baked + transform = tx),
+    // stops dead only at the true map edge, and never springs back on release. The
+    // viewBox re-rasters only when a drag exceeds the ring, not every frame.
+    const px = Math.max(-maxPx, Math.min(maxPx, tx));
+    const py = Math.max(-maxPx, Math.min(maxPx, ty));
+    if (tx !== px || ty !== py) {
+      view = clamped({ ...view, x: view.x - (tx - px) * dragScale, y: view.y - (ty - py) * dragScale });
     }
-    panOffset = { x: nx, y: ny };
+    panOffset = { x: px, y: py };
   }
   function onUp(e: PointerEvent) {
     const wasDrag = moved;
