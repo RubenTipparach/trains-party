@@ -155,14 +155,14 @@ export function generateTriHexPool(seed: number, players: number, minorCount: nu
   const total = poolSize * 3;
   const capitals = CAPITAL_COUNT;
   const cities = minorCount + 4;
-  const towns = Math.round(total * 0.12);
+  // RoLA has NO town hexes (there are no town tiles to build them), so the
+  // generator never emits towns - those hexes become plain blanks instead.
   const mountains = Math.round(total * 0.16);
   const water = Math.round(total * 0.08);
-  const blanks = Math.max(0, total - capitals - cities - towns - mountains - water);
+  const blanks = Math.max(0, total - capitals - cities - mountains - water);
   const flat: string[] = [
     ...Array(capitals).fill('capital'),
     ...Array(cities).fill('city'),
-    ...Array(towns).fill('town'),
     ...Array(mountains).fill('mountain'),
     ...Array(water).fill('water'),
     ...Array(blanks).fill('blank')
