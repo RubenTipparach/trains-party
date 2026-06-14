@@ -949,6 +949,7 @@
   const MAX_W = $derived(eW * mapView.maxZoomFraction); // farthest out: the whole (rotated) frame
   const pointers = new Map<number, { x: number; y: number }>();
   let moved = false;
+  let downPos = { x: 0, y: 0 }; // pointer-down screen position (drag-vs-tap threshold)
   let viewRaf = 0; // in-flight animated-view frame
 
   // --- transform-based panning (composited, no per-frame raster) -------------
@@ -1117,6 +1118,7 @@
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     moved = false;
+    downPos = { x: e.clientX, y: e.clientY };
     if (pointers.size === 1) {
       dragging = true;
       // svg user-units per screen pixel = rendered viewBox width / element width.
@@ -1146,9 +1148,9 @@
       hide();
       return;
     }
-    const dx = e.clientX - prev.x;
-    const dy = e.clientY - prev.y;
-    if (Math.abs(dx) + Math.abs(dy) > 3) {
+    // Drag vs tap is measured from the down point (not per-frame), so a slow drag
+    // still counts and a jittery click on a busy frame still lays/places.
+    if (Math.abs(e.clientX - downPos.x) + Math.abs(e.clientY - downPos.y) > 6) {
       moved = true;
       hide();
     }

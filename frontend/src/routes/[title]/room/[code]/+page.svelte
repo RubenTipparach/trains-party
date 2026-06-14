@@ -216,6 +216,7 @@
   class="board-root"
   class:theme-rola={isRola}
   class:opdock={opPanel}
+  class:panelopen={panelOpen}
   class:sheetdrag={sheetDragging}
   style="--sheeth:{sheetH}%"
 >
@@ -290,6 +291,12 @@
         ondblclick={() => (sheetH = 50)}
       >
         <span class="ogrip"></span>
+      </div>
+      <!-- desktop: the room title lives at the top of the docked panel (the
+           floating chip is hidden during ORs so the centred status bar is clear) -->
+      <div class="optitle">
+        <span class="rtitle">{meta.title}</span>
+        {#if game.code}<span class="rcode">Room {game.code.toUpperCase()}</span>{/if}
       </div>
       <div class="opstatus" class:myturn={game.canAct} style="--p:{seatColor(game.active ?? '')}">
         {@render turnStatus()}
@@ -950,6 +957,10 @@
   .opstatus {
     display: none;
   }
+  /* room title in the op-panel header: desktop only (mobile uses the bottom sheet) */
+  .optitle {
+    display: none;
+  }
   /* drag handle to resize the bottom sheet: mobile only */
   .ophandle {
     display: none;
@@ -1040,22 +1051,26 @@
       max-height: none;
       border-radius: 0 14px 14px 0;
       border-left: none;
-      background: color-mix(in srgb, var(--bg) 94%, transparent);
-      backdrop-filter: blur(10px);
+      /* solid background: a blurred backdrop over a full-height edge re-composites
+         every frame while the board pans beside it and makes panning stutter. */
+      background: var(--bg);
+    }
+    .optitle {
+      display: flex;
+      align-items: baseline;
+      gap: 0.55rem;
+      padding: 0.6rem 0.9rem 0.2rem;
     }
     .board-root.opdock .maplayer {
       left: var(--opw);
     }
-    /* keep the floating tracker and room chip out from under the docked panel */
+    /* keep the floating tracker out from under the docked panel; the room title
+       moves into the panel header, so hide the floating chip during ORs. */
     .board-root.opdock .trackerfloat {
       left: calc(var(--opw) + 64px);
     }
     .board-root.opdock .roomchip {
-      left: calc(var(--opw) + 14px);
-    }
-    /* recentre the status pill over the board between the two docked panels */
-    .board-root.opdock .statusbar.shifted {
-      left: calc(var(--opw) + (100vw - var(--opw) - var(--shellw)) / 2);
+      display: none;
     }
   }
 
@@ -1104,15 +1119,21 @@
     .roomchip {
       display: inline-flex;
     }
+    /* Always centred over the *visible board*: the left/right docked panels set
+       --leftpad/--rightpad, and the pill centres in the space between them rather
+       than being pushed toward a corner. */
+    .board-root.opdock {
+      --leftpad: var(--opw);
+    }
+    .board-root.panelopen {
+      --rightpad: var(--shellw);
+    }
     .statusbar {
       bottom: auto;
       top: 14px;
-      max-width: min(60vw, 700px);
+      max-width: min(46vw, 640px);
       transition: left 240ms ease;
-    }
-    /* centre the pill over the visible map while the panel is open */
-    .statusbar.shifted {
-      left: calc((100vw - var(--shellw)) / 2);
+      left: calc(var(--leftpad, 0px) + (100vw - var(--leftpad, 0px) - var(--rightpad, 0px)) / 2);
     }
     .scrim {
       display: none;
