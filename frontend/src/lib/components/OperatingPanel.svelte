@@ -20,6 +20,7 @@
   import CompanyLogo from './CompanyLogo.svelte';
 
   const v = $derived(operatingView(game.state));
+  const isRola = $derived(game.title === 'rola');
   const lays = $derived(trackLays(game.state));
   // Revenue to run: the player's assigned routes if they've started routing,
   // otherwise the engine's auto-best.
@@ -194,6 +195,7 @@
           <table class="sh">
             <tbody>
               <tr><td>President</td><td class="r">{pname(c.president)}</td></tr>
+              {#if c.ipoShares > 0}<tr class="muted"><td>{isRola ? 'Treasury' : 'IPO'}</td><td class="r">{c.ipoShares}%</td></tr>{/if}
               {#each holders(c) as h (h.id)}
                 <tr>
                   <td><span class="dot" style="background:{seatColor(h.id)}"></span>{h.name}</td>
@@ -201,7 +203,6 @@
                 </tr>
               {/each}
               {#if c.poolShares > 0}<tr class="muted"><td>Market</td><td class="r">{c.poolShares}%</td></tr>{/if}
-              {#if c.ipoShares > 0}<tr class="muted"><td>IPO</td><td class="r">{c.ipoShares}%</td></tr>{/if}
             </tbody>
           </table>
 

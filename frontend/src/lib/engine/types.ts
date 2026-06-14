@@ -71,9 +71,9 @@ export interface CorporationState {
   /** Train names owned. */
   trains: string[];
   /** The most recent run's gross revenue and how the dividend was handled, kept
-   *  for display (18xx.games convention: plain = paid out, [x] = withheld,
-   *  |x| = half paid). Undefined until the company has run at least once. */
-  lastRun?: { revenue: number; mode: 'pay' | 'withhold' | 'half' };
+   *  for display (18xx.games convention: plain = paid out, [x] = withheld). RoLA
+   *  has no half pay. Undefined until the company has run at least once. */
+  lastRun?: { revenue: number; mode: 'pay' | 'withhold' };
   /** Private company syms this corporation has bought (pay income to its treasury). */
   companies: string[];
   /** Hex coordinates where this corporation has a station token. */

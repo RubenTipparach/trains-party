@@ -37,14 +37,12 @@
   const canPar = (sym: string) => !isRola && !!sl?.par.includes(sym);
 
   // Last-run revenue with the 18xx.games dividend convention: plain = paid out,
-  // [x] = withheld, |x| = half paid.
+  // [x] = withheld. (RoLA only pays out or withholds; there is no half pay.)
   function lastRunLabel(c: CorporationState): string {
     const r = c.lastRun;
     if (!r) return '-';
     const v = `${CURRENCY}${r.revenue}`;
-    if (r.mode === 'withhold') return `[${v}]`;
-    if (r.mode === 'half') return `|${v}|`;
-    return v;
+    return r.mode === 'withhold' ? `[${v}]` : v;
   }
 
   // Buy a share, then end the turn in one click (the common stock-round move).
@@ -166,7 +164,6 @@
           <table class="sh">
             <tbody>
               <tr><td>{isRola ? 'Treasury' : 'IPO'}</td><td>{c.ipoShares}%</td><td></td></tr>
-              <tr><td>Pool</td><td>{c.poolShares}%</td><td></td></tr>
               {#each holders(c) as h (h.id)}
                 <tr>
                   <td><span class="dot" style="background:{seatColor(h.id)}"></span>{h.name}</td>
@@ -174,6 +171,7 @@
                   <td>{#if h.pres}<span class="pres">pres</span>{/if}</td>
                 </tr>
               {/each}
+              <tr><td>Pool</td><td>{c.poolShares}%</td><td></td></tr>
             </tbody>
           </table>
           {#if c.floated}
