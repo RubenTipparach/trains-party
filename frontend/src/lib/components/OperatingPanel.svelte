@@ -58,12 +58,6 @@
   }
   const trainCost = (name: string) =>
     configFor(game.title).trains.find((t) => t.name === name)?.price ?? 0;
-  // With president funding on (RoLA), treasury + personal cash affords a train.
-  const buyBudget = (c: CorporationState) =>
-    c.cash +
-    (configFor(game.title).presidentMayFund
-      ? (game.state.players.find((p) => p.id === c.president)?.cash ?? 0)
-      : 0);
 
   // Cross-buy: trains the operating corp may buy from the president's other
   // corporations (one entry per selling corp + train type), with a chosen price.
@@ -263,9 +257,9 @@
               <span class="tlabel">New company: you may buy one train before your turn</span>
             </div>
             <div class="act">
-              {#if v.canBuyTrain && buyBudget(c) >= trainCost(v.canBuyTrain)}
+              {#if v.canBuyTrain && c.cash >= trainCost(v.canBuyTrain)}
                 <button onclick={() => game.act({ type: 'buy_train', player: c.president!, corp: c.sym, train: v.canBuyTrain! })}>
-                  Buy {v.canBuyTrain}-train ({CURRENCY}{trainCost(v.canBuyTrain)}){c.cash < trainCost(v.canBuyTrain) ? ' · you cover ' + (trainCost(v.canBuyTrain) - c.cash) : ''}
+                  Buy {v.canBuyTrain}-train ({CURRENCY}{trainCost(v.canBuyTrain)})
                 </button>
               {/if}
               <button class="ghost" onclick={() => game.act({ type: 'pass', player: c.president! })}>Skip leadoff</button>
@@ -376,9 +370,9 @@
                 <div class="runrev"><span class="norun">{c.sym} has no train and can run. It must buy one.</span></div>
               {/if}
               <div class="act">
-                {#if v.canBuyTrain && buyBudget(c) >= trainCost(v.canBuyTrain)}
+                {#if v.canBuyTrain && c.cash >= trainCost(v.canBuyTrain)}
                   <button onclick={() => game.act({ type: 'buy_train', player: c.president!, corp: c.sym, train: v.canBuyTrain! })}>
-                    Buy {v.canBuyTrain}-train ({CURRENCY}{trainCost(v.canBuyTrain)}){c.cash < trainCost(v.canBuyTrain) ? ' · you cover ' + (trainCost(v.canBuyTrain) - c.cash) : ''}
+                    Buy {v.canBuyTrain}-train ({CURRENCY}{trainCost(v.canBuyTrain)})
                   </button>
                 {/if}
                 {#if !v.mustBuy}

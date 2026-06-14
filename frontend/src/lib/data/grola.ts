@@ -259,7 +259,10 @@ export const configRola: GameConfig = {
   cyclesByPlayers: { 2: 4, 3: 6, 4: 6, 5: 6 }, // Short (2p) = 4 cycles, Long = 6
   exportTrains: true, // rulebook: export the top train before each new SR
   localRoutes: true, // rulebook: single-stop local runs inside a hub city
-  presidentMayFund: true, // house option: top up train buys from personal cash
+  // The president funds a train ONLY in an emergency (a trainless company that can
+  // run a route must buy one and the treasury is short); never for an optional or
+  // affordable buy. Emergency funding is handled directly, so this stays off.
+  presidentMayFund: false,
   waterBlocksTrack: true, // rulebook: no track into water edges (Bridging may)
   phases: PHASES,
   trains: TRAINS,

@@ -29,6 +29,13 @@ describe('RoLA leadoff train + issue/redeem + two yellow lays', () => {
     expect(s.or!.step).toBe('track'); // one leadoff train, then the normal turn
   });
 
+  it('does not let the president fund an optional train buy (only emergencies)', () => {
+    const s = toOperating(); // AG at the leadoff step (an optional buy)
+    AG(s).cash = 50; // treasury short of the 100 price
+    s.players[0].cash = 1000; // president is flush, but may not chip in
+    expect(() => apply(s, { type: 'buy_train', player: 'p1', corp: 'AG', train: '2' })).toThrow(/afford/i);
+  });
+
   it('skipping the leadoff moves to the track step; later ORs skip it entirely', () => {
     let s = toOperating();
     s = apply(s, { type: 'pass', player: 'p1' }); // skip leadoff
