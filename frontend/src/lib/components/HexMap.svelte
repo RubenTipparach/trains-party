@@ -7,6 +7,7 @@
   import { mapView } from '$lib/config/mapView';
   import { WATER_BASE, WATER_STATIC, WATER_FRAMES, TILE_W, TILE_H } from '$lib/config/waterArt';
   import { game } from '$lib/game/sandbox.svelte';
+  import { highlight } from '$lib/game/highlight.svelte';
   import { anim } from '$lib/game/anim.svelte';
   import { routing } from '$lib/game/routing.svelte';
   import { locate } from '$lib/game/locate.svelte';
@@ -137,6 +138,8 @@
     onpick?: (hex: string) => void;
   } = $props();
   const pickSet = $derived(new Set(pickHexes));
+  // Spotlight hexes hovered in the Tiles panel (map-generation inspection).
+  const spotlight = $derived(new Set(highlight.hexes));
   const lays = $derived(layMode ? trackLays(game.state) : []);
   const layHexes = $derived(new Set(lays.map((l) => l.hex)));
   const tokenHexes = $derived(tokenMode ? new Set(tokenPlays(game.state).map((t) => t.hex)) : new Set<string>());
@@ -1404,6 +1407,9 @@
           {#if pickSet.has(h.coord)}
             <polygon points={poly} class="pickhi" />
           {/if}
+          {#if spotlight.has(h.coord)}
+            <polygon points={poly} class="spothi" />
+          {/if}
           {#if runMode && isStopHex(h.coord)}
             <circle r="17" class="routestop" />
           {/if}
@@ -1994,6 +2000,13 @@
     stroke-width: 3;
     pointer-events: none;
     animation: laypulse 1.4s ease-in-out infinite;
+  }
+  /* spotlight a generated terrain / laid-tile group hovered in the Tiles panel */
+  .spothi {
+    fill: rgba(95, 176, 230, 0.35);
+    stroke: #5fb0e6;
+    stroke-width: 4;
+    pointer-events: none;
   }
   /* "choose a space" highlight (home/token pick on the real map) */
   .pickhi {

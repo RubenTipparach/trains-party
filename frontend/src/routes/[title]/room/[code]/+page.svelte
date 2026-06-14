@@ -16,6 +16,7 @@
   import TileGraphic from '$lib/components/TileGraphic.svelte';
   import PrivateChip from '$lib/components/PrivateChip.svelte';
   import { game } from '$lib/game/sandbox.svelte';
+  import { highlight } from '$lib/game/highlight.svelte';
   import { playerValue, playerLiquidity, configFor, currencyFor, operatingView } from '$lib/engine';
   import { BUILD_SHA } from '$lib/version';
 
@@ -165,6 +166,32 @@
   function toggle(id: TabId) {
     active = active === id ? null : id;
   }
+
+  // Map-generation inspection (Tiles panel): group the generated hexes by type so
+  // hovering one spotlights them on the board, and find where a laid tile id sits.
+  const mapHexes = $derived(game.state.map ?? configFor(game.title).hexByCoord);
+  const terrainGroups = $derived.by(() => {
+    const g = {
+      Cities: [] as string[], Capitals: [] as string[], Mountains: [] as string[],
+      Water: [] as string[], Plains: [] as string[]
+    };
+    for (const [coord, h] of Object.entries(mapHexes)) {
+      if (h.offboard) continue;
+      if (h.cities?.some((c) => c.capital)) g.Capitals.push(coord);
+      else if (h.cities?.length) g.Cities.push(coord);
+      else if (h.terrain?.includes('mountain')) g.Mountains.push(coord);
+      else if (h.terrain?.includes('water')) g.Water.push(coord);
+      else g.Plains.push(coord);
+    }
+    return Object.entries(g) as [string, string[]][];
+  });
+  const laidOf = (id: string) =>
+    Object.entries(game.state.tiles).filter(([, t]) => t.id === id).map(([c]) => c);
+  // clear the spotlight whenever the panel changes / closes
+  $effect(() => {
+    void active;
+    highlight.clear();
+  });
 
   // Debug: copy the full replayable game (title, seed, seats, action log) so it
   // can be pasted back for diagnosis. The log + seed reproduce the exact board.
@@ -571,13 +598,39 @@
                 </section>
               {/if}
             {:else if active === 'tiles'}
+              <section>
+                <h3>Generated map <span class="count">hover to spotlight</span></h3>
+                <div class="terrains">
+                  {#each terrainGroups as [label, coords] (label)}
+                    <button
+                      class="terrain"
+                      onmouseenter={() => highlight.set(coords)}
+                      onmouseleave={() => highlight.clear()}
+                      onfocus={() => highlight.set(coords)}
+                      onblur={() => highlight.clear()}
+                    >
+                      <span class="tlabel">{label}</span><span class="tnum">{coords.length}</span>
+                    </button>
+                  {/each}
+                </div>
+                <p class="legend">Hover a terrain type to highlight every hex of that type on the board (verifies the procedural generation).</p>
+              </section>
               <h3>Tile manifest <span class="count">{cfg.tileManifest.reduce((n, t) => n + t.count, 0)} tiles</span></h3>
               <div class="tiles">
                 {#each cfg.tileManifest as t (t.id)}
-                  <TileGraphic id={t.id} count={t.count} />
+                  <button
+                    class="tilebtn"
+                    title={laidOf(t.id).length ? `laid at ${laidOf(t.id).join(', ')}` : 'not yet laid'}
+                    onmouseenter={() => highlight.set(laidOf(t.id))}
+                    onmouseleave={() => highlight.clear()}
+                    onfocus={() => highlight.set(laidOf(t.id))}
+                    onblur={() => highlight.clear()}
+                  >
+                    <TileGraphic id={t.id} count={t.count} />
+                  </button>
                 {/each}
               </div>
-              <p class="legend">Each tile and how many are available, coloured by phase ({isRola ? 'yellow / green / purple / grey' : 'yellow / green / brown'}).</p>
+              <p class="legend">Each tile and how many are available, coloured by phase ({isRola ? 'yellow / green / purple / grey' : 'yellow / green / brown'}). Hover a tile to spotlight where it's laid.</p>
             {/if}
           </div>
         {/key}
@@ -1378,6 +1431,42 @@
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
     gap: 0.7rem 0.5rem;
+  }
+  .tilebtn {
+    border: 1px solid transparent;
+    background: none;
+    padding: 0.1rem;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  .tilebtn:hover {
+    border-color: #5fb0e6;
+    background: rgba(95, 176, 230, 0.12);
+  }
+  .terrains {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+  .terrain {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.35rem 0.6rem;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--bg-soft);
+    color: var(--ink);
+    cursor: pointer;
+    font: inherit;
+  }
+  .terrain:hover {
+    border-color: #5fb0e6;
+    background: rgba(95, 176, 230, 0.14);
+  }
+  .terrain .tnum {
+    font-weight: 800;
+    color: #5fb0e6;
   }
   .legend {
     color: var(--muted);
