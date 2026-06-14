@@ -570,7 +570,7 @@
     position: absolute;
     inset: 0;
     z-index: 0;
-    transition: right 240ms ease, bottom 240ms ease;
+    transition: left 240ms ease, right 240ms ease, bottom 240ms ease;
   }
   .loadingroom {
     min-height: 60vh;
@@ -1027,18 +1027,35 @@
     }
   }
   @media (min-width: 920px) {
-    /* desktop: a floating panel along the bottom-centre, clear of the dock */
+    /* desktop: dock the operation panel as a full-height column on the LEFT edge,
+       and shift the board (with its in-map zoom controls) clear of it. */
+    .board-root {
+      --opw: 380px;
+    }
     .oppanel {
-      left: 50%;
-      transform: translateX(-50%);
+      left: 0;
+      top: 0;
       bottom: 0;
-      width: min(560px, calc(100vw - 700px));
-      min-width: 380px;
-      max-height: 48vh;
-      border-radius: 14px 14px 0 0;
-      border-bottom: none;
+      width: var(--opw);
+      max-height: none;
+      border-radius: 0 14px 14px 0;
+      border-left: none;
       background: color-mix(in srgb, var(--bg) 94%, transparent);
       backdrop-filter: blur(10px);
+    }
+    .board-root.opdock .maplayer {
+      left: var(--opw);
+    }
+    /* keep the floating tracker and room chip out from under the docked panel */
+    .board-root.opdock .trackerfloat {
+      left: calc(var(--opw) + 64px);
+    }
+    .board-root.opdock .roomchip {
+      left: calc(var(--opw) + 14px);
+    }
+    /* recentre the status pill over the board between the two docked panels */
+    .board-root.opdock .statusbar.shifted {
+      left: calc(var(--opw) + (100vw - var(--opw) - var(--shellw)) / 2);
     }
   }
 
