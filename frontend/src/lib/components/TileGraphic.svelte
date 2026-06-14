@@ -61,7 +61,8 @@
         <rect x="-8" y="-3.5" width="16" height="7" rx="2" class="town" />
         <text class="rev" x="0" y="-12" text-anchor="middle">{def.revenue}</text>
       {/if}
-      {#if def.label}<text class="label" x="15" y="-15" text-anchor="middle">{def.label}</text>{/if}
+      <!-- the "C" capital label is conveyed by the star in the city, so skip it -->
+      {#if def.label && def.label !== 'C'}<text class="label" x="15" y="-15" text-anchor="middle">{def.label}</text>{/if}
       {#if def.port}<text class="port" x="0" y="3" text-anchor="middle">⚓</text>{/if}
     {:else}
       <!-- unknown tile id: render a neutral placeholder rather than crash the panel -->

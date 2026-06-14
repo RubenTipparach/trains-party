@@ -39,6 +39,16 @@ describe('routeThroughStops (manual route assignment)', () => {
     expect(routeThroughStops(s, ['E2', 'F3', 'G4'], 2)).toBeNull(); // 2-train, 3 stops
   });
 
+  it('adds the suburb bonus at every stop, not just the first', () => {
+    const { s, corp } = floatIRWithTrack();
+    const base = routeThroughStops(s, ['E2', 'F3', 'G4'], 3, new Set(), new Set(), corp);
+    expect(base).not.toBeNull();
+    // two of the corp's suburb tokens, both on non-first stops
+    s.suburbs = { F3: 'IR', G4: 'IR' };
+    const boosted = routeThroughStops(s, ['E2', 'F3', 'G4'], 3, new Set(), new Set(), corp);
+    expect(boosted!.route.revenue).toBe(base!.route.revenue + 20); // +10 each
+  });
+
   it('a manual route matches the auto best when the player picks the same stops', () => {
     const { s, corp } = floatIRWithTrack();
     const auto = corpRoutes(s, corp);

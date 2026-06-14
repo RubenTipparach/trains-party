@@ -420,7 +420,7 @@ export function routeThroughStops(
     if (!link) return null;
     link.segs.forEach((x) => segs.add(x));
     link.links.forEach((x) => links.add(x));
-    revenue += centreRevenue(s, stops[i + 1], diesel);
+    revenue += centreRevenue(s, stops[i + 1], diesel, corp); // corp -> suburb bonus at every stop
   }
   return { route: { hexes: [...stops], revenue, segs: [...segs] }, segs, links };
 }
