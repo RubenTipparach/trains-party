@@ -235,8 +235,10 @@
   // operation panel, so the Game (play) tab opens no independent overlay: selecting
   // it just shows the board. Other tabs still open over the map as usual.
   const panelOpen = $derived(!!active && !(active === 'game' && opPanel));
-  // A full-screen modal covering the map pauses its renderer (mobile).
-  const mapPaused = $derived(isMobile && !!active);
+  // A full-screen modal covering the map pauses its renderer (mobile). During an
+  // OR the Game tab shows the board (panelOpen is false there), so the map must
+  // keep rendering and stay tappable - pause only when an overlay actually covers it.
+  const mapPaused = $derived(isMobile && panelOpen);
 
   // Always-visible status pill: round, active player (seat colour), bank.
   const seatColor = (id: string) => {
