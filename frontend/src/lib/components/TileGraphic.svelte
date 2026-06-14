@@ -8,6 +8,9 @@
 
   const R = 28;
   const AP = (Math.sqrt(3) / 2) * R;
+  // Capital City star marker (label "C"), drawn inside the city slot.
+  const STAR =
+    'M 0.00 -8.00 L 2.00 -2.75 L 7.61 -2.47 L 3.23 1.05 L 4.70 6.47 L 0.00 3.40 L -4.70 6.47 L -3.23 1.05 L -7.61 -2.47 L -2.00 -2.75 Z';
   const FILL: Record<TileColor, string> = {
     white: '#e7dcbf',
     yellow: '#f3cf3e',
@@ -51,6 +54,7 @@
       {#if def.cities > 0}
         {#each slotXs(def.slots) as x}
           <circle cx={x} r="6.5" class="city" />
+          {#if def.label === 'C'}<path d={STAR} transform="translate({x} 0) scale(0.58)" class="capstar" />{/if}
         {/each}
         <text class="rev" x="0" y="-14" text-anchor="middle">{def.revenue}</text>
       {:else if def.towns > 0}
@@ -99,6 +103,12 @@
     fill: #e9e2c9;
     stroke: #1b1b1b;
     stroke-width: 2.2;
+  }
+  .capstar {
+    fill: #f5c542;
+    stroke: #1c2a36;
+    stroke-width: 1.6;
+    stroke-linejoin: round;
   }
   .town {
     fill: #1b1b1b;
