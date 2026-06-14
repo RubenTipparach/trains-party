@@ -1488,7 +1488,7 @@
             <g transform="rotate({-$rotAnim})">
               {#if def && def.cities > 0}
                 <circle r="13" class="city" />
-                {#if def.revenue > 0}<text class="rev" y="-17" text-anchor="middle">{def.revenue}</text>{/if}
+                {#if def.revenue > 0}<text class="rev" y="-19" text-anchor="middle">{def.revenue}</text>{/if}
                 {#if h.cities?.[0]?.capital}<path class="capstar" d={STAR} />{/if}
               {:else if def && def.towns > 0}
                 <rect x="-9" y="-4" width="18" height="8" rx="2" class="town" transform="rotate(30)" />
@@ -1511,7 +1511,7 @@
                 {:else}
                   <circle r="13" class="city" />
                 {/if}
-                {#if c.revenue > 0}<text class="rev" y="-17" text-anchor="middle">{c.revenue}</text>{/if}
+                {#if c.revenue > 0}<text class="rev" y="-19" text-anchor="middle">{c.revenue}</text>{/if}
                 {#if c.capital}
                   <!-- Capital City: a star instead of the skyline -->
                   <path class="capstar" d={STAR} />
@@ -1542,7 +1542,8 @@
             {/if}
             {#if suburbAt(h.coord)}
               {@const su = suburbAt(h.coord)!}
-              <g transform="translate(0 {-APOTHEM + 20})">
+              <!-- upper-left corner so it never covers the centre revenue / token -->
+              <g transform="translate(-22 {-APOTHEM + 16})">
                 <rect x="-7" y="-5" width="14" height="10" rx="2" fill={su.color} stroke="#fff" stroke-width="1.2" />
                 <text class="tok" y="3" text-anchor="middle">S</text>
               </g>
