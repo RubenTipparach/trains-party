@@ -11,6 +11,7 @@
   import RoundTracker from '$lib/components/RoundTracker.svelte';
   import OperatingPanel from '$lib/components/OperatingPanel.svelte';
   import MergerPanel from '$lib/components/MergerPanel.svelte';
+  import LogPanel from '$lib/components/LogPanel.svelte';
   import Spreadsheet from '$lib/components/Spreadsheet.svelte';
   import TileGraphic from '$lib/components/TileGraphic.svelte';
   import PrivateChip from '$lib/components/PrivateChip.svelte';
@@ -125,6 +126,11 @@
       id: 'game',
       label: 'Game',
       icon: '<path d="M7 5.3v13.4a.6.6 0 0 0 .92.5l10.5-6.7a.6.6 0 0 0 0-1L7.92 4.8a.6.6 0 0 0-.92.5z"/>'
+    },
+    {
+      id: 'log',
+      label: 'Log',
+      icon: '<rect x="4" y="3.5" width="16" height="17" rx="2"/><path d="M8 8h8"/><path d="M8 12h8"/><path d="M8 16h5"/>'
     },
     {
       id: 'market',
@@ -345,6 +351,8 @@
               </div>
             {:else if active === 'game'}
               <GamePanel />
+            {:else if active === 'log'}
+              <LogPanel />
             {:else if active === 'spreadsheet'}
               <Spreadsheet />
             {:else if active === 'market'}
