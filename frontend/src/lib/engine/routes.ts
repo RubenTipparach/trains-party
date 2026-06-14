@@ -319,6 +319,20 @@ export function routeRevenue(s: GameState, corp: CorporationState): number {
 }
 
 /**
+ * How many revenue centres one of `corp`'s trains may visit this OR, including
+ * the RoLA Express boost (+1 stop while the company owns a single train). This is
+ * the authoritative reach the UI must use when resolving hand-picked routes, so a
+ * boosted train is not rejected for "too many stops".
+ */
+export function trainReach(s: GameState, corp: CorporationState, train: string): number {
+  const trainDefs = configFor(s.title).trains;
+  const roster = [...corp.trains, ...(corp.rustedTrains ?? [])];
+  const expressBoost =
+    roster.length === 1 && rolaAbility(s.title, corp, 'boost_stop_if_single_train') ? 1 : 0;
+  return trainMaxStops(trainDefs, train) + expressBoost;
+}
+
+/**
  * Could this corporation run a revenue route if it owned a train? Train-independent
  * (tests a minimal 2-stop route from a tokened city), used by the mandatory-train
  * rule: a train-less corporation must buy a train only when it can actually run.

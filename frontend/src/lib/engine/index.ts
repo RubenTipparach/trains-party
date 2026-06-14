@@ -45,7 +45,7 @@ export type { TileLay } from './track';
 export { TILES, rotatePaths } from './tiles';
 export type { TileDef } from './tiles';
 export { playerValue, playerLiquidity } from './metrics';
-export { corpRoutes, routeRevenue, routeThroughStops, TRAIN_ROUTE_COLORS } from './routes';
+export { corpRoutes, routeRevenue, routeThroughStops, trainReach, TRAIN_ROUTE_COLORS } from './routes';
 export type { Route } from './routes';
 export { hexesFor } from './board';
 export { legalPlacements, placementCoords, isLegalPlacement, generateTriHexPool, BUILD_CENTER } from './triHex';
