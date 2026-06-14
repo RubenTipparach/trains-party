@@ -1558,7 +1558,7 @@
               </g>
             {/each}
 
-            {#if h.label}
+            {#if h.label && h.label !== 'C'}
               {@const lp = labelPos(h)}
               <text class="label" x={lp.x} y={lp.y + 4} text-anchor="middle">{h.label}</text>
             {/if}
