@@ -1524,7 +1524,13 @@
             <!-- the laid tile's stops and revenue stay right side up -->
             <g transform="rotate({-$rotAnim})">
               {#if def && def.cities > 0}
-                <circle r="13" class="city" />
+                {#if def.slots > 1}
+                  <!-- a multi-slot city: a stadium wide enough for every token slot
+                       (matches the base-city and inventory rendering) -->
+                  <rect x={-12 * def.slots} y="-13" width={24 * def.slots} height="26" rx="13" class="city" />
+                {:else}
+                  <circle r="13" class="city" />
+                {/if}
                 {#if def.revenue > 0}<text class="rev" y="-19" text-anchor="middle">{def.revenue}</text>{/if}
                 {#if h.cities?.[0]?.capital}<path class="capstar" d={STAR} />{/if}
               {:else if def && def.towns > 0}
