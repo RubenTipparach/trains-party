@@ -1166,16 +1166,15 @@
     const cand = clamped({ ...view, x: view.x - nx * dragScale, y: view.y - ny * dragScale });
     nx = (view.x - cand.x) / dragScale;
     ny = (view.y - cand.y) / dragScale;
-    // Bake into the viewBox before the overscan runs out (one raster), else keep
-    // sliding the composited layer. The overscan ring is PAN_OS of the viewport
-    // in px = PAN_OS * view.w / dragScale; commit at 70% of it.
-    const limPx = 0.7 * PAN_OS * (view.w / dragScale);
-    if (Math.abs(nx) > limPx || Math.abs(ny) > limPx) {
-      view = cand;
-      panOffset = { x: 0, y: 0 };
-    } else {
-      panOffset = { x: nx, y: ny };
-    }
+    // Pan purely on the composited layer up to the rendered overscan ring; the
+    // viewBox is baked once on pointer-up. (Re-rastering the SVG mid-drag, the old
+    // behaviour, dropped a frame each time - very visible once a side panel
+    // narrowed the board, so the overscan ran out after a shorter drag.)
+    const maxPx = PAN_OS * (view.w / dragScale);
+    panOffset = {
+      x: Math.max(-maxPx, Math.min(maxPx, nx)),
+      y: Math.max(-maxPx, Math.min(maxPx, ny))
+    };
   }
   function onUp(e: PointerEvent) {
     const wasDrag = moved;

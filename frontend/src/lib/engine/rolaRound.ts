@@ -11,6 +11,7 @@
 
 import { configFor, rolaAbility } from './registry';
 import { hexesFor } from './board';
+import { legalLays } from './track';
 import { currentPrice } from './stock';
 import { launchMinor, sellPriceMove, soldOutMove, MIN_LAUNCH_BID, BID_INCREMENT } from './rolaStock';
 import { startOperatingRound } from './operating';
@@ -406,7 +407,16 @@ export function rolaStockLegalActions(s: GameState): RolaStockLegal {
   return { player: id, canPass: true, canInitiate, minBid: MIN_LAUNCH_BID, available, buyIpo, buyPool, sell, auction: null };
 }
 
-/** Empty basic-city spots an Adaptive launch may choose as its home. */
+/** Could a minor tokened on `hex` lay at least one yellow tile (i.e. expand)? A
+ *  coastal basic city can be hemmed in by water with no room for a city tile, so
+ *  Adaptive must never be allowed to home there (it would be stuck forever). */
+function canExpandFrom(s: GameState, hex: string): boolean {
+  const probe = { sym: '__probe', kind: 'minor', tokenHexes: [hex], companies: [] } as unknown as CorporationState;
+  return legalLays(s, probe).length > 0;
+}
+
+/** Empty basic-city spots an Adaptive launch may choose as its home: a free,
+ *  unlabelled city the company can actually build out from. */
 export function adaptiveHomes(s: GameState): string[] {
   const hexes = hexesFor(s);
   const taken = new Set(s.corporations.filter((c) => !c.dissolved).map((c) => c.coordinates));
@@ -418,6 +428,7 @@ export function adaptiveHomes(s: GameState): string[] {
         !taken.has(coord) &&
         !s.corporations.some((c) => c.tokenHexes.includes(coord))
     )
+    .filter(([coord]) => canExpandFrom(s, coord))
     .map(([coord]) => coord)
     .sort();
 }

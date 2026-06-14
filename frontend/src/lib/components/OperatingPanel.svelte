@@ -17,6 +17,7 @@
   import PrivateChip from './PrivateChip.svelte';
   import MoneyValue from './MoneyValue.svelte';
   import Treasury from './Treasury.svelte';
+  import CompanyLogo from './CompanyLogo.svelte';
 
   const v = $derived(operatingView(game.state));
   const lays = $derived(trackLays(game.state));
@@ -178,6 +179,7 @@
       <aside>
         <div class="cur" style="--c:{c.color}">
           <div class="curhead" style="background:{c.color}">
+            <CompanyLogo sym={c.sym} color={c.color} size={22} />
             <span class="csym">{c.sym}</span>
             <span class="cname">{c.name}</span>
             <span class="order">Order {v.index + 1}/{v.order.length}</span>

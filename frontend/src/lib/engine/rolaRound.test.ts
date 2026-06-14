@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { apply, initialState, rolaStockLegalActions } from './index';
+import { apply, initialState, rolaStockLegalActions, adaptiveHomes } from './index';
 import { launchViaAuction } from './rolaTestUtil';
 import type { GameState } from './types';
 
@@ -145,6 +145,14 @@ describe('RoLA minor matrix (2 columns, bottom-row launchable)', () => {
     expect(rolaStockLegalActions(s).available).not.toContain(next); // hidden behind bottom
     s = launchViaAuction(s, 'p1', bottom, 120);
     expect(rolaStockLegalActions(s).available).toContain(next); // now revealed
+  });
+
+  it('only offers Adaptive homes with room to build (no coastal dead-ends)', () => {
+    const s = seeded(); // seed 31337
+    const homes = adaptiveHomes(s);
+    expect(homes.length).toBeGreaterThan(0);
+    // these basic cities are hemmed in by water with no room for a yellow city tile
+    for (const stuck of ['K12', 'L13', 'L7']) expect(homes).not.toContain(stuck);
   });
 
   it('rejects launching a company that is not at the bottom of its column', () => {
