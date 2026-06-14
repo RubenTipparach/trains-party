@@ -40,6 +40,27 @@ describe('RoLA stock round (Stage 4c)', () => {
     expect(s.current).toBe(1); // clockwise from the initiator p1
   });
 
+  it('auto-drops a player who cannot afford the next bid', () => {
+    let s = rola();
+    s.players[1].cash = 100; // p2 cannot afford 125 (120 + 5)
+    s = apply(s, { type: 'initiate_auction', player: 'p1', bid: 120 });
+    const la = s.stock!.launchAuction!;
+    expect(la.passed).toContain('p2'); // dropped automatically, never asked to bid
+    expect(la.turn).toBe('p3'); // p3 can afford, so it is their turn
+  });
+
+  it('the initiator wins outright when no one else can afford to bid', () => {
+    let s = rola();
+    s.players[1].cash = 50;
+    s.players[2].cash = 50;
+    s = apply(s, { type: 'initiate_auction', player: 'p1', bid: 200 });
+    expect(s.stock!.launchAuction!.winner).toBe('p1');
+    expect(s.stock!.launchAuction!.turn).toBeNull();
+    s = apply(s, { type: 'launch', player: 'p1', corp: 'AG' });
+    expect(ag(s).president).toBe('p1');
+    expect(ag(s).cash).toBe(200);
+  });
+
   it('lets another player buy a 20% IPO share at par', () => {
     let s = launchViaAuction(rola(), 'p1', 'AG', 160);
     s = apply(s, { type: 'buy', player: 'p2', corp: 'AG', from: 'ipo' });

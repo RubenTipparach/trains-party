@@ -16,8 +16,11 @@ export function launchViaAuction(
   home?: string
 ): GameState {
   s = apply(s, { type: 'initiate_auction', player, bid });
-  for (const id of s.stock!.launchAuction!.order) {
-    if (id !== player) s = apply(s, { type: 'pass', player: id });
+  // Everyone still in the auction drops out (players who cannot afford the next
+  // bid are auto-dropped by the engine), leaving the initiator the winner.
+  let guard = 0;
+  while (s.stock!.launchAuction!.winner === null && guard++ < 50) {
+    s = apply(s, { type: 'pass', player: s.stock!.launchAuction!.turn! });
   }
   const isAdaptive = configFor(s.title).minors?.find((m) => m.sym === corp)?.ability?.type === 'choose_home';
   const h = home ?? (isAdaptive ? adaptiveHomes(s)[0] : undefined);

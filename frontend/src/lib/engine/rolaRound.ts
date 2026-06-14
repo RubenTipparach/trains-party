@@ -65,15 +65,30 @@ function endTurn(s: GameState): void {
   st.bought = false;
 }
 
-/** Next player clockwise from `from` who is still in the auction (not passed). */
-function nextBidder(la: LaunchAuctionState, from: string): string | null {
+/**
+ * Hand the auction to the next eligible bidder clockwise from `from`, or declare
+ * the high bidder the winner. A player who cannot afford the next legal bid
+ * (highBid + increment) can't participate, so they are dropped out automatically
+ * (rulebook: you must be able to pay to bid). The standing high bidder is never
+ * asked to bid against themselves; when nobody else can act, they win.
+ */
+function advanceAuction(s: GameState, la: LaunchAuctionState, from: string): void {
+  const need = la.highBid + BID_INCREMENT;
   const n = la.order.length;
   const start = la.order.indexOf(from);
   for (let k = 1; k <= n; k++) {
     const cand = la.order[(start + k) % n];
-    if (!la.passed.includes(cand)) return cand;
+    if (la.passed.includes(cand) || cand === la.highBidder) continue;
+    if (player(s, cand).cash < need) {
+      la.passed.push(cand); // can't afford the next bid -> out of this auction
+      s.log.push(`${pname(s, cand)} cannot afford to bid (${need}) and drops out`);
+      continue;
+    }
+    la.turn = cand;
+    return;
   }
-  return null;
+  la.turn = null;
+  la.winner = la.highBidder; // nobody else can bid: the high bidder takes it
 }
 
 /** Open a launch auction: the initiator sets the first bid; bidding then goes
@@ -91,8 +106,7 @@ function doInitiate(s: GameState, id: string, bid: number): void {
   const startIdx = s.players.findIndex((pp) => pp.id === id);
   const order = Array.from({ length: n }, (_, k) => s.players[(startIdx + k) % n].id);
   const la: LaunchAuctionState = { initiator: id, order, passed: [], highBid: bid, highBidder: id, turn: null, winner: null };
-  la.turn = nextBidder(la, id); // clockwise from the initiator
-  if (la.turn === null) la.winner = id; // no other players: the initiator wins outright
+  advanceAuction(s, la, id); // clockwise from the initiator, skipping who can't pay
   st.launchAuction = la;
   st.acted = true;
   st.passes = 0;
@@ -143,21 +157,15 @@ function applyLaunchAuction(s: GameState, action: GameAction): void {
       if (player(s, action.player).cash < action.bid) throw new GameError('cannot afford that bid');
       la.highBid = action.bid;
       la.highBidder = action.player;
-      la.turn = nextBidder(la, action.player);
       s.log.push(`${pname(s, action.player)} bids ${action.bid}`);
+      advanceAuction(s, la, action.player);
       break;
     }
     case 'pass': {
       if (la.turn !== action.player) throw new GameError('not your turn to pass');
       la.passed.push(action.player);
-      const remaining = la.order.filter((p) => !la.passed.includes(p));
       s.log.push(`${pname(s, action.player)} drops out of the auction`);
-      if (remaining.length === 1) {
-        la.winner = remaining[0]; // the standing high bidder must now launch
-        la.turn = null;
-      } else {
-        la.turn = nextBidder(la, action.player);
-      }
+      advanceAuction(s, la, action.player);
       break;
     }
     case 'launch':
