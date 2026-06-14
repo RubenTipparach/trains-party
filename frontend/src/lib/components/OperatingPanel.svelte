@@ -195,14 +195,14 @@
           <table class="sh">
             <tbody>
               <tr><td>President</td><td class="r">{pname(c.president)}</td></tr>
-              {#if c.ipoShares > 0}<tr class="muted"><td>{isRola ? 'Treasury' : 'IPO'}</td><td class="r">{c.ipoShares}%</td></tr>{/if}
-              {#each holders(c) as h (h.id)}
-                <tr>
+              <tr class="muted"><td>{isRola ? 'Treasury' : 'IPO'}</td><td class="r">{c.ipoShares}%</td></tr>
+              <tr class="muted"><td>Market</td><td class="r">{c.poolShares}%</td></tr>
+              {#each holders(c) as h, i (h.id)}
+                <tr class:divtop={i === 0}>
                   <td><span class="dot" style="background:{seatColor(h.id)}"></span>{h.name}</td>
                   <td class="r">{h.pct}%{#if h.pres}<span class="pflag">P</span>{/if}</td>
                 </tr>
               {/each}
-              {#if c.poolShares > 0}<tr class="muted"><td>Market</td><td class="r">{c.poolShares}%</td></tr>{/if}
             </tbody>
           </table>
 
@@ -562,6 +562,10 @@
   }
   .sh tr.muted td {
     color: var(--muted);
+  }
+  /* divider between the non-player rows (treasury, market) and the shareholders */
+  .sh tr.divtop td {
+    border-top: 1px solid rgba(255, 255, 255, 0.22);
   }
   .dot {
     display: inline-block;

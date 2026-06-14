@@ -164,14 +164,14 @@
           <table class="sh">
             <tbody>
               <tr><td>{isRola ? 'Treasury' : 'IPO'}</td><td>{c.ipoShares}%</td><td></td></tr>
-              {#each holders(c) as h (h.id)}
-                <tr>
+              <tr><td>Market</td><td>{c.poolShares}%</td><td></td></tr>
+              {#each holders(c) as h, i (h.id)}
+                <tr class:divtop={i === 0}>
                   <td><span class="dot" style="background:{seatColor(h.id)}"></span>{h.name}</td>
                   <td>{h.pct}%</td>
                   <td>{#if h.pres}<span class="pres">pres</span>{/if}</td>
                 </tr>
               {/each}
-              <tr><td>Pool</td><td>{c.poolShares}%</td><td></td></tr>
             </tbody>
           </table>
           {#if c.floated}
@@ -431,6 +431,10 @@
   .sh td:nth-child(3) {
     text-align: right;
     width: 2.4rem;
+  }
+  /* divider between the non-player rows (treasury, market) and the shareholders */
+  .sh tr.divtop td {
+    border-top: 1px solid rgba(255, 255, 255, 0.22);
   }
   .dot {
     display: inline-block;
