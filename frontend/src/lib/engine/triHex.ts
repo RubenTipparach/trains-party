@@ -134,7 +134,11 @@ const CONTENT: Record<string, () => Omit<HexDef, 'coord'>> = {
   city: () => ({ color: 'white', cities: [{ revenue: 0, slots: 1 }], towns: [], paths: [], icons: [] }),
   // Capital City (Capital Project tile): a starred city. Exactly three exist.
   // (slots/revenue are placeholders pending the physical overlay-tile numbers.)
-  capital: () => ({ color: 'white', cities: [{ revenue: 0, slots: 2, capital: true }], towns: [], paths: [], icons: [] }),
+  // Capital City: a labelled "C" city so it upgrades along the dedicated capital
+  // tile chain (291/292/293 yellow -> 294/295/296 green -> 297 purple), growing
+  // from 1 slot (yellow) to 2 (green+). A plain 2-slot/unlabelled base could never
+  // be built on, since no yellow tile matches it.
+  capital: () => ({ color: 'white', cities: [{ revenue: 0, slots: 1, capital: true }], towns: [], paths: [], icons: [], label: 'C' }),
   town: () => ({ color: 'white', cities: [], towns: [{ revenue: 0 }], paths: [], icons: [] }),
   mountain: () => ({ color: 'white', cities: [], towns: [], paths: [], icons: [], terrain: ['mountain'], upgradeCost: 40 }),
   water: () => ({ color: 'white', cities: [], towns: [], paths: [], icons: [], terrain: ['water'], upgradeCost: 40 }),

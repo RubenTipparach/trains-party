@@ -231,7 +231,7 @@ export const TILE_MANIFEST: TileManifestEntry[] = [
   { id: '47', count: 2, color: 'brown' },
   { id: '70', count: 1, color: 'brown' },
   { id: '125', count: 6, color: 'brown' },
-  { id: '297', count: 2, color: 'brown' },
+  { id: '297', count: 3, color: 'brown' }, // purple capital city: one per Capital (3)
   // Grey (3)
   { id: '51', count: 3, color: 'gray' },
   // Blue bridge (5)
