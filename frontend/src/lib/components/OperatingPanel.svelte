@@ -23,7 +23,7 @@
   const lays = $derived(trackLays(game.state));
   // Revenue to run: the player's assigned routes if they've started routing,
   // otherwise the engine's auto-best.
-  const runRevenue = $derived(routing.active ? routing.revenue : (v?.revenue ?? 0));
+  const runRevenue = $derived(routing.revenue); // the current sum of assigned train routes
 
   // Initialise / tear down manual route assignment as the run step comes and goes.
   $effect(() => {
@@ -316,7 +316,8 @@
                 {/each}
               </div>
               <div class="runrev">
-                Route revenue <b>{CURRENCY}{routing.active ? routing.revenue : v.revenue}</b>
+                <!-- always the current sum of the train chips, never a separate prediction -->
+                Route revenue <b>{CURRENCY}{routing.revenue}</b>
                 {#if !routing.manual}<span class="autonote"> (auto)</span>{/if}
               </div>
               <div class="act">

@@ -77,7 +77,7 @@ export function initialState(
   seats: Seat[],
   title: string = DEFAULT_TITLE,
   rulesVersion: string = RULES_VERSION,
-  opts: { seed?: number; mapMode?: 'auto' | 'manual'; hostileMergers?: boolean } = {}
+  opts: { seed?: number; mapMode?: 'auto' | 'manual'; hostileMergers?: boolean; localRoutes?: boolean } = {}
 ): GameState {
   const cfg = configFor(title);
   const n = seats.length;
@@ -209,6 +209,8 @@ export function initialState(
     mapBuild,
     minorMatrix,
     hostileMergers: rola ? !!opts.hostileMergers : undefined,
+    // Local routes default on; the config default applies when the option is unset.
+    localRoutes: opts.localRoutes ?? cfg.localRoutes,
     log: [
       rola
         ? 'Stock round 1 begins; minors may launch'

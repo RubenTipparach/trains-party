@@ -24,6 +24,8 @@ export interface SavedSession {
   mapMode: 'auto' | 'manual';
   /** RoLA hostile-mergers variant (optional for back-compat with old saves). */
   hostileMergers?: boolean;
+  /** RoLA local-routes rule (optional for back-compat; default on). */
+  localRoutes?: boolean;
   seats: SeatConfig[];
   actions: GameAction[];
   /** Short human-readable round label cached for the lobby (e.g. "SR 2"). */

@@ -233,6 +233,9 @@ export interface GameState {
   /** Hostile-mergers variant: a refused cross-player merger is settled by a
    *  share vote rather than the target president alone. Set at game creation. */
   hostileMergers?: boolean;
+  /** Local-routes rule: a train that can't reach a 2nd city may run its hub city
+   *  alone for that city's value. Optional, set at game creation (default on). */
+  localRoutes?: boolean;
   /** Suburb tokens on the board: hex -> owning company sym (Suburban). */
   suburbs?: Record<string, string>;
   /** Trains discarded to the bank pool (over-limit), buyable at printed price. */
