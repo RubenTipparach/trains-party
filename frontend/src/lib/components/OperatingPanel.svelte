@@ -123,7 +123,7 @@
     game.error = `No legal rotation to lay tile ${tile} on ${hex}.`;
   }
   function buyDiesel(tradeIn?: string) {
-    game.act({ type: 'buy_train', player: v!.president!, corp: v!.corp, train: 'D', tradeIn });
+    game.act({ type: 'buy_train', player: v!.president!, corp: v!.corp, train: v!.dieselName!, tradeIn });
   }
   // Run: send explicit routes only when the player hand-picked them; otherwise let
   // the engine run its own best routes (auto-calculate defers to the engine).
@@ -379,14 +379,14 @@
                   <button class="ghost" onclick={() => game.act({ type: 'pass', player: c.president! })}>Finish turn</button>
                 {/if}
               </div>
-              {#if v.dieselAvailable && (v.canBuyTrain !== 'D' || v.dieselTradeIns.length)}
+              {#if v.dieselAvailable && (v.canBuyTrain !== v.dieselName || v.dieselTradeIns.length)}
                 <div class="act">
-                  {#if v.canBuyTrain !== 'D' && c.cash >= v.dieselPrice}
-                    <button onclick={() => buyDiesel()}>Buy D-train ({CURRENCY}{v.dieselPrice})</button>
+                  {#if v.canBuyTrain !== v.dieselName && c.cash >= v.dieselPrice}
+                    <button onclick={() => buyDiesel()}>Buy {v.dieselName}-train ({CURRENCY}{v.dieselPrice})</button>
                   {/if}
                   {#each v.dieselTradeIns as ti (ti.train)}
                     <button class="ghost" disabled={c.cash < ti.price} onclick={() => buyDiesel(ti.train)}>
-                      Buy D, trade {ti.train}-train ({CURRENCY}{ti.price})
+                      Buy {v.dieselName}, trade {ti.train}-train ({CURRENCY}{ti.price})
                     </button>
                   {/each}
                 </div>

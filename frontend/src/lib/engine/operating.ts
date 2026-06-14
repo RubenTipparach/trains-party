@@ -747,6 +747,8 @@ export interface OperatingView {
   orNumber: number;
   orsThisSet: number;
   canBuyTrain: string | null; // cheapest depot train name, or null
+  /** Name of the unlimited "diesel" train for this title (1889 D / RoLA ∞), or null. */
+  dieselName: string | null;
   /** The diesel may be bought now (phase reached and depot has one). */
   dieselAvailable: boolean;
   dieselPrice: number;
@@ -774,8 +776,9 @@ export function operatingView(s: GameState): OperatingView | null {
   if (!s.or) return null;
   const c = activeCorp(s);
   const cheapest = s.depot.find((x) => x.remaining !== 0);
-  const diesel = configFor(s.title).trains.find((t) => t.name === 'D');
-  const dDepot = s.depot.find((d) => d.name === 'D');
+  // The "diesel" (unlimited) train is the one gated by availableOn: 1889 'D', RoLA '∞'.
+  const diesel = configFor(s.title).trains.find((t) => t.availableOn);
+  const dDepot = diesel ? s.depot.find((d) => d.name === diesel.name) : undefined;
   const dieselAvailable =
     !!diesel?.availableOn && phaseReached(s, diesel.availableOn) && !!dDepot && dDepot.remaining !== 0;
   const owned = new Set(c.trains);
@@ -811,6 +814,7 @@ export function operatingView(s: GameState): OperatingView | null {
     // Only offer a plain buy when below the train limit (a company at its limit
     // can still take a new train via a trade-in - that is surfaced separately).
     canBuyTrain: cheapest && c.trains.length < trainLimit(s, c) ? cheapest.name : null,
+    dieselName: diesel?.name ?? null,
     dieselAvailable,
     dieselPrice: diesel?.price ?? 0,
     dieselTradeIns,
