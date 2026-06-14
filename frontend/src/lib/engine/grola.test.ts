@@ -111,7 +111,7 @@ describe('RoLA static data (Stage 2)', () => {
       TILE_MANIFEST.filter((t) => t.color === c).reduce((n, t) => n + t.count, 0);
     expect(byColor('yellow')).toBe(55);
     expect(byColor('green')).toBe(41);
-    expect(byColor('brown')).toBe(24);
+    expect(byColor('brown')).toBe(25); // +1: purple capital 297 bumped to 3 (one per Capital)
     expect(byColor('gray')).toBe(3);
     // blue bridges carry no manifest colour
     const blue = TILE_MANIFEST.filter((t) => ['721', '722', '723'].includes(t.id)).reduce(
