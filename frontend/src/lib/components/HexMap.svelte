@@ -122,7 +122,9 @@
     runMode = false,
     fill = false,
     paused = false,
-    liftControls = false
+    liftControls = false,
+    pickHexes = [],
+    onpick
   }: {
     layMode?: boolean;
     tokenMode?: boolean;
@@ -130,7 +132,11 @@
     fill?: boolean;
     paused?: boolean;
     liftControls?: boolean;
+    /** "Choose a space" mode: these hexes glow and clicking one calls onpick. */
+    pickHexes?: string[];
+    onpick?: (hex: string) => void;
   } = $props();
+  const pickSet = $derived(new Set(pickHexes));
   const lays = $derived(layMode ? trackLays(game.state) : []);
   const layHexes = $derived(new Set(lays.map((l) => l.hex)));
   const tokenHexes = $derived(tokenMode ? new Set(tokenPlays(game.state).map((t) => t.hex)) : new Set<string>());
@@ -1189,6 +1195,12 @@
         | SVGGraphicsElement
         | null;
       const coord = el?.getAttribute('data-coord') ?? null;
+      // "Choose a space" mode (e.g. Adaptive's home): a click on a highlighted hex
+      // makes the choice and nothing else.
+      if (pickSet.size) {
+        if (coord && pickSet.has(coord)) onpick?.(coord);
+        return;
+      }
       // In lay mode: tap the preview tile to rotate it; tap a highlighted hex to
       // start (or switch) a lay.
       if (layMode) {
@@ -1387,6 +1399,9 @@
           {/if}
           {#if tokenMode && tokenHexes.has(h.coord)}
             <polygon points={poly} class="tokenhi" />
+          {/if}
+          {#if pickSet.has(h.coord)}
+            <polygon points={poly} class="pickhi" />
           {/if}
           {#if runMode && isStopHex(h.coord)}
             <circle r="17" class="routestop" />
@@ -1977,6 +1992,14 @@
     stroke: var(--rail, #f5c542);
     stroke-width: 3;
     pointer-events: none;
+    animation: laypulse 1.4s ease-in-out infinite;
+  }
+  /* "choose a space" highlight (home/token pick on the real map) */
+  .pickhi {
+    fill: rgba(245, 197, 66, 0.3);
+    stroke: var(--rail, #f5c542);
+    stroke-width: 4;
+    cursor: pointer;
     animation: laypulse 1.4s ease-in-out infinite;
   }
   .laysel {
