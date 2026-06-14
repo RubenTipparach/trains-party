@@ -432,7 +432,7 @@ export function routeThroughStops(
  * route includes a city the corporation has tokened. Throws on any illegal choice.
  */
 export function revenueForChosenRoutes(s: GameState, corp: CorporationState, routes: string[][]): number {
-  const chosen = routes.filter((r) => r.length >= 2);
+  const chosen = routes.filter((r) => r.length >= 1); // 1 stop = a RoLA local route
   if (chosen.length === 0) return 0;
   const trainDefs = configFor(s.title).trains;
   const roster = [...corp.trains, ...(corp.rustedTrains ?? [])];

@@ -84,9 +84,9 @@ class Routing {
     this.manual = false;
   }
 
-  /** The player's chosen stop-lists per train (>= 2 stops), for the run action. */
+  /** The player's chosen stop-lists per train (resolved routes), for the run action. */
   chosenRoutes(): string[][] {
-    return this.trains.filter((t) => t.stops.length >= 2).map((t) => [...t.stops]);
+    return this.trains.filter((t) => t.route).map((t) => [...t.stops]);
   }
 
   /**
@@ -96,7 +96,7 @@ class Routing {
    */
   capture(): boolean {
     this.pending = this.trains
-      .filter((t) => t.route && t.route.hexes.length >= 2)
+      .filter((t) => t.route && t.route.hexes.length >= 1)
       .map((t) => ({ color: t.color, hexes: [...t.route!.hexes], revenue: t.revenue }));
     return this.pending.length > 0;
   }
@@ -132,7 +132,9 @@ class Routing {
     for (const t of this.trains) {
       t.route = null;
       t.revenue = 0;
-      if (t.stops.length < 2) continue;
+      if (t.stops.length < 1) continue;
+      // 1 stop = a RoLA local route (a single hub city, no track); 2+ = a normal
+      // route. routeThroughStops resolves both.
       const res = routeThroughStops(s, t.stops, trainDistance(t.train), usedSegs, usedLinks, corp);
       if (res) {
         t.route = res.route;

@@ -29,7 +29,12 @@
   $effect(() => {
     if (v && v.step === 'run' && v.hasTrains) {
       const c = game.state.corporations.find((x) => x.sym === v.corp);
-      if (c && !routing.isForCorp(v.corp)) routing.begin(v.corp, c.trains);
+      if (c && !routing.isForCorp(v.corp)) {
+        routing.begin(v.corp, c.trains);
+        // Pre-fill each train chip with the engine's best routes so the per-train
+        // stops and revenue are visible and sum to the headline number.
+        routing.auto(game.state, v.corp);
+      }
     } else if (routing.trains.length) {
       routing.clear();
     }
@@ -301,14 +306,18 @@
                   >
                     <span class="tdot"></span>
                     <b>{t.train}-train</b>
-                    <span class="tstops">{t.stops.length} stops</span>
+                    <span class="tstops">
+                      {#if t.route && t.stops.length === 1}local route
+                      {:else if t.route}{t.stops.length} stops
+                      {:else}no route{/if}
+                    </span>
                     <span class="trev">{CURRENCY}{t.revenue}</span>
                   </button>
                 {/each}
               </div>
               <div class="runrev">
                 Route revenue <b>{CURRENCY}{routing.active ? routing.revenue : v.revenue}</b>
-                {#if !routing.active}<span class="autonote"> (auto)</span>{/if}
+                {#if !routing.manual}<span class="autonote"> (auto)</span>{/if}
               </div>
               <div class="act">
                 <button class="ghost" onclick={() => routing.auto(game.state, c.sym)}>Auto-calculate</button>
@@ -326,6 +335,7 @@
               </div>
               <p class="hint">
                 Click a train, then click the cities/towns it visits on the map. Or use Auto-calculate for the best routes.
+                A train that can't reach a second city runs a <b>local route</b> - its hub city alone, for that city's value.
               </p>
             {:else}
               <div class="runrev"><span class="norun">No trains to run</span></div>
