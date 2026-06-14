@@ -62,6 +62,7 @@ const CODES: Record<string, [TileColor, string]> = {
   '40': ['brown', 'path=a:0,b:2;path=a:2,b:4;path=a:0,b:4'],
   '41': ['brown', 'path=a:0,b:3;path=a:0,b:1;path=a:1,b:3'],
   '42': ['brown', 'path=a:0,b:3;path=a:3,b:5;path=a:0,b:5'],
+  '43': ['brown', 'path=a:0,b:2;path=a:0,b:3;path=a:1,b:3;path=a:1,b:4'],
   '45': ['brown', 'path=a:0,b:3;path=a:2,b:4;path=a:0,b:4;path=a:2,b:3'],
   '46': ['brown', 'path=a:0,b:3;path=a:2,b:4;path=a:3,b:4;path=a:0,b:2'],
   '47': ['brown', 'path=a:0,b:3;path=a:1,b:4;path=a:1,b:3;path=a:0,b:4'],

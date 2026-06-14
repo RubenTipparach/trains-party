@@ -42,22 +42,28 @@
 
 <div class="tile">
   <svg viewBox="-34 -30 68 60" aria-label="tile {id}">
-    <polygon points={poly} fill={fillOf(def.color)} stroke="#4a4332" stroke-width="1.2" />
-    {#each def.paths as p}
-      <path d={d(p)} class="ties" />
-      <path d={d(p)} class="rail" />
-    {/each}
-    {#if def.cities > 0}
-      {#each slotXs(def.slots) as x}
-        <circle cx={x} r="6.5" class="city" />
+    {#if def}
+      <polygon points={poly} fill={fillOf(def.color)} stroke="#4a4332" stroke-width="1.2" />
+      {#each def.paths as p}
+        <path d={d(p)} class="ties" />
+        <path d={d(p)} class="rail" />
       {/each}
-      <text class="rev" x="0" y="-14" text-anchor="middle">{def.revenue}</text>
-    {:else if def.towns > 0}
-      <rect x="-8" y="-3.5" width="16" height="7" rx="2" class="town" />
-      <text class="rev" x="0" y="-12" text-anchor="middle">{def.revenue}</text>
+      {#if def.cities > 0}
+        {#each slotXs(def.slots) as x}
+          <circle cx={x} r="6.5" class="city" />
+        {/each}
+        <text class="rev" x="0" y="-14" text-anchor="middle">{def.revenue}</text>
+      {:else if def.towns > 0}
+        <rect x="-8" y="-3.5" width="16" height="7" rx="2" class="town" />
+        <text class="rev" x="0" y="-12" text-anchor="middle">{def.revenue}</text>
+      {/if}
+      {#if def.label}<text class="label" x="15" y="-15" text-anchor="middle">{def.label}</text>{/if}
+      {#if def.port}<text class="port" x="0" y="3" text-anchor="middle">⚓</text>{/if}
+    {:else}
+      <!-- unknown tile id: render a neutral placeholder rather than crash the panel -->
+      <polygon points={poly} fill="#3a3a3a" stroke="#4a4332" stroke-width="1.2" />
+      <text x="0" y="4" text-anchor="middle" fill="#cdd6df" font-size="12">?</text>
     {/if}
-    {#if def.label}<text class="label" x="15" y="-15" text-anchor="middle">{def.label}</text>{/if}
-    {#if def.port}<text class="port" x="0" y="3" text-anchor="middle">⚓</text>{/if}
   </svg>
   {#if !bare}
     <div class="cap"><span class="tid">#{id}</span>{#if count}<span class="tn">×{count}</span>{/if}</div>

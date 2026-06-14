@@ -166,6 +166,28 @@
     active = active === id ? null : id;
   }
 
+  // Debug: copy the full replayable game (title, seed, seats, action log) so it
+  // can be pasted back for diagnosis. The log + seed reproduce the exact board.
+  let debugMsg = $state('');
+  async function copyDebug() {
+    const dump = JSON.stringify({
+      title: game.title,
+      seed: game.seed,
+      mapMode: game.mapMode,
+      hostileMergers: game.hostileMergers,
+      seats: $state.snapshot(game.seats),
+      actions: $state.snapshot(game.actions),
+      build: BUILD_SHA
+    });
+    try {
+      await navigator.clipboard.writeText(dump);
+      debugMsg = `Copied (${game.actions.length} actions). Paste it to share your board.`;
+    } catch {
+      console.log('[trains-party debug state]', dump);
+      debugMsg = 'Clipboard blocked - logged to the browser console (F12) instead.';
+    }
+  }
+
   // The current operation (OR/MR) lives in its OWN always-on panel, separate
   // from the tab system: a bottom sheet on mobile, a floating panel on desktop.
   const opPanel = $derived(
@@ -354,6 +376,14 @@
                   </button>
                 </div>
                 <a class="mlobby" href="{base}/">Return to lobby</a>
+                <div class="mrow">
+                  <div class="mtext">
+                    <span class="mname">Copy game state</span>
+                    <span class="mdesc">Copies the full action log (for bug reports / sharing your exact board).</span>
+                  </div>
+                  <button class="mtoggle" onclick={copyDebug}>Copy</button>
+                </div>
+                {#if debugMsg}<p class="mdesc" style="margin:0">{debugMsg}</p>{/if}
                 <p class="mbuild">{meta.title}{game.code ? ` · Room ${game.code.toUpperCase()}` : ''} · build {BUILD_SHA}</p>
               </div>
             {:else if active === 'game'}
