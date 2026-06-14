@@ -116,6 +116,17 @@
     }
   });
 
+  // When the game transitions INTO a stock round, surface the Game panel so the
+  // player sees the share-trading UI without having to open it. (The CLAUDE.md
+  // "panes never auto-switch" rule is intentionally overridden here per request:
+  // the stock round is the one moment the action UI must come forward.)
+  let lastRound = game.state.round;
+  $effect(() => {
+    const r = game.state.round;
+    if (r === 'stock' && lastRound !== 'stock') active = 'game';
+    lastRound = r;
+  });
+
   // Floating-toolbar panels. The map is not a panel: it is the background.
   const tabs = [
     {

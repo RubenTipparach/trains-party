@@ -1167,19 +1167,29 @@
     bumpInteract();
     let nx = panOffset.x + (e.clientX - prev.x);
     let ny = panOffset.y + (e.clientY - prev.y);
-    // Clamp the pixel offset to the map bounds (resolved in view space).
+    // Resolve the would-be view against the map bounds so a drag stops dead at the
+    // map edge (in view space, converted back to pixels).
     const cand = clamped({ ...view, x: view.x - nx * dragScale, y: view.y - ny * dragScale });
     nx = (view.x - cand.x) / dragScale;
     ny = (view.y - cand.y) / dragScale;
-    // Pan purely on the composited layer up to the rendered overscan ring; the
-    // viewBox is baked once on pointer-up. (Re-rastering the SVG mid-drag, the old
-    // behaviour, dropped a frame each time - very visible once a side panel
-    // narrowed the board, so the overscan ran out after a shorter drag.)
+    // The SVG is rendered with a PAN_OS overscan ring, so the composited transform
+    // can only travel that far before it would expose un-rendered area. Rather than
+    // clamping the offset there (a hard "rubber band" wall that stops following the
+    // finger mid-drag, then needs a fresh stroke), fold the surplus into the viewBox
+    // and keep the live transform inside the ring. Re-rastering happens only when a
+    // drag crosses the ring boundary, not every frame, so most of the pan stays a
+    // cheap composite while a long drag keeps tracking the pointer continuously.
     const maxPx = PAN_OS * (view.w / dragScale);
-    panOffset = {
-      x: Math.max(-maxPx, Math.min(maxPx, nx)),
-      y: Math.max(-maxPx, Math.min(maxPx, ny))
-    };
+    let bx = 0;
+    let by = 0;
+    if (nx > maxPx) { bx = nx - maxPx; nx = maxPx; }
+    else if (nx < -maxPx) { bx = nx + maxPx; nx = -maxPx; }
+    if (ny > maxPx) { by = ny - maxPx; ny = maxPx; }
+    else if (ny < -maxPx) { by = ny + maxPx; ny = -maxPx; }
+    if (bx || by) {
+      view = clamped({ ...view, x: view.x - bx * dragScale, y: view.y - by * dragScale });
+    }
+    panOffset = { x: nx, y: ny };
   }
   function onUp(e: PointerEvent) {
     const wasDrag = moved;
