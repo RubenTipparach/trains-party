@@ -10,7 +10,16 @@ import { randomBytes } from 'node:crypto';
 import { db } from './db';
 import { CFG, now } from './config';
 import { buildAuthorizeUrl, exchangeCode, fetchUser, guildsJoin, avatarUrl } from './discord';
-import { upsertProfile, getProfile, createSession, deleteSession, sessionDiscordId } from './auth';
+import {
+  upsertProfile,
+  getProfile,
+  createSession,
+  deleteSession,
+  sessionDiscordId,
+  isAdminId,
+  createAdminSession,
+  ADMIN_COOKIE
+} from './auth';
 import { getNotifyPrefs, setNotifyPrefs } from './notify';
 import { sendDM, discordEnabled } from './discord';
 
@@ -20,7 +29,10 @@ function reqOrigin(req: FastifyRequest): string {
   const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol || 'https';
   return `${proto}://${req.headers.host}`;
 }
-const playerCallback = (req: FastifyRequest) => CFG.discord.redirectUri || `${reqOrigin(req)}/auth/discord/callback`;
+/** The single registered Discord redirect URI, used by BOTH player and admin
+ *  sign-in (so only one URI needs registering in the Discord portal). */
+export const discordCallback = (req: FastifyRequest) =>
+  CFG.discord.redirectUri || `${reqOrigin(req)}/auth/discord/callback`;
 
 export function makeState(kind: 'player' | 'admin', redirect: string): string {
   const state = randomBytes(16).toString('base64url');
@@ -28,14 +40,14 @@ export function makeState(kind: 'player' | 'admin', redirect: string): string {
   return state;
 }
 
-/** Consume a one-time state token (validates kind + TTL). */
-export function takeState(state: string, kind: 'player' | 'admin'): { redirect: string } | null {
+/** Consume a one-time state token (validates TTL); returns its kind + redirect. */
+export function takeState(state: string): { kind: 'player' | 'admin'; redirect: string } | null {
   const row = db.prepare('SELECT kind, redirect, created_at FROM oauth_state WHERE state = ?').get(state) as
     | { kind: string; redirect: string | null; created_at: number }
     | undefined;
   if (row) db.prepare('DELETE FROM oauth_state WHERE state = ?').run(state);
-  if (!row || row.kind !== kind || now() - row.created_at > STATE_TTL) return null;
-  return { redirect: row.redirect ?? '' };
+  if (!row || now() - row.created_at > STATE_TTL) return null;
+  return { kind: row.kind as 'player' | 'admin', redirect: row.redirect ?? '' };
 }
 
 function requireAuth(req: FastifyRequest, reply: FastifyReply): string | null {
@@ -72,22 +84,43 @@ export function registerAuth(app: FastifyInstance): void {
     const redirect = String((req.query as { redirect?: string }).redirect ?? CFG.appBaseUrl ?? '');
     const state = makeState('player', redirect);
     const scopes = CFG.discord.autoJoin ? ['identify', 'guilds.join'] : ['identify'];
-    return reply.redirect(buildAuthorizeUrl(state, playerCallback(req), scopes));
+    return reply.redirect(buildAuthorizeUrl(state, discordCallback(req), scopes));
   });
 
+  // Shared callback for player AND admin sign-in (branch on the state's kind).
   app.get('/auth/discord/callback', async (req, reply) => {
     const { code, state } = req.query as { code?: string; state?: string };
     if (!code || !state) return reply.code(400).send({ error: 'missing_code' });
-    const st = takeState(state, 'player');
+    const st = takeState(state);
     if (!st) return reply.code(400).send({ error: 'bad_state' });
-    const accessToken = await exchangeCode(code, playerCallback(req));
+    const accessToken = await exchangeCode(code, discordCallback(req));
     if (!accessToken) return reply.code(502).send({ error: 'token_exchange_failed' });
     const user = await fetchUser(accessToken);
     if (!user) return reply.code(502).send({ error: 'identify_failed' });
+
+    // Admin sign-in: only an allowlisted Discord id (ADMIN_DISCORD_ID) may in.
+    if (st.kind === 'admin') {
+      if (!isAdminId(user.id)) {
+        return reply
+          .code(403)
+          .type('text/html')
+          .send('<h1>Not authorized</h1><p>This Discord account is not on the admin allowlist.</p>');
+      }
+      upsertProfile(user);
+      const raw = createAdminSession(user.id);
+      reply.setCookie(ADMIN_COOKIE, raw, {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/admin',
+        maxAge: Math.floor(CFG.adminTtlMs / 1000)
+      });
+      return reply.redirect(`${reqOrigin(req)}/admin`);
+    }
+
+    // Player sign-in.
     if (CFG.discord.autoJoin) await guildsJoin(user.id, accessToken); // best-effort
     upsertProfile(user);
     const token = createSession(user.id);
-
     const base = st.redirect || CFG.appBaseUrl;
     if (base) return reply.redirect(`${base}/auth?token=${encodeURIComponent(token)}`);
     // No frontend configured (e.g. local API testing): return the token directly.

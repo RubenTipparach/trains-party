@@ -8,22 +8,10 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { db, getSetting, setSetting } from './db';
 import { CFG } from './config';
-import { buildAuthorizeUrl, exchangeCode, fetchUser } from './discord';
-import {
-  ADMIN_COOKIE,
-  isAdminId,
-  createAdminSession,
-  adminFromCookie,
-  deleteAdminSession,
-  upsertProfile,
-  profileName
-} from './auth';
-import { makeState, takeState } from './oauth';
+import { buildAuthorizeUrl } from './discord';
+import { ADMIN_COOKIE, adminFromCookie, deleteAdminSession, profileName } from './auth';
+import { makeState, discordCallback } from './oauth';
 import type { RoomRow } from './engine';
-
-const reqOrigin = (req: FastifyRequest) =>
-  `${(req.headers['x-forwarded-proto'] as string) || req.protocol || 'https'}://${req.headers.host}`;
-const adminCallback = (req: FastifyRequest) => `${reqOrigin(req)}/admin/callback`;
 
 function requireAdmin(req: FastifyRequest, reply: FastifyReply): string | null {
   const id = adminFromCookie((req.cookies as Record<string, string>)?.[ADMIN_COOKIE]);
@@ -44,32 +32,13 @@ export function registerAdmin(app: FastifyInstance): void {
         | undefined)?.u ?? 0
   }));
 
+  // Admin sign-in reuses the shared Discord callback (same registered redirect
+  // URI as players). The callback checks the ADMIN_DISCORD_ID allowlist for an
+  // 'admin'-kind state and only then mints the admin cookie.
   app.get('/admin/login', async (req, reply) => {
     if (!CFG.discord.signIn) return reply.code(404).send({ error: 'discord_disabled' });
     const state = makeState('admin', '');
-    return reply.redirect(buildAuthorizeUrl(state, adminCallback(req), ['identify']));
-  });
-
-  app.get('/admin/callback', async (req, reply) => {
-    const { code, state } = req.query as { code?: string; state?: string };
-    if (!code || !state) return reply.code(400).send({ error: 'missing_code' });
-    if (!takeState(state, 'admin')) return reply.code(400).send({ error: 'bad_state' });
-    const token = await exchangeCode(code, adminCallback(req));
-    if (!token) return reply.code(502).send({ error: 'token_exchange_failed' });
-    const user = await fetchUser(token);
-    if (!user) return reply.code(502).send({ error: 'identify_failed' });
-    if (!isAdminId(user.id)) {
-      return reply.code(403).type('text/html').send('<h1>Not authorized</h1><p>This Discord account is not on the admin allowlist.</p>');
-    }
-    upsertProfile(user);
-    const raw = createAdminSession(user.id);
-    reply.setCookie(ADMIN_COOKIE, raw, {
-      httpOnly: true,
-      sameSite: 'lax',
-      path: '/admin',
-      maxAge: Math.floor(CFG.adminTtlMs / 1000)
-    });
-    return reply.redirect('/admin');
+    return reply.redirect(buildAuthorizeUrl(state, discordCallback(req), ['identify']));
   });
 
   app.post('/admin/logout', async (req, reply) => {
