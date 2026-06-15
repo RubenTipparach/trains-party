@@ -287,6 +287,23 @@
     return tilePaths(t.id, t.rotation);
   }
 
+  // A multi-slot city renders as N discrete token circles (not one long
+  // stadium). These give the horizontal centre of each slot and the slot count
+  // for a hex, so the circles and the tokens that fill them line up. The offsets
+  // mirror the inventory tile (TileGraphic's slotXs) at the map's 2x scale, so a
+  // city looks the same on the board as in the tile tray.
+  function slotCenters(n: number): number[] {
+    if (n <= 1) return [0];
+    if (n === 2) return [-14, 14];
+    if (n === 3) return [-18, 0, 18];
+    return Array.from({ length: n }, (_, i) => (i - (n - 1) / 2) * 18);
+  }
+  function slotsAt(coord: string): number {
+    const d = laidDef(coord);
+    if (d) return d.cities > 0 ? (d.slots ?? 1) : 0;
+    return activeMap[coord]?.cities?.[0]?.slots ?? 0;
+  }
+
   // --- train run animation -------------------------------------------------
   // When a corporation pays a dividend, drive a top-down train (a locomotive
   // pulling a couple of cars) smoothly along its best route: it emerges from a
@@ -1592,9 +1609,10 @@
             <g transform="rotate({-$rotAnim})">
               {#if def && def.cities > 0}
                 {#if def.slots > 1}
-                  <!-- a multi-slot city: a stadium wide enough for every token slot
-                       (matches the base-city and inventory rendering) -->
-                  <rect x={-12 * def.slots} y="-13" width={24 * def.slots} height="26" rx="13" class="city" />
+                  <!-- a multi-slot city: one discrete circle per token slot -->
+                  {#each slotCenters(def.slots) as cx}
+                    <circle cx={cx} r="13" class="city" />
+                  {/each}
                 {:else}
                   <circle r="13" class="city" />
                 {/if}
@@ -1617,7 +1635,9 @@
 
               {#each h.cities as c}
                 {#if c.slots > 1}
-                  <rect x={-12 * c.slots} y="-13" width={24 * c.slots} height="26" rx="13" class="city" />
+                  {#each slotCenters(c.slots) as cx}
+                    <circle cx={cx} r="13" class="city" />
+                  {/each}
                 {:else}
                   <circle r="13" class="city" />
                 {/if}
@@ -1662,7 +1682,8 @@
               <text class="costlbl" y={-APOTHEM + 12} text-anchor="middle">{h.upgradeCost}</text>
             {/if}
             {#each tokensOn(h.coord) as t, ti (t.sym)}
-              <g transform="translate({ti * 11 - (tokensOn(h.coord).length - 1) * 5.5} 0)">
+              {@const slotXs = slotCenters(Math.max(slotsAt(h.coord), tokensOn(h.coord).length))}
+              <g transform="translate({slotXs[ti] ?? 0} 0)">
                 <circle r="9" fill={t.color} stroke="#fff" stroke-width="1.5" />
                 <text class="tok" y="3" text-anchor="middle">{t.sym}</text>
               </g>
