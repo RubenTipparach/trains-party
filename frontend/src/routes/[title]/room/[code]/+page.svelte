@@ -331,12 +331,6 @@
     />
   </div>
 
-  <!-- room identity chip (desktop) -->
-  <div class="roomchip">
-    <span class="rtitle">{meta.title}</span>
-    {#if game.code}<span class="rcode">Room {game.code.toUpperCase()}</span>{/if}
-  </div>
-
   <!-- floating cycle/round tracker (RoLA): the board-style visual aid -->
   <div class="trackerfloat" class:shifted={!!active}>
     <RoundTracker />
@@ -346,6 +340,7 @@
        operating panel header (mobile folds it into the op sheet during ORs) -->
   {#snippet turnStatus()}
     <span class="srnd">{roundLabel}</span>
+    {#if game.code}<span class="scode" title="Room code">{game.code.toUpperCase()}</span>{/if}
     <span class="splayer">{game.canAct ? 'Your turn · ' : ''}{playerName(game.active)}</span>
     {#if game.isBot(game.active)}<span class="sbot">BOT</span>{/if}
     <span class="sbank">Bank {currency}{game.state.bank.toLocaleString()}</span>
@@ -839,21 +834,7 @@
     }
   }
 
-  /* ---- room identity chip ---- */
-  .roomchip {
-    display: none;
-    position: absolute;
-    z-index: 12;
-    top: 14px;
-    left: 14px;
-    align-items: center;
-    gap: 0.55rem;
-    padding: 0.4rem 0.8rem;
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--bg) 84%, transparent);
-    backdrop-filter: blur(8px);
-    border: 1px solid var(--line);
-  }
+  /* ---- room identity (op-panel header title) ---- */
   .rtitle {
     font-weight: 800;
     color: var(--rail);
@@ -899,6 +880,14 @@
     background: var(--rail);
     border-radius: 999px;
     padding: 0.12rem 0.5rem;
+  }
+  .scode {
+    font: 700 0.7rem ui-monospace, monospace;
+    letter-spacing: 0.06em;
+    color: var(--accent);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 0.1rem 0.45rem;
   }
   .splayer {
     font-weight: 700;
@@ -1163,8 +1152,7 @@
     /* perf: backdrop blur is expensive on phones - use solid surfaces instead */
     .dock,
     .panelhost,
-    .statusbar,
-    .roomchip {
+    .statusbar {
       backdrop-filter: none;
       background: var(--bg);
     }
@@ -1200,9 +1188,6 @@
        moves into the panel header, so hide the floating chip during ORs. */
     .board-root.opdock .trackerfloat {
       left: calc(var(--opw) + 64px);
-    }
-    .board-root.opdock .roomchip {
-      display: none;
     }
   }
 
@@ -1247,9 +1232,6 @@
       width: 26px;
       height: 1px;
       margin: 2px 0;
-    }
-    .roomchip {
-      display: inline-flex;
     }
     /* Always centred over the *visible board*: the left/right docked panels set
        --leftpad/--rightpad, and the pill centres in the space between them rather

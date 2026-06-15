@@ -1095,12 +1095,12 @@
       return { x, y, w, h };
     }
     const b = landViewBounds;
-    // If the view already covers the whole land on an axis, keep it centred there;
-    // otherwise constrain the camera centre to the land span (+ a small margin).
-    if (w >= b.maxX - b.minX) x = (b.minX + b.maxX) / 2 - w / 2;
-    else x = Math.min(Math.max(x + w / 2, b.minX - m), b.maxX + m) - w / 2;
-    if (h >= b.maxY - b.minY) y = (b.minY + b.maxY) / 2 - h / 2;
-    else y = Math.min(Math.max(y + h / 2, b.minY - m), b.maxY + m) - h / 2;
+    // Constrain the camera CENTRE to the land span (+ a small margin), at ANY
+    // zoom: you may pan anywhere as long as the middle of the viewport is over the
+    // board. (Zoomed out past the land, the view simply overhangs the surrounding
+    // sea - it is no longer force-centred, which used to lock panning when small.)
+    x = Math.min(Math.max(x + w / 2, b.minX - m), b.maxX + m) - w / 2;
+    y = Math.min(Math.max(y + h / 2, b.minY - m), b.maxY + m) - h / 2;
     return { x, y, w, h };
   }
   function clampView() {

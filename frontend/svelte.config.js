@@ -17,6 +17,13 @@ const config = {
     // Project Pages serve from /<repo>/. CI sets BASE_PATH; empty for local dev.
     paths: {
       base: process.env.BASE_PATH ?? ''
+    },
+    // Deploy-version detection: poll the deployed build id; when it changes the
+    // `updated` store flips true and the app reloads (preserving the room URL),
+    // so players always pick up a new deploy. Mirrors the High Frontier reload.
+    version: {
+      name: process.env.BUILD_SHA ?? 'dev',
+      pollInterval: 60_000
     }
   }
 };
