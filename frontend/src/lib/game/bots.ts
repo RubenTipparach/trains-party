@@ -15,7 +15,10 @@ import {
   configFor,
   pickBuildPlacement,
   mergerActivePlayer,
+  mergePartners,
+  availableMajors,
   adaptiveHomes,
+  cheapestBuyableTrain,
   type GameAction,
   type GameState
 } from '$lib/engine';
@@ -25,6 +28,18 @@ export type BotLevel = 'easy' | 'normal';
 
 const FLOAT_RESERVE: Record<BotLevel, number> = { easy: 180, normal: 325 };
 const OVERPAY: Record<BotLevel, number> = { easy: 0, normal: 25 };
+
+/**
+ * RoLA launch aggressiveness. A minor floats only by bidding, and the whole bid
+ * funds its treasury, so a bigger bid is a better-capitalized company at the cost
+ * of the president's cash. `frac` is the share of cash a bot sinks into the bid
+ * above the minimum; `cap` is the hard ceiling. Easy bots bid the minimum and
+ * hoard cash; Normal bots capitalize the minor harder.
+ */
+const LAUNCH_AGGRO: Record<BotLevel, { frac: number; cap: number }> = {
+  easy: { frac: 0, cap: 0 },
+  normal: { frac: 0.45, cap: 200 }
+};
 
 function cashOf(s: GameState, id: string): number {
   return s.players.find((p) => p.id === id)?.cash ?? 0;
@@ -87,29 +102,45 @@ function botStock(s: GameState, level: BotLevel): GameAction {
   return { type: 'pass', player: me };
 }
 
-/** RoLA stock round: launch a minor if running none, else pick up a cheap share. */
-function botRolaStock(s: GameState, level: BotLevel): GameAction {
+/** The most a bot will commit to a launch bid: a difficulty-scaled chunk of its
+ *  cash above the minimum, capped, never over its cash and in legal increments. */
+function botMaxLaunchBid(s: GameState, me: string, level: BotLevel, minBid: number): number {
+  const cash = cashOf(s, me);
+  const { frac, cap } = LAUNCH_AGGRO[level];
+  const reach = Math.min(cap, Math.floor((cash * frac) / 5) * 5);
+  return Math.min(Math.floor(cash / 5) * 5, Math.max(minBid, reach));
+}
+
+/** Pick a minor to launch after winning the auction (available is pre-filtered
+ *  to launchable minors, so an Adaptive entry already has an open home). */
+function botLaunchPick(s: GameState, me: string, available: string[]): GameAction {
+  if (available.length === 0) return { type: 'pass', player: me };
+  const sym = available[0];
+  const isAd = configFor(s.title).minors?.find((m) => m.sym === sym)?.ability?.type === 'choose_home';
+  return { type: 'launch', player: me, corp: sym, ...(isAd ? { home: adaptiveHomes(s)[0] } : {}) };
+}
+
+/** RoLA stock round: drive the launch auction (open / raise / pass / launch when
+ *  won), else pick up a cheap share. Bidding aggressiveness scales with difficulty. */
+function botRolaStock(s: GameState, level: BotLevel): GameAction | null {
   const sl = rolaStockLegalActions(s);
   const me = sl.player;
-  const myMinors = s.corporations.filter((c) => c.kind === 'minor' && c.president === me && c.floated);
 
-  if (myMinors.length === 0 && sl.launch.length) {
-    // Adaptive needs an open basic-city home; skip it when none is available.
-    const home = adaptiveHomes(s)[0];
-    const isAd = (sym: string) =>
-      configFor(s.title).minors?.find((m) => m.sym === sym)?.ability?.type === 'choose_home';
-    const opt = sl.launch.find((o) => !isAd(o.corp) || !!home);
-    if (opt) {
-      // Easy bots open at the minimum; normal bots bid a little above it (more
-      // treasury for the launch) without going aggressive: up to 150, capped at
-      // roughly 40% of their cash, in legal increments of 5.
-      const p = s.players.find((x) => x.id === me)!;
-      const eager = level === 'normal' ? Math.min(150, Math.floor((p.cash * 0.4) / 5) * 5) : opt.minBid;
-      const bid = Math.max(opt.minBid, eager);
-      const withHome = isAd(opt.corp) ? { home } : {};
-      if (p.cash >= bid) return { type: 'launch', player: me, corp: opt.corp, bid, ...withHome };
-      if (p.cash >= opt.minBid) return { type: 'launch', player: me, corp: opt.corp, bid: opt.minBid, ...withHome };
+  if (sl.auction) {
+    if (sl.auction.iWon) return botLaunchPick(s, me, sl.available);
+    if (sl.auction.myTurn) {
+      const max = botMaxLaunchBid(s, me, level, sl.minBid);
+      if (sl.auction.minRaise <= max) return { type: 'launch_bid', player: me, bid: sl.auction.minRaise };
+      return { type: 'pass', player: me };
     }
+    return null; // gated by activePlayer; should not be reached
+  }
+
+  // Start an auction when running no minor and able to: open at our ceiling so an
+  // unopposed launch still capitalizes the minor (higher difficulty bids harder).
+  const myMinors = s.corporations.filter((c) => c.kind === 'minor' && c.president === me && c.floated);
+  if (myMinors.length === 0 && sl.canInitiate) {
+    return { type: 'initiate_auction', player: me, bid: botMaxLaunchBid(s, me, level, sl.minBid) };
   }
   if (level === 'normal') {
     if (sl.buyIpo.length) return { type: 'buy', player: me, corp: sl.buyIpo[0], from: 'ipo' };
@@ -123,6 +154,12 @@ function botOperating(s: GameState): GameAction | null {
   if (!v || !v.president) return null;
   const me = v.president;
   const c = s.corporations.find((x) => x.sym === v.corp)!;
+  // OR step 2 (before laying track): issue one treasury share to the pool to help
+  // fund a train the corporation has no money for and currently no train to run.
+  if (v.canIssue && c.trains.length === 0 && v.canBuyTrain) {
+    const def = configFor(s.title).trains.find((t) => t.name === v.canBuyTrain)!;
+    if (c.cash < def.price) return { type: 'issue', player: me, corp: v.corp };
+  }
   if (v.step === 'leadoff') {
     // Buy the leadoff train when the treasury affords it (a minor's first OR).
     if (v.canBuyTrain && c.trains.length === 0) {
@@ -169,10 +206,17 @@ function botOperating(s: GameState): GameAction | null {
     if (e.canDeclareBankruptcy) return { type: 'declare_bankruptcy', player: me };
   }
   // Buy the cheapest train if the corporation has none and can afford it (forced
-  // when it can run a route, optional otherwise).
-  if (v.canBuyTrain && c.trains.length === 0) {
-    const def = configFor(s.title).trains.find((t) => t.name === v.canBuyTrain)!;
-    if (c.cash >= def.price) return { type: 'buy_train', player: me, corp: v.corp, train: v.canBuyTrain };
+  // when it can run a route, optional otherwise). This considers the cheapest
+  // BUYABLE train, which may be a discard sitting in the bank pool priced below
+  // the depot's top train - the only such train the corporation can afford. The
+  // emergency block above already covers the case where even that is unaffordable,
+  // so without this the bot would pass and soft-lock on a mandatory buy it could
+  // actually make.
+  if (c.trains.length === 0) {
+    const cheap = cheapestBuyableTrain(s);
+    if (cheap && c.cash >= cheap.price) {
+      return { type: 'buy_train', player: me, corp: v.corp, train: cheap.name };
+    }
   }
   return { type: 'pass', player: me };
 }
@@ -184,8 +228,24 @@ export function botAction(s: GameState, level: BotLevel): GameAction | null {
   if (s.round === 'merger' && s.merger) {
     const me = mergerActivePlayer(s);
     if (!me) return null;
-    // Conservative bots: decline cross-player proposals, never initiate.
+    // Hostile-mergers variant: a bot always votes its shares against the bid.
+    if (s.merger.vote) return { type: 'cast_merge_vote', player: me, vote: 'against' };
+    // A bot never lets another player merge one of its minors: deny every proposal.
     if (s.merger.pending) return { type: 'decline_merge', player: me };
+    // On its own turn a bot always merges two minors it solely controls (it is
+    // president of both): the front minor with any partner it can trace a route to
+    // whose president is also this bot, into the first free major. No permission
+    // from another player is needed, so the merge resolves immediately.
+    const sym = s.merger.queue[s.merger.index];
+    const majors = availableMajors(s);
+    if (sym && majors.length) {
+      const partner = mergePartners(s, sym).find(
+        (p) => s.corporations.find((c) => c.sym === p)?.president === me
+      );
+      if (partner) {
+        return { type: 'propose_merge', player: me, from: sym, to: partner, major: majors[0] };
+      }
+    }
     return { type: 'pass', player: me };
   }
   if (s.round === 'auction' && s.auction) {

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { apply, initialState, trackLays } from './index';
+import { apply, initialState, trackLays, operatingView } from './index';
+import { launchViaAuction } from './rolaTestUtil';
 import type { GameState } from './types';
 
 const seats = [
@@ -10,9 +11,7 @@ const seats = [
 
 /** Launch AG (home C2) and run the stock round out to the operating round. */
 function toOperating(): GameState {
-  let s = initialState(seats, 'rola');
-  s = apply(s, { type: 'launch', player: 'p1', corp: 'AG', bid: 160 });
-  s = apply(s, { type: 'pass', player: 'p1' }); // end p1 turn
+  let s = launchViaAuction(initialState(seats, 'rola'), 'p1', 'AG', 160); // turn -> p2
   s = apply(s, { type: 'pass', player: 'p2' });
   s = apply(s, { type: 'pass', player: 'p3' });
   s = apply(s, { type: 'pass', player: 'p1' }); // full lap -> OR
@@ -28,6 +27,37 @@ describe('RoLA leadoff train + issue/redeem + two yellow lays', () => {
     expect(AG(s).trains).toEqual(['2']);
     expect(AG(s).cash).toBe(60); // 160 bid - 100 train, paid from the treasury
     expect(s.or!.step).toBe('track'); // one leadoff train, then the normal turn
+  });
+
+  it('offers and buys the unlimited (∞) diesel via trade-in in phase 7', () => {
+    let s = toOperating();
+    s.phase = '7';
+    s.or!.step = 'trains';
+    AG(s).trains = ['5']; // one train (the phase-7 minor limit)
+    AG(s).cash = 900;
+    const v = operatingView(s)!;
+    expect(v.dieselName).toBe('∞');
+    expect(v.dieselAvailable).toBe(true);
+    expect(v.dieselTradeIns).toContainEqual({ train: '5', price: 800 }); // 1000 - 200 trade-in
+    s = apply(s, { type: 'buy_train', player: 'p1', corp: 'AG', train: '∞', tradeIn: '5' });
+    expect(AG(s).trains).toEqual(['∞']); // 5 swapped for the ∞ (count stays within the limit)
+    expect(AG(s).cash).toBe(100); // 900 - 800
+  });
+
+  it('enforces the minor train limit (2 in the early phases)', () => {
+    const s = toOperating();
+    AG(s).trains = ['2', '2']; // phase 2: a minor may hold at most 2 trains
+    AG(s).cash = 1000;
+    s.or!.step = 'trains';
+    expect(operatingView(s)!.canBuyTrain).toBeNull(); // no buy offered at the limit
+    expect(() => apply(s, { type: 'buy_train', player: 'p1', corp: 'AG', train: '2' })).toThrow(/limit/i);
+  });
+
+  it('does not let the president fund an optional train buy (only emergencies)', () => {
+    const s = toOperating(); // AG at the leadoff step (an optional buy)
+    AG(s).cash = 50; // treasury short of the 100 price
+    s.players[0].cash = 1000; // president is flush, but may not chip in
+    expect(() => apply(s, { type: 'buy_train', player: 'p1', corp: 'AG', train: '2' })).toThrow(/afford/i);
   });
 
   it('skipping the leadoff moves to the track step; later ORs skip it entirely', () => {

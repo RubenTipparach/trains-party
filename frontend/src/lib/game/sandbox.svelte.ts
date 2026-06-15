@@ -60,6 +60,10 @@ class Sandbox {
   /** Procedural-map seed (RoLA) and how the map is built. */
   seed = $state(1);
   mapMode = $state<'auto' | 'manual'>('auto');
+  /** RoLA hostile-mergers variant: refused cross-player mergers go to a share vote. */
+  hostileMergers = $state(false);
+  /** RoLA local-routes rule (a hub-city-alone run): default on. */
+  localRoutes = $state(true);
   /** Active room code: the game is saved under it; the URL is /<title>/room/<code>. */
   code = $state('');
   /** When this room was created (for the lobby). */
@@ -73,7 +77,7 @@ class Sandbox {
   error = $state<string | null>(null);
 
   private base = $derived(
-    initialState(seatIds(this.seats), this.title, RULES_VERSION, { seed: this.seed, mapMode: this.mapMode })
+    initialState(seatIds(this.seats), this.title, RULES_VERSION, { seed: this.seed, mapMode: this.mapMode, hostileMergers: this.hostileMergers, localRoutes: this.localRoutes })
   );
 
   /** The live (latest) game state. */
@@ -83,7 +87,7 @@ class Sandbox {
   /** The state shown to the user (live, or an earlier point while reviewing). */
   state = $derived(
     replay(
-      initialState(seatIds(this.seats), this.title, RULES_VERSION, { seed: this.seed, mapMode: this.mapMode }),
+      initialState(seatIds(this.seats), this.title, RULES_VERSION, { seed: this.seed, mapMode: this.mapMode, hostileMergers: this.hostileMergers, localRoutes: this.localRoutes }),
       this.actions.slice(0, this.cursor)
     )
   );
@@ -126,12 +130,14 @@ class Sandbox {
   newGame(
     seats: SeatConfig[],
     title = '1889',
-    opts: { seed?: number; mapMode?: 'auto' | 'manual'; code?: string } = {}
+    opts: { seed?: number; mapMode?: 'auto' | 'manual'; hostileMergers?: boolean; localRoutes?: boolean; code?: string } = {}
   ): string {
     this.seats = seats;
     this.title = title;
     this.seed = opts.seed ?? Math.floor(Math.random() * 1_000_000_000);
     this.mapMode = opts.mapMode ?? 'auto';
+    this.hostileMergers = opts.hostileMergers ?? false;
+    this.localRoutes = opts.localRoutes ?? true;
     this.code = opts.code ? normCode(opts.code) : newCode();
     this.createdAt = Date.now();
     this.actions = [];
@@ -143,7 +149,12 @@ class Sandbox {
   }
   /** Restart the current room from scratch (same code). */
   reset() {
-    this.newGame(this.seats, this.title, { code: this.code, mapMode: this.mapMode });
+    this.newGame(this.seats, this.title, {
+      code: this.code,
+      mapMode: this.mapMode,
+      hostileMergers: this.hostileMergers,
+      localRoutes: this.localRoutes
+    });
   }
 
   act(action: GameAction) {
@@ -152,7 +163,7 @@ class Sandbox {
     try {
       const next = apply(
         replay(
-          initialState(seatIds(this.seats), this.title, RULES_VERSION, { seed: this.seed, mapMode: this.mapMode }),
+          initialState(seatIds(this.seats), this.title, RULES_VERSION, { seed: this.seed, mapMode: this.mapMode, hostileMergers: this.hostileMergers, localRoutes: this.localRoutes }),
           this.actions
         ),
         action
@@ -220,6 +231,8 @@ class Sandbox {
       title: this.title,
       seed: this.seed,
       mapMode: this.mapMode,
+      hostileMergers: this.hostileMergers,
+      localRoutes: this.localRoutes,
       seats: $state.snapshot(this.seats) as SeatConfig[],
       actions: $state.snapshot(this.actions) as GameAction[],
       status: statusOf(this.live),
@@ -244,7 +257,9 @@ class Sandbox {
     }
     const base = initialState(seatIds(sess.seats), sess.title, RULES_VERSION, {
       seed: sess.seed,
-      mapMode: sess.mapMode
+      mapMode: sess.mapMode,
+      hostileMergers: sess.hostileMergers,
+      localRoutes: sess.localRoutes
     });
     const valid: GameAction[] = [];
     let s = base;
@@ -260,6 +275,8 @@ class Sandbox {
     this.title = sess.title;
     this.seed = sess.seed;
     this.mapMode = sess.mapMode;
+    this.hostileMergers = sess.hostileMergers ?? false;
+    this.localRoutes = sess.localRoutes ?? true;
     this.code = normCode(code);
     this.createdAt = sess.createdAt ?? Date.now();
     this.actions = valid;

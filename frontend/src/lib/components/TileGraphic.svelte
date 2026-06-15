@@ -8,6 +8,9 @@
 
   const R = 28;
   const AP = (Math.sqrt(3) / 2) * R;
+  // Capital City star marker (label "C"), drawn inside the city slot.
+  const STAR =
+    'M 0.00 -8.00 L 2.00 -2.75 L 7.61 -2.47 L 3.23 1.05 L 4.70 6.47 L 0.00 3.40 L -4.70 6.47 L -3.23 1.05 L -7.61 -2.47 L -2.00 -2.75 Z';
   const FILL: Record<TileColor, string> = {
     white: '#e7dcbf',
     yellow: '#f3cf3e',
@@ -42,22 +45,30 @@
 
 <div class="tile">
   <svg viewBox="-34 -30 68 60" aria-label="tile {id}">
-    <polygon points={poly} fill={fillOf(def.color)} stroke="#4a4332" stroke-width="1.2" />
-    {#each def.paths as p}
-      <path d={d(p)} class="ties" />
-      <path d={d(p)} class="rail" />
-    {/each}
-    {#if def.cities > 0}
-      {#each slotXs(def.slots) as x}
-        <circle cx={x} r="6.5" class="city" />
+    {#if def}
+      <polygon points={poly} fill={fillOf(def.color)} stroke="#4a4332" stroke-width="1.2" />
+      {#each def.paths as p}
+        <path d={d(p)} class="ties" />
+        <path d={d(p)} class="rail" />
       {/each}
-      <text class="rev" x="0" y="-14" text-anchor="middle">{def.revenue}</text>
-    {:else if def.towns > 0}
-      <rect x="-8" y="-3.5" width="16" height="7" rx="2" class="town" />
-      <text class="rev" x="0" y="-12" text-anchor="middle">{def.revenue}</text>
+      {#if def.cities > 0}
+        {#each slotXs(def.slots) as x}
+          <circle cx={x} r="6.5" class="city" />
+          {#if def.label === 'C'}<path d={STAR} transform="translate({x} 0) scale(0.58)" class="capstar" />{/if}
+        {/each}
+        <text class="rev" x="0" y="-14" text-anchor="middle">{def.revenue}</text>
+      {:else if def.towns > 0}
+        <rect x="-8" y="-3.5" width="16" height="7" rx="2" class="town" />
+        <text class="rev" x="0" y="-12" text-anchor="middle">{def.revenue}</text>
+      {/if}
+      <!-- the "C" capital label is conveyed by the star in the city, so skip it -->
+      {#if def.label && def.label !== 'C'}<text class="label" x="15" y="-15" text-anchor="middle">{def.label}</text>{/if}
+      {#if def.port}<text class="port" x="0" y="3" text-anchor="middle">⚓</text>{/if}
+    {:else}
+      <!-- unknown tile id: render a neutral placeholder rather than crash the panel -->
+      <polygon points={poly} fill="#3a3a3a" stroke="#4a4332" stroke-width="1.2" />
+      <text x="0" y="4" text-anchor="middle" fill="#cdd6df" font-size="12">?</text>
     {/if}
-    {#if def.label}<text class="label" x="15" y="-15" text-anchor="middle">{def.label}</text>{/if}
-    {#if def.port}<text class="port" x="0" y="3" text-anchor="middle">⚓</text>{/if}
   </svg>
   {#if !bare}
     <div class="cap"><span class="tid">#{id}</span>{#if count}<span class="tn">×{count}</span>{/if}</div>
@@ -93,6 +104,12 @@
     fill: #e9e2c9;
     stroke: #1b1b1b;
     stroke-width: 2.2;
+  }
+  .capstar {
+    fill: #f5c542;
+    stroke: #1c2a36;
+    stroke-width: 1.6;
+    stroke-linejoin: round;
   }
   .town {
     fill: #1b1b1b;

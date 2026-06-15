@@ -11,10 +11,12 @@
   import RoundTracker from '$lib/components/RoundTracker.svelte';
   import OperatingPanel from '$lib/components/OperatingPanel.svelte';
   import MergerPanel from '$lib/components/MergerPanel.svelte';
+  import LogPanel from '$lib/components/LogPanel.svelte';
   import Spreadsheet from '$lib/components/Spreadsheet.svelte';
   import TileGraphic from '$lib/components/TileGraphic.svelte';
   import PrivateChip from '$lib/components/PrivateChip.svelte';
   import { game } from '$lib/game/sandbox.svelte';
+  import { highlight } from '$lib/game/highlight.svelte';
   import { playerValue, playerLiquidity, configFor, currencyFor, operatingView } from '$lib/engine';
   import { BUILD_SHA } from '$lib/version';
 
@@ -114,6 +116,17 @@
     }
   });
 
+  // When the game transitions INTO a stock round, surface the Game panel so the
+  // player sees the share-trading UI without having to open it. (The CLAUDE.md
+  // "panes never auto-switch" rule is intentionally overridden here per request:
+  // the stock round is the one moment the action UI must come forward.)
+  let lastRound = game.state.round;
+  $effect(() => {
+    const r = game.state.round;
+    if (r === 'stock' && lastRound !== 'stock') active = 'game';
+    lastRound = r;
+  });
+
   // Floating-toolbar panels. The map is not a panel: it is the background.
   const tabs = [
     {
@@ -125,6 +138,11 @@
       id: 'game',
       label: 'Game',
       icon: '<path d="M7 5.3v13.4a.6.6 0 0 0 .92.5l10.5-6.7a.6.6 0 0 0 0-1L7.92 4.8a.6.6 0 0 0-.92.5z"/>'
+    },
+    {
+      id: 'log',
+      label: 'Log',
+      icon: '<rect x="4" y="3.5" width="16" height="17" rx="2"/><path d="M8 8h8"/><path d="M8 12h8"/><path d="M8 16h5"/>'
     },
     {
       id: 'market',
@@ -160,13 +178,67 @@
     active = active === id ? null : id;
   }
 
+  // Map-generation inspection (Tiles panel): group the generated hexes by type so
+  // hovering one spotlights them on the board, and find where a laid tile id sits.
+  const mapHexes = $derived(game.state.map ?? configFor(game.title).hexByCoord);
+  const terrainGroups = $derived.by(() => {
+    const g = {
+      Cities: [] as string[], Capitals: [] as string[], Mountains: [] as string[],
+      Water: [] as string[], Plains: [] as string[]
+    };
+    for (const [coord, h] of Object.entries(mapHexes)) {
+      if (h.offboard) continue;
+      if (h.cities?.some((c) => c.capital)) g.Capitals.push(coord);
+      else if (h.cities?.length) g.Cities.push(coord);
+      else if (h.terrain?.includes('mountain')) g.Mountains.push(coord);
+      else if (h.terrain?.includes('water')) g.Water.push(coord);
+      else g.Plains.push(coord);
+    }
+    return Object.entries(g) as [string, string[]][];
+  });
+  const laidOf = (id: string) =>
+    Object.entries(game.state.tiles).filter(([, t]) => t.id === id).map(([c]) => c);
+  // clear the spotlight whenever the panel changes / closes
+  $effect(() => {
+    void active;
+    highlight.clear();
+  });
+
+  // Debug: copy the full replayable game (title, seed, seats, action log) so it
+  // can be pasted back for diagnosis. The log + seed reproduce the exact board.
+  let debugMsg = $state('');
+  async function copyDebug() {
+    const dump = JSON.stringify({
+      title: game.title,
+      seed: game.seed,
+      mapMode: game.mapMode,
+      hostileMergers: game.hostileMergers,
+      seats: $state.snapshot(game.seats),
+      actions: $state.snapshot(game.actions),
+      build: BUILD_SHA
+    });
+    try {
+      await navigator.clipboard.writeText(dump);
+      debugMsg = `Copied (${game.actions.length} actions). Paste it to share your board.`;
+    } catch {
+      console.log('[trains-party debug state]', dump);
+      debugMsg = 'Clipboard blocked - logged to the browser console (F12) instead.';
+    }
+  }
+
   // The current operation (OR/MR) lives in its OWN always-on panel, separate
   // from the tab system: a bottom sheet on mobile, a floating panel on desktop.
   const opPanel = $derived(
     game.state.round === 'operating' || game.state.round === 'merger'
   );
-  // A full-screen modal covering the map pauses its renderer (mobile).
-  const mapPaused = $derived(isMobile && !!active);
+  // During an operating/merger round the play screen IS the map plus the always-on
+  // operation panel, so the Game (play) tab opens no independent overlay: selecting
+  // it just shows the board. Other tabs still open over the map as usual.
+  const panelOpen = $derived(!!active && !(active === 'game' && opPanel));
+  // A full-screen modal covering the map pauses its renderer (mobile). During an
+  // OR the Game tab shows the board (panelOpen is false there), so the map must
+  // keep rendering and stay tappable - pause only when an overlay actually covers it.
+  const mapPaused = $derived(isMobile && panelOpen);
 
   // Always-visible status pill: round, active player (seat colour), bank.
   const seatColor = (id: string) => {
@@ -206,12 +278,13 @@
   class="board-root"
   class:theme-rola={isRola}
   class:opdock={opPanel}
+  class:panelopen={panelOpen}
   class:sheetdrag={sheetDragging}
   style="--sheeth:{sheetH}%"
 >
   <!-- the map: full-screen, always on, the board's background. On desktop the
        open panel pushes it over so the board re-centres in the visible space. -->
-  <div class="maplayer" class:squeezed={!!active}>
+  <div class="maplayer" class:squeezed={panelOpen}>
     <HexMap
       fill
       paused={mapPaused}
@@ -281,6 +354,12 @@
       >
         <span class="ogrip"></span>
       </div>
+      <!-- desktop: the room title lives at the top of the docked panel (the
+           floating chip is hidden during ORs so the centred status bar is clear) -->
+      <div class="optitle">
+        <span class="rtitle">{meta.title}</span>
+        {#if game.code}<span class="rcode">Room {game.code.toUpperCase()}</span>{/if}
+      </div>
       <div class="opstatus" class:myturn={game.canAct} style="--p:{seatColor(game.active ?? '')}">
         {@render turnStatus()}
       </div>
@@ -290,7 +369,7 @@
     </section>
   {/if}
 
-  {#if active}
+  {#if panelOpen}
     <!-- mobile-only scrim behind the modal -->
     <button class="scrim" aria-label="Close panel" onclick={() => (active = null)} transition:fade={{ duration: 120 }}></button>
   {/if}
@@ -298,7 +377,7 @@
   <!-- the toolbar + panel shell: tabs merge into the open panel. Mobile: a
        horizontal bar at the top that the modal hangs from. Desktop: a vertical
        rail on the panel's left edge, the whole shell docked to the right. -->
-  <div class="shell" class:open={!!active}>
+  <div class="shell" class:open={panelOpen}>
     <nav class="dock" aria-label="Board sections">
       {#each tabs as t, i (t.id)}
         <button
@@ -315,7 +394,7 @@
       {/each}
     </nav>
 
-    {#if active && activeTab}
+    {#if panelOpen && activeTab}
     <aside class="panelhost" transition:fade={{ duration: 140 }} aria-label={activeTab.label}>
       <header class="phead">
         <svg class="picon" viewBox="0 0 24 24">{@html activeTab.icon}</svg>
@@ -337,10 +416,20 @@
                   </button>
                 </div>
                 <a class="mlobby" href="{base}/">Return to lobby</a>
+                <div class="mrow">
+                  <div class="mtext">
+                    <span class="mname">Copy game state</span>
+                    <span class="mdesc">Copies the full action log (for bug reports / sharing your exact board).</span>
+                  </div>
+                  <button class="mtoggle" onclick={copyDebug}>Copy</button>
+                </div>
+                {#if debugMsg}<p class="mdesc" style="margin:0">{debugMsg}</p>{/if}
                 <p class="mbuild">{meta.title}{game.code ? ` · Room ${game.code.toUpperCase()}` : ''} · build {BUILD_SHA}</p>
               </div>
             {:else if active === 'game'}
               <GamePanel />
+            {:else if active === 'log'}
+              <LogPanel />
             {:else if active === 'spreadsheet'}
               <Spreadsheet />
             {:else if active === 'market'}
@@ -522,13 +611,39 @@
                 </section>
               {/if}
             {:else if active === 'tiles'}
+              <section>
+                <h3>Generated map <span class="count">hover to spotlight</span></h3>
+                <div class="terrains">
+                  {#each terrainGroups as [label, coords] (label)}
+                    <button
+                      class="terrain"
+                      onmouseenter={() => highlight.set(coords)}
+                      onmouseleave={() => highlight.clear()}
+                      onfocus={() => highlight.set(coords)}
+                      onblur={() => highlight.clear()}
+                    >
+                      <span class="tlabel">{label}</span><span class="tnum">{coords.length}</span>
+                    </button>
+                  {/each}
+                </div>
+                <p class="legend">Hover a terrain type to highlight every hex of that type on the board (verifies the procedural generation).</p>
+              </section>
               <h3>Tile manifest <span class="count">{cfg.tileManifest.reduce((n, t) => n + t.count, 0)} tiles</span></h3>
               <div class="tiles">
                 {#each cfg.tileManifest as t (t.id)}
-                  <TileGraphic id={t.id} count={t.count} />
+                  <button
+                    class="tilebtn"
+                    title={laidOf(t.id).length ? `laid at ${laidOf(t.id).join(', ')}` : 'not yet laid'}
+                    onmouseenter={() => highlight.set(laidOf(t.id))}
+                    onmouseleave={() => highlight.clear()}
+                    onfocus={() => highlight.set(laidOf(t.id))}
+                    onblur={() => highlight.clear()}
+                  >
+                    <TileGraphic id={t.id} count={t.count} />
+                  </button>
                 {/each}
               </div>
-              <p class="legend">Each tile and how many are available, coloured by phase ({isRola ? 'yellow / green / purple / grey' : 'yellow / green / brown'}).</p>
+              <p class="legend">Each tile and how many are available, coloured by phase ({isRola ? 'yellow / green / purple / grey' : 'yellow / green / brown'}). Hover a tile to spotlight where it's laid.</p>
             {/if}
           </div>
         {/key}
@@ -558,7 +673,7 @@
     position: absolute;
     inset: 0;
     z-index: 0;
-    transition: right 240ms ease, bottom 240ms ease;
+    transition: left 240ms ease, right 240ms ease, bottom 240ms ease;
   }
   .loadingroom {
     min-height: 60vh;
@@ -938,6 +1053,10 @@
   .opstatus {
     display: none;
   }
+  /* room title in the op-panel header: desktop only (mobile uses the bottom sheet) */
+  .optitle {
+    display: none;
+  }
   /* drag handle to resize the bottom sheet: mobile only */
   .ophandle {
     display: none;
@@ -1015,18 +1134,39 @@
     }
   }
   @media (min-width: 920px) {
-    /* desktop: a floating panel along the bottom-centre, clear of the dock */
+    /* desktop: dock the operation panel as a full-height column on the LEFT edge,
+       and shift the board (with its in-map zoom controls) clear of it. */
+    .board-root {
+      --opw: 380px;
+    }
     .oppanel {
-      left: 50%;
-      transform: translateX(-50%);
+      left: 0;
+      top: 0;
       bottom: 0;
-      width: min(560px, calc(100vw - 700px));
-      min-width: 380px;
-      max-height: 48vh;
-      border-radius: 14px 14px 0 0;
-      border-bottom: none;
-      background: color-mix(in srgb, var(--bg) 94%, transparent);
-      backdrop-filter: blur(10px);
+      width: var(--opw);
+      max-height: none;
+      border-radius: 0 14px 14px 0;
+      border-left: none;
+      /* solid background: a blurred backdrop over a full-height edge re-composites
+         every frame while the board pans beside it and makes panning stutter. */
+      background: var(--bg);
+    }
+    .optitle {
+      display: flex;
+      align-items: baseline;
+      gap: 0.55rem;
+      padding: 0.6rem 0.9rem 0.2rem;
+    }
+    .board-root.opdock .maplayer {
+      left: var(--opw);
+    }
+    /* keep the floating tracker out from under the docked panel; the room title
+       moves into the panel header, so hide the floating chip during ORs. */
+    .board-root.opdock .trackerfloat {
+      left: calc(var(--opw) + 64px);
+    }
+    .board-root.opdock .roomchip {
+      display: none;
     }
   }
 
@@ -1075,15 +1215,21 @@
     .roomchip {
       display: inline-flex;
     }
+    /* Always centred over the *visible board*: the left/right docked panels set
+       --leftpad/--rightpad, and the pill centres in the space between them rather
+       than being pushed toward a corner. */
+    .board-root.opdock {
+      --leftpad: var(--opw);
+    }
+    .board-root.panelopen {
+      --rightpad: var(--shellw);
+    }
     .statusbar {
       bottom: auto;
       top: 14px;
-      max-width: min(60vw, 700px);
+      max-width: min(46vw, 640px);
       transition: left 240ms ease;
-    }
-    /* centre the pill over the visible map while the panel is open */
-    .statusbar.shifted {
-      left: calc((100vw - var(--shellw)) / 2);
+      left: calc(var(--leftpad, 0px) + (100vw - var(--leftpad, 0px) - var(--rightpad, 0px)) / 2);
     }
     .scrim {
       display: none;
@@ -1298,6 +1444,42 @@
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
     gap: 0.7rem 0.5rem;
+  }
+  .tilebtn {
+    border: 1px solid transparent;
+    background: none;
+    padding: 0.1rem;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  .tilebtn:hover {
+    border-color: #5fb0e6;
+    background: rgba(95, 176, 230, 0.12);
+  }
+  .terrains {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+  .terrain {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.35rem 0.6rem;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--bg-soft);
+    color: var(--ink);
+    cursor: pointer;
+    font: inherit;
+  }
+  .terrain:hover {
+    border-color: #5fb0e6;
+    background: rgba(95, 176, 230, 0.14);
+  }
+  .terrain .tnum {
+    font-weight: 800;
+    color: #5fb0e6;
   }
   .legend {
     color: var(--muted);

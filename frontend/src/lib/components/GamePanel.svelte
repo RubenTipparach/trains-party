@@ -49,12 +49,6 @@
   // The OR set that follows the current stock round is "OR <srCount>"; while
   // operating, use the live orSet. (orSet only updates when the OR starts.)
   const orSetNum = $derived(game.state.round === 'operating' ? game.state.orSet : game.state.srCount);
-
-  // Newest-first log lines, keyed by their absolute index in the full log so the
-  // {#each} key is guaranteed unique and stable across renders.
-  const logLines = $derived(
-    game.state.log.map((line, idx) => ({ line, idx })).slice(-40).reverse()
-  );
 </script>
 
 <div class="game">
@@ -125,16 +119,6 @@
     {:else}
       <p class="buildlead">The current operation runs in its own panel along the bottom of the screen.</p>
     {/if}
-  </div>
-
-  <!-- log -->
-  <div class="log">
-    <h3>Log</h3>
-    <ul>
-      {#each logLines as entry (entry.idx)}
-        <li>{entry.line}</li>
-      {/each}
-    </ul>
   </div>
 </div>
 
@@ -314,30 +298,6 @@
     border-radius: 8px;
     padding: 0.4rem 0.7rem;
     font-size: 0.85rem;
-  }
-  .log {
-    margin-top: 0.5rem;
-  }
-  .log h3 {
-    font-size: 0.85rem;
-    color: var(--muted);
-    margin: 0 0 0.4rem;
-  }
-  .log ul {
-    list-style: none;
-    margin: 0;
-    padding: 0.6rem 0.8rem;
-    background: var(--bg-soft);
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    max-height: 240px;
-    overflow-y: auto;
-    font: 0.82rem/1.5 ui-monospace, monospace;
-  }
-  .log li {
-    color: #b7c3cf;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-    padding: 0.15rem 0;
   }
   .buildlead {
     margin: 0 0 0.6rem;

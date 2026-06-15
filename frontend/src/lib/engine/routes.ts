@@ -25,6 +25,11 @@ import type { HexDef, TrainDef } from '$lib/data/types';
 
 const opposite = (e: number) => (e + 3) % 6;
 
+/** Local-routes rule on for this game (per-game flag, else the title default). */
+function localRoutesOn(s: GameState): boolean {
+  return s.localRoutes ?? configFor(s.title).localRoutes ?? false;
+}
+
 /** Max revenue centres a train may visit (the diesel is effectively unlimited). */
 function trainMaxStops(trains: TrainDef[], name: string): number {
   const d = trains.find((x) => x.name === name)?.distance ?? 2;
@@ -291,7 +296,7 @@ export function corpRoutes(s: GameState, corp: CorporationState): { routes: Rout
       revenue += pick.route.revenue;
       pick.segs.forEach((x) => usedSegs.add(x));
       pick.links.forEach((x) => usedLinks.add(x));
-    } else if (configFor(s.title).localRoutes) {
+    } else if (localRoutesOn(s)) {
       // RoLA local route: a train that cannot reach a second stop still runs a
       // single stop inside a hub city (no track used; any number per city).
       let best: Route | null = null;
@@ -311,6 +316,20 @@ export function corpRoutes(s: GameState, corp: CorporationState): { routes: Rout
 /** Total run revenue a corporation can earn this OR. */
 export function routeRevenue(s: GameState, corp: CorporationState): number {
   return corpRoutes(s, corp).revenue;
+}
+
+/**
+ * How many revenue centres one of `corp`'s trains may visit this OR, including
+ * the RoLA Express boost (+1 stop while the company owns a single train). This is
+ * the authoritative reach the UI must use when resolving hand-picked routes, so a
+ * boosted train is not rejected for "too many stops".
+ */
+export function trainReach(s: GameState, corp: CorporationState, train: string): number {
+  const trainDefs = configFor(s.title).trains;
+  const roster = [...corp.trains, ...(corp.rustedTrains ?? [])];
+  const expressBoost =
+    roster.length === 1 && rolaAbility(s.title, corp, 'boost_stop_if_single_train') ? 1 : 0;
+  return trainMaxStops(trainDefs, train) + expressBoost;
 }
 
 /**
@@ -346,7 +365,7 @@ export function routeThroughStops(
   diesel = false
 ): { route: Route; segs: Set<string>; links: Set<string> } | null {
   if (stops.length === 1) {
-    if (!configFor(s.title).localRoutes) return null;
+    if (!localRoutesOn(s)) return null;
     if (!corp?.tokenHexes.includes(stops[0])) return null; // local runs stay in a hub city
     const rev = centreRevenue(s, stops[0], diesel, corp);
     return rev > 0 ? { route: { hexes: [...stops], revenue: rev, segs: [] }, segs: new Set<string>(), links: new Set<string>() } : null;
@@ -420,7 +439,7 @@ export function routeThroughStops(
     if (!link) return null;
     link.segs.forEach((x) => segs.add(x));
     link.links.forEach((x) => links.add(x));
-    revenue += centreRevenue(s, stops[i + 1], diesel);
+    revenue += centreRevenue(s, stops[i + 1], diesel, corp); // corp -> suburb bonus at every stop
   }
   return { route: { hexes: [...stops], revenue, segs: [...segs] }, segs, links };
 }
@@ -432,7 +451,7 @@ export function routeThroughStops(
  * route includes a city the corporation has tokened. Throws on any illegal choice.
  */
 export function revenueForChosenRoutes(s: GameState, corp: CorporationState, routes: string[][]): number {
-  const chosen = routes.filter((r) => r.length >= 2);
+  const chosen = routes.filter((r) => r.length >= 1); // 1 stop = a RoLA local route
   if (chosen.length === 0) return 0;
   const trainDefs = configFor(s.title).trains;
   const roster = [...corp.trains, ...(corp.rustedTrains ?? [])];

@@ -11,8 +11,7 @@
  * the player commits (pay/withhold) the OR engine recomputes revenue itself.
  */
 
-import { corpRoutes, routeThroughStops, TRAIN_ROUTE_COLORS, type GameState, type Route } from '$lib/engine';
-import { TRAINS } from '$lib/data/g1889';
+import { corpRoutes, routeThroughStops, trainReach, TRAIN_ROUTE_COLORS, type GameState, type Route } from '$lib/engine';
 
 export interface TrainRoute {
   train: string; // train name, e.g. "3"
@@ -20,11 +19,6 @@ export interface TrainRoute {
   stops: string[]; // ordered revenue-centre hexes the player has chosen
   route: Route | null; // resolved route (null until >= 2 connectable stops)
   revenue: number;
-}
-
-function trainDistance(name: string): number {
-  const d = TRAINS.find((t) => t.name === name)?.distance ?? 2;
-  return d > 90 ? 99 : d;
 }
 
 export interface AnimRoute {
@@ -84,9 +78,9 @@ class Routing {
     this.manual = false;
   }
 
-  /** The player's chosen stop-lists per train (>= 2 stops), for the run action. */
+  /** The player's chosen stop-lists per train (resolved routes), for the run action. */
   chosenRoutes(): string[][] {
-    return this.trains.filter((t) => t.stops.length >= 2).map((t) => [...t.stops]);
+    return this.trains.filter((t) => t.route).map((t) => [...t.stops]);
   }
 
   /**
@@ -96,7 +90,7 @@ class Routing {
    */
   capture(): boolean {
     this.pending = this.trains
-      .filter((t) => t.route && t.route.hexes.length >= 2)
+      .filter((t) => t.route && t.route.hexes.length >= 1)
       .map((t) => ({ color: t.color, hexes: [...t.route!.hexes], revenue: t.revenue }));
     return this.pending.length > 0;
   }
@@ -132,8 +126,13 @@ class Routing {
     for (const t of this.trains) {
       t.route = null;
       t.revenue = 0;
-      if (t.stops.length < 2) continue;
-      const res = routeThroughStops(s, t.stops, trainDistance(t.train), usedSegs, usedLinks, corp);
+      if (t.stops.length < 1) continue;
+      // 1 stop = a RoLA local route (a single hub city, no track); 2+ = a normal
+      // route. routeThroughStops resolves both. The reach includes the Express
+      // boost (+1 stop for a single-train company), so a boosted route is not
+      // rejected for exceeding the train's base distance.
+      const maxStops = corp ? trainReach(s, corp, t.train) : 2;
+      const res = routeThroughStops(s, t.stops, maxStops, usedSegs, usedLinks, corp);
       if (res) {
         t.route = res.route;
         t.revenue = res.route.revenue;
@@ -162,7 +161,7 @@ class Routing {
     if (!c) return;
     const { routes } = corpRoutes(s, c);
     // Match engine routes (longest-train-first) to our train chips in the same order.
-    const order = [...this.trains].sort((a, b) => trainDistance(b.train) - trainDistance(a.train));
+    const order = [...this.trains].sort((a, b) => trainReach(s, c, b.train) - trainReach(s, c, a.train));
     order.forEach((t, i) => {
       const r = routes[i];
       t.stops = r ? [...r.hexes] : [];

@@ -3,6 +3,7 @@
   import { CURRENCY, MARKET } from '$lib/data/g1889';
 
   const SEAT = ['#f5c542', '#3fb6a8', '#e0655c', '#9b8cf0', '#7cc36b', '#e8923a'];
+  const isRola = $derived(game.title === 'rola');
 
   function held(playerId: string, sym: string): number {
     return game.state.players.find((p) => p.id === playerId)?.shares[sym] ?? 0;
@@ -58,7 +59,7 @@
 <div class="scroll">
   <table>
     <thead>
-      <tr><th>Corp</th><th>President</th><th>Par</th><th>Price</th><th>Cash</th><th>Trains</th><th>Privates</th><th>IPO</th><th>Pool</th><th>Floated</th></tr>
+      <tr><th>Corp</th><th>President</th><th>Par</th><th>Price</th><th>Cash</th><th>Trains</th><th>Privates</th><th>{isRola ? 'Treasury' : 'IPO'}</th><th>Pool</th><th>Floated</th></tr>
     </thead>
     <tbody>
       {#each game.state.corporations as c}

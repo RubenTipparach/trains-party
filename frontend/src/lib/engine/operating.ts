@@ -238,6 +238,8 @@ function doRun(s: GameState, c: CorporationState, revenue: number, mode: 'pay' |
     s.log.push(`${c.sym}'s rusted ${c.rustedTrains.join(', ')}-train(s) are discarded after their final run`);
     c.rustedTrains = [];
   }
+  // Record this run for the company card (gross revenue + dividend handling).
+  c.lastRun = { revenue, mode };
   const linear = configFor(s.title).marketKind === 'linear';
   if (mode === 'pay' && revenue > 0) {
     // Each holder is paid in proportion to the percent they hold (so this works
@@ -437,7 +439,7 @@ function doBuyTrain(s: GameState, c: CorporationState, train: string, tradeIn?: 
 
 /** Cheapest train a corp may buy next: top of the depot stack, or any cheaper
  * discard sitting in the bank pool (forced purchases pick the lowest price). */
-function cheapestDepotTrain(s: GameState): { name: string; price: number } | null {
+export function cheapestBuyableTrain(s: GameState): { name: string; price: number } | null {
   const cfg = configFor(s.title);
   const d = s.depot.find((x) => x.remaining !== 0);
   let best: { name: string; price: number } | null = null;
@@ -462,7 +464,7 @@ export function mustBuyTrain(s: GameState, c: CorporationState): boolean {
 export function emergencyFor(s: GameState, c: CorporationState): { train: string; price: number } | null {
   if (!s.or || s.or.step !== 'trains') return null;
   if (!mustBuyTrain(s, c)) return null;
-  const cheapest = cheapestDepotTrain(s);
+  const cheapest = cheapestBuyableTrain(s);
   if (!cheapest) return null;
   if (c.cash >= cheapest.price) return null; // affordable: mandatory but not an emergency
   return { train: cheapest.name, price: cheapest.price };
@@ -747,6 +749,8 @@ export interface OperatingView {
   orNumber: number;
   orsThisSet: number;
   canBuyTrain: string | null; // cheapest depot train name, or null
+  /** Name of the unlimited "diesel" train for this title (1889 D / RoLA ∞), or null. */
+  dieselName: string | null;
   /** The diesel may be bought now (phase reached and depot has one). */
   dieselAvailable: boolean;
   dieselPrice: number;
@@ -774,8 +778,9 @@ export function operatingView(s: GameState): OperatingView | null {
   if (!s.or) return null;
   const c = activeCorp(s);
   const cheapest = s.depot.find((x) => x.remaining !== 0);
-  const diesel = configFor(s.title).trains.find((t) => t.name === 'D');
-  const dDepot = s.depot.find((d) => d.name === 'D');
+  // The "diesel" (unlimited) train is the one gated by availableOn: 1889 'D', RoLA '∞'.
+  const diesel = configFor(s.title).trains.find((t) => t.availableOn);
+  const dDepot = diesel ? s.depot.find((d) => d.name === diesel.name) : undefined;
   const dieselAvailable =
     !!diesel?.availableOn && phaseReached(s, diesel.availableOn) && !!dDepot && dDepot.remaining !== 0;
   const owned = new Set(c.trains);
@@ -808,7 +813,10 @@ export function operatingView(s: GameState): OperatingView | null {
     index: s.or.index,
     orNumber: s.or.orNumber,
     orsThisSet: s.or.orsThisSet,
-    canBuyTrain: cheapest ? cheapest.name : null,
+    // Only offer a plain buy when below the train limit (a company at its limit
+    // can still take a new train via a trade-in - that is surfaced separately).
+    canBuyTrain: cheapest && c.trains.length < trainLimit(s, c) ? cheapest.name : null,
+    dieselName: diesel?.name ?? null,
     dieselAvailable,
     dieselPrice: diesel?.price ?? 0,
     dieselTradeIns,

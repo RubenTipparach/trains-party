@@ -7,10 +7,11 @@
   import { mapView } from '$lib/config/mapView';
   import { WATER_BASE, WATER_STATIC, WATER_FRAMES, TILE_W, TILE_H } from '$lib/config/waterArt';
   import { game } from '$lib/game/sandbox.svelte';
+  import { highlight } from '$lib/game/highlight.svelte';
   import { anim } from '$lib/game/anim.svelte';
   import { routing } from '$lib/game/routing.svelte';
   import { locate } from '$lib/game/locate.svelte';
-  import { TILES, rotatePaths, trackLays, tokenPlays, corpRoutes, routeThroughStops, tileSupply, exhaustedTilesOnHex, configFor, placementCoords, isLegalPlacement } from '$lib/engine';
+  import { TILES, rotatePaths, trackLays, tokenPlays, corpRoutes, routeThroughStops, neighbor, tileSupply, exhaustedTilesOnHex, configFor, placementCoords, isLegalPlacement } from '$lib/engine';
   import TileGraphic from './TileGraphic.svelte';
 
   // The active board: a procedurally-built RoLA runtime map (state.map), or the
@@ -122,7 +123,9 @@
     runMode = false,
     fill = false,
     paused = false,
-    liftControls = false
+    liftControls = false,
+    pickHexes = [],
+    onpick
   }: {
     layMode?: boolean;
     tokenMode?: boolean;
@@ -130,7 +133,13 @@
     fill?: boolean;
     paused?: boolean;
     liftControls?: boolean;
+    /** "Choose a space" mode: these hexes glow and clicking one calls onpick. */
+    pickHexes?: string[];
+    onpick?: (hex: string) => void;
   } = $props();
+  const pickSet = $derived(new Set(pickHexes));
+  // Spotlight hexes hovered in the Tiles panel (map-generation inspection).
+  const spotlight = $derived(new Set(highlight.hexes));
   const lays = $derived(layMode ? trackLays(game.state) : []);
   const layHexes = $derived(new Set(lays.map((l) => l.hex)));
   const tokenHexes = $derived(tokenMode ? new Set(tokenPlays(game.state).map((t) => t.hex)) : new Set<string>());
@@ -278,6 +287,23 @@
     return tilePaths(t.id, t.rotation);
   }
 
+  // A multi-slot city renders as N discrete token circles (not one long
+  // stadium). These give the horizontal centre of each slot and the slot count
+  // for a hex, so the circles and the tokens that fill them line up. The offsets
+  // mirror the inventory tile (TileGraphic's slotXs) at the map's 2x scale, so a
+  // city looks the same on the board as in the tile tray.
+  function slotCenters(n: number): number[] {
+    if (n <= 1) return [0];
+    if (n === 2) return [-14, 14];
+    if (n === 3) return [-18, 0, 18];
+    return Array.from({ length: n }, (_, i) => (i - (n - 1) / 2) * 18);
+  }
+  function slotsAt(coord: string): number {
+    const d = laidDef(coord);
+    if (d) return d.cities > 0 ? (d.slots ?? 1) : 0;
+    return activeMap[coord]?.cities?.[0]?.slots ?? 0;
+  }
+
   // --- train run animation -------------------------------------------------
   // When a corporation pays a dividend, drive a top-down train (a locomotive
   // pulling a couple of cars) smoothly along its best route: it emerges from a
@@ -330,7 +356,7 @@
   /** Animate one route; resolves true when finished, false if skipped. */
   function animateRoute(
     pts: { x: number; y: number }[],
-    stopRev: number[],
+    stopRev: (number | null)[],
     color: string
   ): Promise<boolean> {
     return new Promise((resolve) => {
@@ -361,6 +387,7 @@
       const frame = (now: number) => {
         if (anim.token !== tok) {
           cleanup();
+          anim.end(tok); // already-skipped is a no-op, but keep the flag in sync
           resolve(false);
           return; // skipped
         }
@@ -373,14 +400,17 @@
           cars.push({ ...p, opacity: fade(s) });
         }
         train = { cars, color };
-        // Glow + coin as the locomotive reaches each revenue centre.
+        // Glow + coin as the locomotive reaches each revenue centre. Track-only
+        // vertices (edge midpoints between stops) carry a null revenue and fire
+        // nothing - the train just rides the rail through them.
         for (let i = 0; i < pts.length; i++) {
           if (!fired[i] && head >= cum[i]) {
             fired[i] = true;
+            const val = stopRev[i];
+            if (val == null) continue;
             const gid = ++glowId;
             glows = [...glows, { id: gid, x: pts[i].x, y: pts[i].y, color }];
             setTimeout(() => (glows = glows.filter((g) => g.id !== gid)), 1200);
-            const val = stopRev[i] || 0;
             if (val > 0) {
               const id = ++coinId;
               coins = [...coins, { id, x: pts[i].x, y: pts[i].y, val, color }];
@@ -390,6 +420,7 @@
         }
         if (t >= 1) {
           cleanup();
+          anim.end(tok); // clear the pacing flag so the Skip button hides
           resolve(true);
           return;
         }
@@ -425,14 +456,78 @@
     // Run each of the corporation's trains along its route in turn.
     for (const route of routes) {
       if (route.hexes.length < 2) continue;
-      const pts = route.hexes.map((h) => hexCenter(h));
-      const stopRev = route.hexes.map((h) => stopRevenue(snap, h));
+      // Follow the laid track (centre -> edge -> edge -> centre) so the train
+      // rides the rails between stops instead of cutting straight across hexes.
+      // Fall back to centre-to-centre lines if the path cannot be reconstructed.
+      const poly = trackPolyline(snap, c, route.hexes);
+      const pts = poly ? poly.pts : route.hexes.map((h) => hexCenter(h));
+      const stopRev: (number | null)[] = poly
+        ? poly.stopRev
+        : route.hexes.map((h) => stopRevenue(snap, h));
       if (!(await animateRoute(pts, stopRev, route.color))) {
         animSegColors = {};
         return; // skipped
       }
     }
     animSegColors = {};
+  }
+
+  /**
+   * Reconstruct the geometric polyline a train follows along the laid track for
+   * an ordered stop list: it walks the route's own track segments (centre to edge,
+   * across the shared edge to the neighbour, on to the next centre), emitting an
+   * absolute point at every centre and edge crossing. `stopRev[i]` is the revenue
+   * to award when the train reaches `pts[i]` (a city/town/offboard centre) or null
+   * for an intermediate edge point. Returns null if the segments cannot be walked.
+   */
+  type WalkEnd = number | 'c';
+  function trackPolyline(
+    snap: typeof game.state,
+    corp: (typeof game.state)['corporations'][number],
+    stops: string[]
+  ): { pts: { x: number; y: number }[]; stopRev: (number | null)[] } | null {
+    const res = routeThroughStops(snap, stops, 99, new Set(), new Set(), corp);
+    if (!res?.route.segs || res.route.segs.length === 0) return null;
+    // Index the route's own segments by hex so the walk only follows chosen track.
+    const conv = (e: string): WalkEnd => (e === 'c' ? 'c' : Number(e));
+    const byHex: Record<string, { a: WalkEnd; b: WalkEnd; id: string }[]> = {};
+    for (const id of res.route.segs) {
+      const bar = id.indexOf('|');
+      const hex = id.slice(0, bar);
+      const [ra, rb] = id.slice(bar + 1).split('-');
+      (byHex[hex] ??= []).push({ a: conv(ra), b: conv(rb), id });
+    }
+    const ptOf = (hex: string, end: WalkEnd) => {
+      const c = hexCenter(hex);
+      return end === 'c' ? c : edgeMidpoint(c.x, c.y, end);
+    };
+    const last = stops[stops.length - 1];
+    const pts: { x: number; y: number }[] = [hexCenter(stops[0])];
+    const stopRev: (number | null)[] = [stopRevenue(snap, stops[0])];
+    const used = new Set<string>();
+    let hex = stops[0];
+    let entry: WalkEnd = 'c';
+    for (let guard = 0; guard < 400; guard++) {
+      const seg = (byHex[hex] ?? []).find((s) => !used.has(s.id) && (s.a === entry || s.b === entry));
+      if (!seg) break; // dead end (reached the final stop, or an unexpected gap)
+      used.add(seg.id);
+      const other: WalkEnd = seg.a === entry ? seg.b : seg.a;
+      if (other === 'c') {
+        pts.push(hexCenter(hex));
+        stopRev.push(stopRevenue(snap, hex));
+        if (hex === last) break;
+        entry = 'c'; // continue out the far side of this stop
+      } else {
+        pts.push(ptOf(hex, other));
+        stopRev.push(null);
+        const nb = neighbor(activeMap, hex, other);
+        if (!nb) break;
+        hex = nb;
+        entry = ((other + 3) % 6) as WalkEnd; // arrive on the opposite edge
+      }
+    }
+    // Need at least the two stop centres to animate a meaningful run.
+    return pts.length >= 2 ? { pts, stopRev } : null;
   }
 
   /** Revenue of a single revenue centre hex under its current tile / base. */
@@ -941,8 +1036,25 @@
   // same size in every title regardless of how large the RoLA frame is.
   const MIN_W = $derived((framed ? SHIKOKU.w : width) * mapView.minZoomFraction);
   const MAX_W = $derived(eW * mapView.maxZoomFraction); // farthest out: the whole (rotated) frame
+  // The placed-tiles (land) extent in screen-aligned view space, under the current
+  // rotation: the bounding box of the four rotated land corners. Panning clamps the
+  // CAMERA CENTRE to this (not the whole rectangle to the sea frame), so the player
+  // can centre the viewport over any board hex - edge land included - and no further
+  // out into empty sea.
+  const landViewBounds = $derived.by(() => {
+    const corners = [
+      mapToView({ x: extMinX, y: extMinY }),
+      mapToView({ x: extMaxX, y: extMinY }),
+      mapToView({ x: extMinX, y: extMaxY }),
+      mapToView({ x: extMaxX, y: extMaxY })
+    ];
+    const cx = corners.map((c) => c.x);
+    const cy = corners.map((c) => c.y);
+    return { minX: Math.min(...cx), maxX: Math.max(...cx), minY: Math.min(...cy), maxY: Math.max(...cy) };
+  });
   const pointers = new Map<number, { x: number; y: number }>();
   let moved = false;
+  let downPos = { x: 0, y: 0 }; // pointer-down screen position (drag-vs-tap threshold)
   let viewRaf = 0; // in-flight animated-view frame
 
   // --- transform-based panning (composited, no per-frame raster) -------------
@@ -970,12 +1082,25 @@
   // fan of options (which sits outside the chosen hex) stays reachable.
   function clamped(v: { x: number; y: number; w: number; h: number }) {
     let { x, y, w, h } = v;
-    // (While building, the fixed RoLA frame already gives generous panning room.)
     const m = (layHex ? mapView.layFanMargin : mapView.edgeMargin) * HEX_SIZE;
-    if (w >= eW + 2 * m) x = eMinX - (w - eW) / 2;
-    else x = Math.min(Math.max(x, eMinX - m), eMinX + eW - w + m);
-    if (h >= eH + 2 * m) y = eMinY - (h - eH) / 2;
-    else y = Math.min(Math.max(y, eMinY - m), eMinY + eH - h + m);
+    // While building, keep the generous fixed-frame containment (the camera holds
+    // still as tiles land). Otherwise clamp the CAMERA CENTRE to the land extent so
+    // panning stops when the middle of the (panel-adjusted) viewport reaches the
+    // board edge, and the rectangle is free to overhang into the surrounding sea.
+    if (layHex || building) {
+      if (w >= eW + 2 * m) x = eMinX - (w - eW) / 2;
+      else x = Math.min(Math.max(x, eMinX - m), eMinX + eW - w + m);
+      if (h >= eH + 2 * m) y = eMinY - (h - eH) / 2;
+      else y = Math.min(Math.max(y, eMinY - m), eMinY + eH - h + m);
+      return { x, y, w, h };
+    }
+    const b = landViewBounds;
+    // If the view already covers the whole land on an axis, keep it centred there;
+    // otherwise constrain the camera centre to the land span (+ a small margin).
+    if (w >= b.maxX - b.minX) x = (b.minX + b.maxX) / 2 - w / 2;
+    else x = Math.min(Math.max(x + w / 2, b.minX - m), b.maxX + m) - w / 2;
+    if (h >= b.maxY - b.minY) y = (b.minY + b.maxY) / 2 - h / 2;
+    else y = Math.min(Math.max(y + h / 2, b.minY - m), b.maxY + m) - h / 2;
     return { x, y, w, h };
   }
   function clampView() {
@@ -1111,6 +1236,7 @@
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     moved = false;
+    downPos = { x: e.clientX, y: e.clientY };
     if (pointers.size === 1) {
       dragging = true;
       // svg user-units per screen pixel = rendered viewBox width / element width.
@@ -1140,9 +1266,9 @@
       hide();
       return;
     }
-    const dx = e.clientX - prev.x;
-    const dy = e.clientY - prev.y;
-    if (Math.abs(dx) + Math.abs(dy) > 3) {
+    // Drag vs tap is measured from the down point (not per-frame), so a slow drag
+    // still counts and a jittery click on a busy frame still lays/places.
+    if (Math.abs(e.clientX - downPos.x) + Math.abs(e.clientY - downPos.y) > 6) {
       moved = true;
       hide();
     }
@@ -1152,22 +1278,27 @@
     // converts between them - the same scale the old CTM path used.
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     bumpInteract();
-    let nx = panOffset.x + (e.clientX - prev.x);
-    let ny = panOffset.y + (e.clientY - prev.y);
-    // Clamp the pixel offset to the map bounds (resolved in view space).
-    const cand = clamped({ ...view, x: view.x - nx * dragScale, y: view.y - ny * dragScale });
-    nx = (view.x - cand.x) / dragScale;
-    ny = (view.y - cand.y) / dragScale;
-    // Bake into the viewBox before the overscan runs out (one raster), else keep
-    // sliding the composited layer. The overscan ring is PAN_OS of the viewport
-    // in px = PAN_OS * view.w / dragScale; commit at 70% of it.
-    const limPx = 0.7 * PAN_OS * (view.w / dragScale);
-    if (Math.abs(nx) > limPx || Math.abs(ny) > limPx) {
-      view = cand;
-      panOffset = { x: 0, y: 0 };
-    } else {
-      panOffset = { x: nx, y: ny };
+    const maxPx = PAN_OS * (view.w / dragScale);
+    // Desired total visual offset, continuing from the live transform.
+    const nx = panOffset.x + (e.clientX - prev.x);
+    const ny = panOffset.y + (e.clientY - prev.y);
+    // Resolve where the camera wants to sit, clamped to the map bounds, then read
+    // back how far it can actually travel from the current baked view (in pixels).
+    const want = clamped({ ...view, x: view.x - nx * dragScale, y: view.y - ny * dragScale });
+    const tx = (view.x - want.x) / dragScale;
+    const ty = (view.y - want.y) / dragScale;
+    // The SVG renders only a PAN_OS overscan ring, so the composited transform can
+    // travel at most that far; bake whatever surplus is needed into the viewBox and
+    // keep the live transform inside the ring. Splitting it this way keeps the
+    // content glued to the finger with no snap (total = baked + transform = tx),
+    // stops dead only at the true map edge, and never springs back on release. The
+    // viewBox re-rasters only when a drag exceeds the ring, not every frame.
+    const px = Math.max(-maxPx, Math.min(maxPx, tx));
+    const py = Math.max(-maxPx, Math.min(maxPx, ty));
+    if (tx !== px || ty !== py) {
+      view = clamped({ ...view, x: view.x - (tx - px) * dragScale, y: view.y - (ty - py) * dragScale });
     }
+    panOffset = { x: px, y: py };
   }
   function onUp(e: PointerEvent) {
     const wasDrag = moved;
@@ -1189,6 +1320,12 @@
         | SVGGraphicsElement
         | null;
       const coord = el?.getAttribute('data-coord') ?? null;
+      // "Choose a space" mode (e.g. Adaptive's home): a click on a highlighted hex
+      // makes the choice and nothing else.
+      if (pickSet.size) {
+        if (coord && pickSet.has(coord)) onpick?.(coord);
+        return;
+      }
       // In lay mode: tap the preview tile to rotate it; tap a highlighted hex to
       // start (or switch) a lay.
       if (layMode) {
@@ -1388,6 +1525,12 @@
           {#if tokenMode && tokenHexes.has(h.coord)}
             <polygon points={poly} class="tokenhi" />
           {/if}
+          {#if pickSet.has(h.coord)}
+            <polygon points={poly} class="pickhi" />
+          {/if}
+          {#if spotlight.has(h.coord)}
+            <polygon points={poly} class="spothi" />
+          {/if}
           {#if runMode && isStopHex(h.coord)}
             <circle r="17" class="routestop" />
           {/if}
@@ -1465,8 +1608,15 @@
             <!-- the laid tile's stops and revenue stay right side up -->
             <g transform="rotate({-$rotAnim})">
               {#if def && def.cities > 0}
-                <circle r="13" class="city" />
-                {#if def.revenue > 0}<text class="rev" y="-17" text-anchor="middle">{def.revenue}</text>{/if}
+                {#if def.slots > 1}
+                  <!-- a multi-slot city: one discrete circle per token slot -->
+                  {#each slotCenters(def.slots) as cx}
+                    <circle cx={cx} r="13" class="city" />
+                  {/each}
+                {:else}
+                  <circle r="13" class="city" />
+                {/if}
+                {#if def.revenue > 0}<text class="rev" y="-19" text-anchor="middle">{def.revenue}</text>{/if}
                 {#if h.cities?.[0]?.capital}<path class="capstar" d={STAR} />{/if}
               {:else if def && def.towns > 0}
                 <rect x="-9" y="-4" width="18" height="8" rx="2" class="town" transform="rotate(30)" />
@@ -1485,11 +1635,13 @@
 
               {#each h.cities as c}
                 {#if c.slots > 1}
-                  <rect x={-12 * c.slots} y="-13" width={24 * c.slots} height="26" rx="13" class="city" />
+                  {#each slotCenters(c.slots) as cx}
+                    <circle cx={cx} r="13" class="city" />
+                  {/each}
                 {:else}
                   <circle r="13" class="city" />
                 {/if}
-                {#if c.revenue > 0}<text class="rev" y="-17" text-anchor="middle">{c.revenue}</text>{/if}
+                {#if c.revenue > 0}<text class="rev" y="-19" text-anchor="middle">{c.revenue}</text>{/if}
                 {#if c.capital}
                   <!-- Capital City: a star instead of the skyline -->
                   <path class="capstar" d={STAR} />
@@ -1520,7 +1672,8 @@
             {/if}
             {#if suburbAt(h.coord)}
               {@const su = suburbAt(h.coord)!}
-              <g transform="translate(0 {-APOTHEM + 20})">
+              <!-- upper-left corner so it never covers the centre revenue / token -->
+              <g transform="translate(-22 {-APOTHEM + 16})">
                 <rect x="-7" y="-5" width="14" height="10" rx="2" fill={su.color} stroke="#fff" stroke-width="1.2" />
                 <text class="tok" y="3" text-anchor="middle">S</text>
               </g>
@@ -1529,13 +1682,14 @@
               <text class="costlbl" y={-APOTHEM + 12} text-anchor="middle">{h.upgradeCost}</text>
             {/if}
             {#each tokensOn(h.coord) as t, ti (t.sym)}
-              <g transform="translate({ti * 11 - (tokensOn(h.coord).length - 1) * 5.5} 0)">
+              {@const slotXs = slotCenters(Math.max(slotsAt(h.coord), tokensOn(h.coord).length))}
+              <g transform="translate({slotXs[ti] ?? 0} 0)">
                 <circle r="9" fill={t.color} stroke="#fff" stroke-width="1.5" />
                 <text class="tok" y="3" text-anchor="middle">{t.sym}</text>
               </g>
             {/each}
 
-            {#if h.label}
+            {#if h.label && h.label !== 'C'}
               {@const lp = labelPos(h)}
               <text class="label" x={lp.x} y={lp.y + 4} text-anchor="middle">{h.label}</text>
             {/if}
@@ -1977,6 +2131,21 @@
     stroke: var(--rail, #f5c542);
     stroke-width: 3;
     pointer-events: none;
+    animation: laypulse 1.4s ease-in-out infinite;
+  }
+  /* spotlight a generated terrain / laid-tile group hovered in the Tiles panel */
+  .spothi {
+    fill: rgba(95, 176, 230, 0.35);
+    stroke: #5fb0e6;
+    stroke-width: 4;
+    pointer-events: none;
+  }
+  /* "choose a space" highlight (home/token pick on the real map) */
+  .pickhi {
+    fill: rgba(245, 197, 66, 0.3);
+    stroke: var(--rail, #f5c542);
+    stroke-width: 4;
+    cursor: pointer;
     animation: laypulse 1.4s ease-in-out infinite;
   }
   .laysel {

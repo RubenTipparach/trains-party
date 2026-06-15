@@ -37,7 +37,8 @@ export {
   tokenPlays,
   corporationsCanBuyPrivates,
   mustBuyTrain,
-  emergencyFor
+  emergencyFor,
+  cheapestBuyableTrain
 } from './operating';
 export type { OperatingView } from './operating';
 export { legalLays, neighbor, tileSupply, exhaustedTilesOnHex, blockedHexes, specialLayOptions } from './track';
@@ -45,7 +46,7 @@ export type { TileLay } from './track';
 export { TILES, rotatePaths } from './tiles';
 export type { TileDef } from './tiles';
 export { playerValue, playerLiquidity } from './metrics';
-export { corpRoutes, routeRevenue, routeThroughStops, TRAIN_ROUTE_COLORS } from './routes';
+export { corpRoutes, routeRevenue, routeThroughStops, trainReach, TRAIN_ROUTE_COLORS } from './routes';
 export type { Route } from './routes';
 export { hexesFor } from './board';
 export { legalPlacements, placementCoords, isLegalPlacement, generateTriHexPool, BUILD_CENTER } from './triHex';
@@ -103,7 +104,11 @@ export function replay(initial: GameState, actions: readonly GameAction[]): Game
 export function activePlayer(state: GameState): string | null {
   if (state.finished) return null;
   if (state.round === 'auction') return auctionActivePlayer(state);
-  if (state.round === 'stock' && state.stock) return state.players[state.current].id;
+  if (state.round === 'stock' && state.stock) {
+    const la = state.stock.launchAuction;
+    if (la) return la.turn ?? la.winner;
+    return state.players[state.current].id;
+  }
   if (state.round === 'operating') return operatingActivePlayer(state);
   if (state.round === 'mapbuild') return mapBuildActivePlayer(state);
   if (state.round === 'merger') return mergerActivePlayer(state);

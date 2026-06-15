@@ -231,7 +231,7 @@ export const TILE_MANIFEST: TileManifestEntry[] = [
   { id: '47', count: 2, color: 'brown' },
   { id: '70', count: 1, color: 'brown' },
   { id: '125', count: 6, color: 'brown' },
-  { id: '297', count: 2, color: 'brown' },
+  { id: '297', count: 3, color: 'brown' }, // purple capital city: one per Capital (3)
   // Grey (3)
   { id: '51', count: 3, color: 'gray' },
   // Blue bridge (5)
@@ -259,7 +259,10 @@ export const configRola: GameConfig = {
   cyclesByPlayers: { 2: 4, 3: 6, 4: 6, 5: 6 }, // Short (2p) = 4 cycles, Long = 6
   exportTrains: true, // rulebook: export the top train before each new SR
   localRoutes: true, // rulebook: single-stop local runs inside a hub city
-  presidentMayFund: true, // house option: top up train buys from personal cash
+  // The president funds a train ONLY in an emergency (a trainless company that can
+  // run a route must buy one and the treasury is short); never for an optional or
+  // affordable buy. Emergency funding is handled directly, so this stays off.
+  presidentMayFund: false,
   waterBlocksTrack: true, // rulebook: no track into water edges (Bridging may)
   phases: PHASES,
   trains: TRAINS,

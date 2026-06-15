@@ -106,12 +106,12 @@ describe('RoLA static data (Stage 2)', () => {
     expect(configRola.certLimit).toEqual({ 2: -1, 3: -1, 4: -1, 5: -1 });
 
     const total = TILE_MANIFEST.reduce((n, t) => n + t.count, 0);
-    expect(total).toBe(128);
+    expect(total).toBe(129); // target is the physical 135; capital/custom tiles still being filled in
     const byColor = (c: string) =>
       TILE_MANIFEST.filter((t) => t.color === c).reduce((n, t) => n + t.count, 0);
     expect(byColor('yellow')).toBe(55);
     expect(byColor('green')).toBe(41);
-    expect(byColor('brown')).toBe(24);
+    expect(byColor('brown')).toBe(25); // +1: purple capital 297 bumped to 3 (one per Capital)
     expect(byColor('gray')).toBe(3);
     // blue bridges carry no manifest colour
     const blue = TILE_MANIFEST.filter((t) => ['721', '722', '723'].includes(t.id)).reduce(

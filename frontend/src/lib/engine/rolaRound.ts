@@ -11,10 +11,18 @@
 
 import { configFor, rolaAbility } from './registry';
 import { hexesFor } from './board';
+import { legalLays } from './track';
 import { currentPrice } from './stock';
-import { launchMinor, sellPriceMove, soldOutMove, parForBid, MIN_LAUNCH_BID } from './rolaStock';
+import { launchMinor, sellPriceMove, soldOutMove, MIN_LAUNCH_BID, BID_INCREMENT } from './rolaStock';
 import { startOperatingRound } from './operating';
-import { GameError, type CorporationState, type GameAction, type GameState, type PlayerState } from './types';
+import {
+  GameError,
+  type CorporationState,
+  type GameAction,
+  type GameState,
+  type LaunchAuctionState,
+  type PlayerState
+} from './types';
 
 function corp(s: GameState, sym: string): CorporationState {
   const c = s.corporations.find((x) => x.sym === sym);
@@ -58,11 +66,63 @@ function endTurn(s: GameState): void {
   st.bought = false;
 }
 
-function doLaunch(s: GameState, id: string, sym: string, bid: number, home?: string): void {
+/**
+ * Hand the auction to the next eligible bidder clockwise from `from`, or declare
+ * the high bidder the winner. A player who cannot afford the next legal bid
+ * (highBid + increment) can't participate, so they are dropped out automatically
+ * (rulebook: you must be able to pay to bid). The standing high bidder is never
+ * asked to bid against themselves; when nobody else can act, they win.
+ */
+function advanceAuction(s: GameState, la: LaunchAuctionState, from: string): void {
+  const need = la.highBid + BID_INCREMENT;
+  const n = la.order.length;
+  const start = la.order.indexOf(from);
+  for (let k = 1; k <= n; k++) {
+    const cand = la.order[(start + k) % n];
+    if (la.passed.includes(cand) || cand === la.highBidder) continue;
+    if (player(s, cand).cash < need) {
+      la.passed.push(cand); // can't afford the next bid -> out of this auction
+      s.log.push(`${pname(s, cand)} cannot afford to bid (${need}) and drops out`);
+      continue;
+    }
+    la.turn = cand;
+    return;
+  }
+  la.turn = null;
+  la.winner = la.highBidder; // nobody else can bid: the high bidder takes it
+}
+
+/** Open a launch auction: the initiator sets the first bid; bidding then goes
+ *  clockwise. This is the active player's whole turn (rulebook §7). */
+function doInitiate(s: GameState, id: string, bid: number): void {
   const st = s.stock!;
-  if (st.bought) throw new GameError('only one launch/buy per turn');
+  if (st.acted) throw new GameError('you have already acted this turn');
+  if (availableMinors(s).length === 0) throw new GameError('no minor is available to launch');
+  if (bid < MIN_LAUNCH_BID) throw new GameError(`opening bid must be at least ${MIN_LAUNCH_BID}`);
+  if (bid % BID_INCREMENT !== 0) throw new GameError(`bid must be in increments of ${BID_INCREMENT}`);
+  const p = player(s, id);
+  if (p.cash < bid) throw new GameError(`${pname(s, id)} cannot afford the ${bid} bid`);
+
+  const n = s.players.length;
+  const startIdx = s.players.findIndex((pp) => pp.id === id);
+  const order = Array.from({ length: n }, (_, k) => s.players[(startIdx + k) % n].id);
+  const la: LaunchAuctionState = { initiator: id, order, passed: [], highBid: bid, highBidder: id, turn: null, winner: null };
+  advanceAuction(s, la, id); // clockwise from the initiator, skipping who can't pay
+  st.launchAuction = la;
+  st.acted = true;
+  st.passes = 0;
+  s.log.push(`${pname(s, id)} starts a minor auction, opening at ${bid}`);
+}
+
+/** Resolve a won auction: the lone remaining bidder launches an available minor,
+ *  paying the winning bid into its treasury. Turn passes clockwise from the
+ *  initiator (rulebook §7). */
+function doResolveLaunch(s: GameState, id: string, sym: string, home?: string): void {
+  const st = s.stock!;
+  const la = st.launchAuction!;
+  if (la.winner !== id) throw new GameError('the auction is still bidding');
   const c = corp(s, sym);
-  if (!availableMinors(s).includes(sym)) throw new GameError(`${sym} is not at the bottom of its matrix column`);
+  if (!availableMinors(s).includes(sym)) throw new GameError(`${sym} is not available to launch`);
   // Adaptive: chooses any empty basic-city home as it launches.
   if (rolaAbility(s.title, c, 'choose_home')) {
     if (!home || !adaptiveHomes(s).includes(home)) {
@@ -71,11 +131,50 @@ function doLaunch(s: GameState, id: string, sym: string, bid: number, home?: str
     c.coordinates = home;
     s.log.push(`${sym} establishes its home at ${home}`);
   }
-  launchMinor(s, c, id, bid); // validates kind/bid/affordability, derives par, sets treasury + 40% cert
-  st.bought = true;
-  st.acted = true;
+  launchMinor(s, c, id, la.highBid); // treasury = winning bid, 40% cert, price = 1/2 bid
+  st.launchAuction = null;
+  // Turn resumes with the player clockwise from the initiator.
+  const initIdx = s.players.findIndex((pp) => pp.id === la.initiator);
+  s.current = (initIdx + 1) % s.players.length;
+  s.priority = s.current;
+  st.acted = false;
+  st.bought = false;
   st.passes = 0;
-  advancePriority(s);
+}
+
+/** Apply a bid, pass, or launch within an open auction. */
+function applyLaunchAuction(s: GameState, action: GameAction): void {
+  const st = s.stock!;
+  const la = st.launchAuction!;
+  const actor = la.turn ?? la.winner;
+  if (!('player' in action) || action.player !== actor) {
+    throw new GameError(`it is ${pname(s, actor ?? '')}'s turn in the auction`);
+  }
+  switch (action.type) {
+    case 'launch_bid': {
+      if (la.turn !== action.player) throw new GameError('not your bid');
+      if (action.bid <= la.highBid) throw new GameError(`bid must exceed ${la.highBid}`);
+      if (action.bid % BID_INCREMENT !== 0) throw new GameError(`bid must be in increments of ${BID_INCREMENT}`);
+      if (player(s, action.player).cash < action.bid) throw new GameError('cannot afford that bid');
+      la.highBid = action.bid;
+      la.highBidder = action.player;
+      s.log.push(`${pname(s, action.player)} bids ${action.bid}`);
+      advanceAuction(s, la, action.player);
+      break;
+    }
+    case 'pass': {
+      if (la.turn !== action.player) throw new GameError('not your turn to pass');
+      la.passed.push(action.player);
+      s.log.push(`${pname(s, action.player)} drops out of the auction`);
+      advanceAuction(s, la, action.player);
+      break;
+    }
+    case 'launch':
+      doResolveLaunch(s, action.player, action.corp, action.home);
+      break;
+    default:
+      throw new GameError('you must bid, pass, or launch in the auction');
+  }
 }
 
 function doBuy(s: GameState, id: string, sym: string, from: 'ipo' | 'pool'): void {
@@ -177,13 +276,20 @@ function endStockRound(s: GameState): void {
 export function applyRolaStock(s: GameState, action: GameAction): void {
   const st = s.stock;
   if (!st) throw new GameError('no stock round in progress');
+  // A launch auction owns the turn until it resolves; route bids/passes/launch.
+  if (st.launchAuction) {
+    applyLaunchAuction(s, action);
+    return;
+  }
   const active = s.players[s.current].id;
   if (action.player !== active) throw new GameError(`it is ${active}'s turn, not ${action.player}`);
 
   switch (action.type) {
-    case 'launch':
-      doLaunch(s, action.player, action.corp, action.bid, action.home);
+    case 'initiate_auction':
+      doInitiate(s, action.player, action.bid);
       break;
+    case 'launch':
+      throw new GameError('a minor is launched by winning an auction, not directly');
     case 'buy':
       doBuy(s, action.player, action.corp, action.from);
       break;
@@ -209,11 +315,27 @@ export function applyRolaStock(s: GameState, action: GameAction): void {
 export interface RolaStockLegal {
   player: string;
   canPass: boolean;
-  /** Unlaunched minors the player can launch (bid >= minBid; price is derived). */
-  launch: { corp: string; minBid: number; par: number }[];
+  /** Can open a launch auction now: own turn, not yet acted, a minor is free, afford the minimum. */
+  canInitiate: boolean;
+  /** Minimum opening / increment-floor bid (120). */
+  minBid: number;
+  /** Minors currently available to launch (bottom of each matrix column). */
+  available: string[];
   buyIpo: string[];
   buyPool: string[];
   sell: string[];
+  /** A live launch auction this player is involved in, with their legal moves. */
+  auction: {
+    initiator: string;
+    highBid: number;
+    highBidder: string;
+    /** Smallest legal raise (highBid + 5). */
+    minRaise: number;
+    /** This player must bid or pass right now. */
+    myTurn: boolean;
+    /** This player is the lone survivor and must launch one of `available`. */
+    iWon: boolean;
+  } | null;
 }
 
 /**
@@ -234,37 +356,67 @@ export function availableMinors(s: GameState): string[] {
 }
 
 export function rolaStockLegalActions(s: GameState): RolaStockLegal {
-  const id = s.players[s.current].id;
   const st = s.stock;
-  const empty: RolaStockLegal = { player: id, canPass: false, launch: [], buyIpo: [], buyPool: [], sell: [] };
+  const la = st?.launchAuction ?? null;
+  // The actor is the auction's current bidder/winner during an auction, else the
+  // player whose stock turn it is.
+  const id = (la ? (la.turn ?? la.winner) : null) ?? s.players[s.current].id;
+  const empty: RolaStockLegal = {
+    player: id, canPass: false, canInitiate: false, minBid: MIN_LAUNCH_BID,
+    available: [], buyIpo: [], buyPool: [], sell: [], auction: null
+  };
   if (!st) return empty;
   const p = player(s, id);
-  const available = availableMinors(s);
-  const launch: { corp: string; minBid: number; par: number }[] = [];
+  const homesOpen = adaptiveHomes(s).length > 0;
+  const available = availableMinors(s).filter((sym) => {
+    const c = corp(s, sym);
+    // Adaptive can only launch when an empty basic-city home exists for it.
+    return !c.dissolved && !(rolaAbility(s.title, c, 'choose_home') && !homesOpen);
+  });
+
+  if (la) {
+    // Mid-auction: the only legal moves are bid, pass, or (once won) launch.
+    return {
+      player: id, canPass: false, canInitiate: false, minBid: MIN_LAUNCH_BID, available,
+      buyIpo: [], buyPool: [], sell: [],
+      auction: {
+        initiator: la.initiator,
+        highBid: la.highBid,
+        highBidder: la.highBidder,
+        minRaise: la.highBid + BID_INCREMENT,
+        myTurn: la.turn === id,
+        iWon: la.winner === id
+      }
+    };
+  }
+
   const buyIpo: string[] = [];
   const buyPool: string[] = [];
   const sell: string[] = [];
-
   for (const c of s.corporations) {
     if (c.dissolved) continue;
     const soldThisRound = st.soldThisRound[id]?.includes(c.sym) ?? false;
-    if (!st.bought && !soldThisRound) {
-      if (c.kind === 'minor' && c.parPrice === null) {
-        if (available.includes(c.sym) && p.cash >= MIN_LAUNCH_BID) {
-          launch.push({ corp: c.sym, minBid: MIN_LAUNCH_BID, par: parForBid(s, MIN_LAUNCH_BID) });
-        }
-      } else if (c.parPrice !== null) {
-        const unit = unitOf(c);
-        if (c.ipoShares >= unit && holds(p, c.sym) + unit <= HOLD_CAP && p.cash >= currentPrice(s, c)) buyIpo.push(c.sym);
-        if (c.poolShares >= unit && holds(p, c.sym) + unit <= HOLD_CAP && p.cash >= currentPrice(s, c)) buyPool.push(c.sym);
-      }
+    if (!st.bought && !soldThisRound && c.parPrice !== null) {
+      const unit = unitOf(c);
+      if (c.ipoShares >= unit && holds(p, c.sym) + unit <= HOLD_CAP && p.cash >= currentPrice(s, c)) buyIpo.push(c.sym);
+      if (c.poolShares >= unit && holds(p, c.sym) + unit <= HOLD_CAP && p.cash >= currentPrice(s, c)) buyPool.push(c.sym);
     }
     if (maxRolaSell(s, id, c.sym) > 0) sell.push(c.sym);
   }
-  return { player: id, canPass: true, launch, buyIpo, buyPool, sell };
+  const canInitiate = !st.acted && available.length > 0 && p.cash >= MIN_LAUNCH_BID;
+  return { player: id, canPass: true, canInitiate, minBid: MIN_LAUNCH_BID, available, buyIpo, buyPool, sell, auction: null };
 }
 
-/** Empty basic-city spots an Adaptive launch may choose as its home. */
+/** Could a minor tokened on `hex` lay at least one yellow tile (i.e. expand)? A
+ *  coastal basic city can be hemmed in by water with no room for a city tile, so
+ *  Adaptive must never be allowed to home there (it would be stuck forever). */
+function canExpandFrom(s: GameState, hex: string): boolean {
+  const probe = { sym: '__probe', kind: 'minor', tokenHexes: [hex], companies: [] } as unknown as CorporationState;
+  return legalLays(s, probe).length > 0;
+}
+
+/** Empty basic-city spots an Adaptive launch may choose as its home: a free,
+ *  unlabelled city the company can actually build out from. */
 export function adaptiveHomes(s: GameState): string[] {
   const hexes = hexesFor(s);
   const taken = new Set(s.corporations.filter((c) => !c.dissolved).map((c) => c.coordinates));
@@ -276,6 +428,7 @@ export function adaptiveHomes(s: GameState): string[] {
         !taken.has(coord) &&
         !s.corporations.some((c) => c.tokenHexes.includes(coord))
     )
+    .filter(([coord]) => canExpandFrom(s, coord))
     .map(([coord]) => coord)
     .sort();
 }

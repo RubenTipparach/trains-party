@@ -3,7 +3,7 @@
   import { mergePartners, availableMajors } from '$lib/engine';
 
   const m = $derived(game.state.merger);
-  const proposer = $derived(m && !m.pending ? (m.queue[m.index] ?? null) : null);
+  const proposer = $derived(m && !m.pending && !m.vote ? (m.queue[m.index] ?? null) : null);
   const partners = $derived(proposer ? mergePartners(game.state, proposer) : []);
   const majors = $derived(availableMajors(game.state));
   let major = $state('');
@@ -24,7 +24,28 @@
 
     {#if game.error}<p class="err">{game.error}</p>{/if}
 
-    {#if m.pending}
+    {#if m.vote}
+      {@const v = m.vote}
+      {@const target = corpOf(v.to)}
+      <div class="card">
+        <p>
+          <b style="color:{corpOf(v.from)?.color}">{v.from}</b> makes a hostile bid to merge
+          <b style="color:{target?.color}">{v.to}</b> into <b>{v.major}</b>. Shareholders vote.
+        </p>
+        {#if game.canAct}
+          <div class="act">
+            <button onclick={() => game.act({ type: 'cast_merge_vote', player: game.active!, vote: 'for' })}>
+              Vote for
+            </button>
+            <button class="ghost" onclick={() => game.act({ type: 'cast_merge_vote', player: game.active!, vote: 'against' })}>
+              Vote against
+            </button>
+          </div>
+        {:else}
+          <p class="muted">Waiting for shareholders to vote…</p>
+        {/if}
+      </div>
+    {:else if m.pending}
       {@const target = corpOf(m.pending.to)}
       <div class="card">
         <p>

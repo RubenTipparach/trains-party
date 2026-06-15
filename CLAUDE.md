@@ -151,6 +151,11 @@ and apply directly here.
 - Sidebar/panel panes never auto-switch; the user controls navigation.
 - "Navigate-to / inspect" buttons come last in popups and never change state.
 - Keep the engine free of DOM, network, and Svelte imports (isomorphic & testable).
+- **Choosing a board space is always a map choice.** Whenever a game asks the player to
+  pick a hex/space on the board (a station/hub token, a home, a tile destination, any
+  "where?"), render a **modal version of the map** with the legal spaces highlighted and
+  let the player click one. Never substitute a coordinate dropdown or text input for a
+  spatial decision. (First applied: Adaptive's home choice at launch in Lost Atlas.)
 - Prefer small, reviewable commits scoped to one stage/feature.
 
 ---

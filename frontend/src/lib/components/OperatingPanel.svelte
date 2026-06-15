@@ -17,18 +17,25 @@
   import PrivateChip from './PrivateChip.svelte';
   import MoneyValue from './MoneyValue.svelte';
   import Treasury from './Treasury.svelte';
+  import CompanyLogo from './CompanyLogo.svelte';
 
   const v = $derived(operatingView(game.state));
+  const isRola = $derived(game.title === 'rola');
   const lays = $derived(trackLays(game.state));
   // Revenue to run: the player's assigned routes if they've started routing,
   // otherwise the engine's auto-best.
-  const runRevenue = $derived(routing.active ? routing.revenue : (v?.revenue ?? 0));
+  const runRevenue = $derived(routing.revenue); // the current sum of assigned train routes
 
   // Initialise / tear down manual route assignment as the run step comes and goes.
   $effect(() => {
     if (v && v.step === 'run' && v.hasTrains) {
       const c = game.state.corporations.find((x) => x.sym === v.corp);
-      if (c && !routing.isForCorp(v.corp)) routing.begin(v.corp, c.trains);
+      if (c && !routing.isForCorp(v.corp)) {
+        routing.begin(v.corp, c.trains);
+        // Pre-fill each train chip with the engine's best routes so the per-train
+        // stops and revenue are visible and sum to the headline number.
+        routing.auto(game.state, v.corp);
+      }
     } else if (routing.trains.length) {
       routing.clear();
     }
@@ -57,12 +64,6 @@
   }
   const trainCost = (name: string) =>
     configFor(game.title).trains.find((t) => t.name === name)?.price ?? 0;
-  // With president funding on (RoLA), treasury + personal cash affords a train.
-  const buyBudget = (c: CorporationState) =>
-    c.cash +
-    (configFor(game.title).presidentMayFund
-      ? (game.state.players.find((p) => p.id === c.president)?.cash ?? 0)
-      : 0);
 
   // Cross-buy: trains the operating corp may buy from the president's other
   // corporations (one entry per selling corp + train type), with a chosen price.
@@ -128,7 +129,7 @@
     game.error = `No legal rotation to lay tile ${tile} on ${hex}.`;
   }
   function buyDiesel(tradeIn?: string) {
-    game.act({ type: 'buy_train', player: v!.president!, corp: v!.corp, train: 'D', tradeIn });
+    game.act({ type: 'buy_train', player: v!.president!, corp: v!.corp, train: v!.dieselName!, tradeIn });
   }
   // Run: send explicit routes only when the player hand-picked them; otherwise let
   // the engine run its own best routes (auto-calculate defers to the engine).
@@ -178,6 +179,7 @@
       <aside>
         <div class="cur" style="--c:{c.color}">
           <div class="curhead" style="background:{c.color}">
+            <CompanyLogo sym={c.sym} color={c.color} size={22} />
             <span class="csym">{c.sym}</span>
             <span class="cname">{c.name}</span>
             <span class="order">Order {v.index + 1}/{v.order.length}</span>
@@ -193,14 +195,14 @@
           <table class="sh">
             <tbody>
               <tr><td>President</td><td class="r">{pname(c.president)}</td></tr>
-              {#each holders(c) as h (h.id)}
-                <tr>
+              <tr class="muted"><td>{isRola ? 'Treasury' : 'IPO'}</td><td class="r">{c.ipoShares}%</td></tr>
+              <tr class="muted"><td>Market</td><td class="r">{c.poolShares}%</td></tr>
+              {#each holders(c) as h, i (h.id)}
+                <tr class:divtop={i === 0}>
                   <td><span class="dot" style="background:{seatColor(h.id)}"></span>{h.name}</td>
                   <td class="r">{h.pct}%{#if h.pres}<span class="pflag">P</span>{/if}</td>
                 </tr>
               {/each}
-              {#if c.poolShares > 0}<tr class="muted"><td>Market</td><td class="r">{c.poolShares}%</td></tr>{/if}
-              {#if c.ipoShares > 0}<tr class="muted"><td>IPO</td><td class="r">{c.ipoShares}%</td></tr>{/if}
             </tbody>
           </table>
 
@@ -261,9 +263,9 @@
               <span class="tlabel">New company: you may buy one train before your turn</span>
             </div>
             <div class="act">
-              {#if v.canBuyTrain && buyBudget(c) >= trainCost(v.canBuyTrain)}
+              {#if v.canBuyTrain && c.cash >= trainCost(v.canBuyTrain)}
                 <button onclick={() => game.act({ type: 'buy_train', player: c.president!, corp: c.sym, train: v.canBuyTrain! })}>
-                  Buy {v.canBuyTrain}-train ({CURRENCY}{trainCost(v.canBuyTrain)}){c.cash < trainCost(v.canBuyTrain) ? ' · you cover ' + (trainCost(v.canBuyTrain) - c.cash) : ''}
+                  Buy {v.canBuyTrain}-train ({CURRENCY}{trainCost(v.canBuyTrain)})
                 </button>
               {/if}
               <button class="ghost" onclick={() => game.act({ type: 'pass', player: c.president! })}>Skip leadoff</button>
@@ -305,14 +307,19 @@
                   >
                     <span class="tdot"></span>
                     <b>{t.train}-train</b>
-                    <span class="tstops">{t.stops.length} stops</span>
+                    <span class="tstops">
+                      {#if t.route && t.stops.length === 1}local route
+                      {:else if t.route}{t.stops.length} stops
+                      {:else}no route{/if}
+                    </span>
                     <span class="trev">{CURRENCY}{t.revenue}</span>
                   </button>
                 {/each}
               </div>
               <div class="runrev">
-                Route revenue <b>{CURRENCY}{routing.active ? routing.revenue : v.revenue}</b>
-                {#if !routing.active}<span class="autonote"> (auto)</span>{/if}
+                <!-- always the current sum of the train chips, never a separate prediction -->
+                Route revenue <b>{CURRENCY}{routing.revenue}</b>
+                {#if !routing.manual}<span class="autonote"> (auto)</span>{/if}
               </div>
               <div class="act">
                 <button class="ghost" onclick={() => routing.auto(game.state, c.sym)}>Auto-calculate</button>
@@ -330,6 +337,7 @@
               </div>
               <p class="hint">
                 Click a train, then click the cities/towns it visits on the map. Or use Auto-calculate for the best routes.
+                A train that can't reach a second city runs a <b>local route</b> - its hub city alone, for that city's value.
               </p>
             {:else}
               <div class="runrev"><span class="norun">No trains to run</span></div>
@@ -374,23 +382,23 @@
                 <div class="runrev"><span class="norun">{c.sym} has no train and can run. It must buy one.</span></div>
               {/if}
               <div class="act">
-                {#if v.canBuyTrain && buyBudget(c) >= trainCost(v.canBuyTrain)}
+                {#if v.canBuyTrain && c.cash >= trainCost(v.canBuyTrain)}
                   <button onclick={() => game.act({ type: 'buy_train', player: c.president!, corp: c.sym, train: v.canBuyTrain! })}>
-                    Buy {v.canBuyTrain}-train ({CURRENCY}{trainCost(v.canBuyTrain)}){c.cash < trainCost(v.canBuyTrain) ? ' · you cover ' + (trainCost(v.canBuyTrain) - c.cash) : ''}
+                    Buy {v.canBuyTrain}-train ({CURRENCY}{trainCost(v.canBuyTrain)})
                   </button>
                 {/if}
                 {#if !v.mustBuy}
                   <button class="ghost" onclick={() => game.act({ type: 'pass', player: c.president! })}>Finish turn</button>
                 {/if}
               </div>
-              {#if v.dieselAvailable && (v.canBuyTrain !== 'D' || v.dieselTradeIns.length)}
+              {#if v.dieselAvailable && (v.canBuyTrain !== v.dieselName || v.dieselTradeIns.length)}
                 <div class="act">
-                  {#if v.canBuyTrain !== 'D' && c.cash >= v.dieselPrice}
-                    <button onclick={() => buyDiesel()}>Buy D-train ({CURRENCY}{v.dieselPrice})</button>
+                  {#if v.canBuyTrain !== v.dieselName && c.cash >= v.dieselPrice}
+                    <button onclick={() => buyDiesel()}>Buy {v.dieselName}-train ({CURRENCY}{v.dieselPrice})</button>
                   {/if}
                   {#each v.dieselTradeIns as ti (ti.train)}
                     <button class="ghost" disabled={c.cash < ti.price} onclick={() => buyDiesel(ti.train)}>
-                      Buy D, trade {ti.train}-train ({CURRENCY}{ti.price})
+                      Buy {v.dieselName}, trade {ti.train}-train ({CURRENCY}{ti.price})
                     </button>
                   {/each}
                 </div>
@@ -554,6 +562,10 @@
   }
   .sh tr.muted td {
     color: var(--muted);
+  }
+  /* divider between the non-player rows (treasury, market) and the shareholders */
+  .sh tr.divtop td {
+    border-top: 1px solid rgba(255, 255, 255, 0.22);
   }
   .dot {
     display: inline-block;

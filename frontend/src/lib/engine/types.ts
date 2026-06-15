@@ -70,6 +70,10 @@ export interface CorporationState {
   priceCol: number | null;
   /** Train names owned. */
   trains: string[];
+  /** The most recent run's gross revenue and how the dividend was handled, kept
+   *  for display (18xx.games convention: plain = paid out, [x] = withheld). RoLA
+   *  has no half pay. Undefined until the company has run at least once. */
+  lastRun?: { revenue: number; mode: 'pay' | 'withhold' };
   /** Private company syms this corporation has bought (pay income to its treasury). */
   companies: string[];
   /** Hex coordinates where this corporation has a station token. */
@@ -140,6 +144,28 @@ export interface StockState {
    * id -> set of corp syms.
    */
   soldThisRound: Record<string, string[]>;
+  /**
+   * RoLA: a mid-stock-round launch auction in progress, or null. The initiator's
+   * turn opens it; players raise or pass out clockwise; the last one standing
+   * picks any available minor and launches it (the only way to start a minor).
+   */
+  launchAuction?: LaunchAuctionState | null;
+}
+
+export interface LaunchAuctionState {
+  /** Player who initiated (whose SR turn this is); the turn resumes clockwise from them. */
+  initiator: string;
+  /** All players in clockwise order starting at the initiator. */
+  order: string[];
+  /** Players who have passed out of this auction. */
+  passed: string[];
+  /** Standing high bid and who holds it. */
+  highBid: number;
+  highBidder: string;
+  /** Player who must bid or pass now; null once the auction is won. */
+  turn: string | null;
+  /** The lone remaining bidder, who must now launch a minor; null while bidding. */
+  winner: string | null;
 }
 
 export interface MergerState {
@@ -151,6 +177,19 @@ export interface MergerState {
   declined: string[];
   /** A cross-player proposal awaiting the target president's answer. */
   pending: { from: string; to: string; major: string } | null;
+  /**
+   * Hostile-mergers variant only: a cross-player proposal resolved by a share
+   * vote instead of the target president's consent. `ballots` maps a player id
+   * to their cast vote (the proposer is pre-recorded `for`); `voters` lists the
+   * remaining eligible players (holders of either minor) who must still vote.
+   */
+  vote?: {
+    from: string;
+    to: string;
+    major: string;
+    ballots: Record<string, 'for' | 'against'>;
+    voters: string[];
+  } | null;
 }
 
 export interface GameState {
@@ -195,6 +234,12 @@ export interface GameState {
   cycle?: number;
   /** Merger round state (RoLA), when one is in progress. */
   merger?: MergerState | null;
+  /** Hostile-mergers variant: a refused cross-player merger is settled by a
+   *  share vote rather than the target president alone. Set at game creation. */
+  hostileMergers?: boolean;
+  /** Local-routes rule: a train that can't reach a 2nd city may run its hub city
+   *  alone for that city's value. Optional, set at game creation (default on). */
+  localRoutes?: boolean;
   /** Suburb tokens on the board: hex -> owning company sym (Suburban). */
   suburbs?: Record<string, string>;
   /** Trains discarded to the bank pool (over-limit), buyable at printed price. */
@@ -212,8 +257,12 @@ export interface GameState {
 export type GameAction =
   | { type: 'bid'; player: string; company: string; price: number }
   | { type: 'par'; player: string; corp: string; price: number }
-  // RoLA: launch a minor at `price` (a par space) paying `bid` into its treasury.
-  | { type: 'launch'; player: string; corp: string; bid: number; price?: number; home?: string }
+  // RoLA: the auction winner launches a minor (the bid comes from the won auction).
+  | { type: 'launch'; player: string; corp: string; bid?: number; price?: number; home?: string }
+  // RoLA: open a mid-stock-round launch auction; `bid` is the opening bid (>= 120).
+  | { type: 'initiate_auction'; player: string; bid: number }
+  // RoLA: raise the standing bid in an open launch auction.
+  | { type: 'launch_bid'; player: string; bid: number }
   | { type: 'buy'; player: string; corp: string; from: 'ipo' | 'pool' }
   | { type: 'sell'; player: string; corp: string; count: number }
   | { type: 'lay_tile'; player: string; corp: string; hex: string; tile: string; rotation: number }
@@ -251,6 +300,8 @@ export type GameAction =
   | { type: 'propose_merge'; player: string; from: string; to: string; major: string }
   | { type: 'accept_merge'; player: string }
   | { type: 'decline_merge'; player: string }
+  // Hostile-mergers variant: a shareholder casts their vote on a pending hostile bid.
+  | { type: 'cast_merge_vote'; player: string; vote: 'for' | 'against' }
   | { type: 'issue'; player: string; corp: string }
   | { type: 'redeem'; player: string; corp: string }
   | { type: 'emr_sell'; player: string; corp: string; count: number }

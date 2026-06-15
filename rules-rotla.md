@@ -210,9 +210,10 @@ one share**, or (3) **Pass**.
   fully-player-owned companies **+1**; advance to OR1.
 
 *Engine:* the auction is a **mid-stock-round sub-auction for choice** — different
-from our opening `waterfall_auction` (`auction.ts`). It's a new step but can borrow
-the bidding/pass-out mechanics. `applyStock` gains `initiate_auction` / `launch`
-actions and the "buy one share, treasury vs pool" split.
+from our opening `waterfall_auction` (`auction.ts`). Implemented in `rolaRound.ts`
+via `initiate_auction` / `launch_bid` / `pass` (drop out) / `launch` (the lone
+survivor picks any available minor), plus the "buy one share, treasury vs pool"
+split.
 
 ---
 
@@ -292,7 +293,15 @@ Round (else skip to Export-a-Train; a yellow→green export skips that cycle's m
 
 - In **descending stock order**, each Minor president may **propose a merger** with
   another Minor they **can trace a route to**, or pass. A declined merger can't be
-  re-proposed this round. *(Variant: Hostile Mergers via share voting.)*
+  re-proposed this round.
+  - *Variant (toggle at room creation): **Hostile Mergers**.* A refused cross-player
+    proposal is settled by a **share vote** instead of the target president's consent.
+    Shares in a company **treasury** (IPO) abstain; shares in the **bank pool** vote
+    for the side that **raises their value** after the merger (the new major prices at
+    the rounded-down average of the two, so each minor's pool votes **for** if that
+    price is above its own, **against** if below, abstain if equal) and are tallied
+    **per minor**; **player** shares vote by choice (the proposer's count as *for*).
+    A strict **majority for** forces the merge. Bots always vote **against**.
 - On agreement: new Major's president = **player with most combined shares** (tie →
   earlier in stock order). Choose one of the **6 Majors** (2 identity options each).
   - Minor shares → **equal** Major shares (1:1). Loser's president cert → **2 single

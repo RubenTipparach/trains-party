@@ -10,6 +10,8 @@
 
   let count = $state(4); // RoLA: 2-5 players
   let mapMode = $state<'auto' | 'manual'>('auto');
+  let hostileMergers = $state(false);
+  let localRoutes = $state(true);
   const names = $state(['You', 'Bot 2', 'Bot 3', 'Bot 4', 'Bot 5']);
   const bots = $state([false, true, true, true, true]);
   const levels = $state<BotLevel[]>(['normal', 'normal', 'normal', 'normal', 'normal']);
@@ -27,7 +29,7 @@
       bot: bots[i],
       level: levels[i]
     }));
-    const code = game.newGame(seats, 'rola', { mapMode });
+    const code = game.newGame(seats, 'rola', { mapMode, hostileMergers, localRoutes });
     goto(`${base}/rola/room/${code}`);
   }
 </script>
@@ -61,6 +63,22 @@
       </div>
     </div>
 
+    <div class="players-row">
+      <span class="maplbl">Mergers</span>
+      <div class="toggle">
+        <button class:on={!hostileMergers} onclick={() => (hostileMergers = false)}>Consensual</button>
+        <button class:on={hostileMergers} onclick={() => (hostileMergers = true)}>Hostile (share vote)</button>
+      </div>
+    </div>
+
+    <div class="players-row">
+      <span class="maplbl">Local routes</span>
+      <div class="toggle">
+        <button class:on={localRoutes} onclick={() => (localRoutes = true)}>On</button>
+        <button class:on={!localRoutes} onclick={() => (localRoutes = false)}>Off</button>
+      </div>
+    </div>
+
     <div class="seats">
       {#each Array(count) as _, i}
         <div class="seat">
@@ -80,6 +98,15 @@
     <p class="note">
       Auto builds a fresh procedural board instantly. Manual lets you and the bots
       lay tri-hex tiles in turn on the Map tab to build the board together.
+    </p>
+    <p class="note">
+      Consensual mergers need the target president's consent. Hostile mergers settle
+      a refused proposal by a share vote instead: treasury shares abstain, pooled
+      shares back the side that raises their value, and bots always vote against.
+    </p>
+    <p class="note">
+      Local routes (on by default): a train that can't reach a second city may still
+      run its hub city alone for that city's value.
     </p>
 
     <button class="start" onclick={start}>Start game →</button>

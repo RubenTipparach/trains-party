@@ -36,6 +36,15 @@
   const canSellSym = (sym: string) => (isRola ? rsl!.sell : sl!.sell).includes(sym);
   const canPar = (sym: string) => !isRola && !!sl?.par.includes(sym);
 
+  // Last-run revenue with the 18xx.games dividend convention: plain = paid out,
+  // [x] = withheld. (RoLA only pays out or withholds; there is no half pay.)
+  function lastRunLabel(c: CorporationState): string {
+    const r = c.lastRun;
+    if (!r) return '-';
+    const v = `${CURRENCY}${r.revenue}`;
+    return r.mode === 'withhold' ? `[${v}]` : v;
+  }
+
   // Buy a share, then end the turn in one click (the common stock-round move).
   function buyAndDone(corp: string, from: 'ipo' | 'pool') {
     game.act({ type: 'buy', player: me, corp, from });
@@ -154,10 +163,10 @@
           </div>
           <table class="sh">
             <tbody>
-              <tr><td>IPO</td><td>{c.ipoShares}%</td><td></td></tr>
-              <tr><td>Pool</td><td>{c.poolShares}%</td><td></td></tr>
-              {#each holders(c) as h (h.id)}
-                <tr>
+              <tr><td>{isRola ? 'Treasury' : 'IPO'}</td><td>{c.ipoShares}%</td><td></td></tr>
+              <tr><td>Market</td><td>{c.poolShares}%</td><td></td></tr>
+              {#each holders(c) as h, i (h.id)}
+                <tr class:divtop={i === 0}>
                   <td><span class="dot" style="background:{seatColor(h.id)}"></span>{h.name}</td>
                   <td>{h.pct}%</td>
                   <td>{#if h.pres}<span class="pres">pres</span>{/if}</td>
@@ -165,7 +174,13 @@
               {/each}
             </tbody>
           </table>
-          {#if c.floated}<div class="treasury">Treasury {CURRENCY}{c.cash}</div>{/if}
+          {#if c.floated}
+            <div class="cstats">
+              <div class="cstat"><span>{isRola ? 'Cash' : 'Treasury'}</span><span>{CURRENCY}{c.cash}</span></div>
+              <div class="cstat"><span>Trains</span><span>{c.trains.length ? c.trains.join(' · ') : '-'}</span></div>
+              <div class="cstat"><span>Last run</span><span>{lastRunLabel(c)}</span></div>
+            </div>
+          {/if}
 
           {#if game.canAct && canPar(c.sym)}
             <div class="parrow">
@@ -185,7 +200,7 @@
           {#if game.canAct}
           <div class="cact">
             {#if canBuyIpo(c.sym)}
-              <button onclick={() => game.act({ type: 'buy', player: me, corp: c.sym, from: 'ipo' })}>Buy IPO {CURRENCY}{c.parPrice}</button>
+              <button onclick={() => game.act({ type: 'buy', player: me, corp: c.sym, from: 'ipo' })}>Buy {isRola ? 'treasury' : 'IPO'} {CURRENCY}{c.parPrice}</button>
               <button class="combo" onclick={() => buyAndDone(c.sym, 'ipo')}>Buy &amp; done</button>
             {/if}
             {#if canBuyPool(c.sym)}
@@ -417,6 +432,10 @@
     text-align: right;
     width: 2.4rem;
   }
+  /* divider between the non-player rows (treasury, market) and the shareholders */
+  .sh tr.divtop td {
+    border-top: 1px solid rgba(255, 255, 255, 0.22);
+  }
   .dot {
     display: inline-block;
     width: 8px;
@@ -428,10 +447,19 @@
     font-size: 0.62rem;
     color: var(--rail);
   }
-  .treasury {
+  .cstats {
     font-size: 0.74rem;
     color: var(--muted);
     margin-bottom: 0.4rem;
+  }
+  .cstat {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+  .cstat span:last-child {
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
   }
   .cact {
     display: flex;
