@@ -104,6 +104,7 @@
   // Screen position of the selected anchor (for the floating rotate/place controls).
   let buildPos = $derived.by(() => {
     void view;
+    void panOffset.x; void panOffset.y; // follow the live transform-pan too
     if (!selectedAnchor || !svgEl || !wrap) return { x: 0, y: 0 };
     const c = mapToView(hexCenter(selectedAnchor));
     const r = svgEl.getBoundingClientRect();
@@ -259,6 +260,7 @@
   // HTML fan/controls overlay. Recomputes when the view (pan/zoom) or hex changes.
   let fanPos = $derived.by(() => {
     void view; // track pan/zoom
+    void panOffset.x; void panOffset.y; // follow the live transform-pan too
     if (!layHex || !svgEl || !wrap) return { x: 0, y: 0 };
     const c = mapToView(hexCenter(layHex));
     const r = svgEl.getBoundingClientRect();
@@ -1106,10 +1108,23 @@
   function clampView() {
     view = clamped(view);
   }
+  /** Fold the live transform-pan into the viewBox, then reset the transform.
+   *  Called ONLY when the viewBox is about to change anyway (zoom / rotate /
+   *  animated fly-to), never on pan release. A let-go therefore changes nothing
+   *  on screen - the transform just stays put - so a pan can never re-raster and
+   *  snap when you release the mouse. The standing transform is bounded to the
+   *  overscan ring (panOffset is clamped to +/-maxPx in onMove), so it always
+   *  stays within the rendered area. */
+  function commitPan() {
+    if (!panOffset.x && !panOffset.y) return;
+    view = clamped({ ...view, x: view.x - panOffset.x * dragScale, y: view.y - panOffset.y * dragScale });
+    panOffset = { x: 0, y: 0 };
+  }
 
   /** Smoothly ease the viewBox toward a (clamped) target. Cancels on interaction. */
   function animateView(target: { x: number; y: number; w: number; h: number }, dur = mapView.zoomAnimMs) {
     cancelAnimationFrame(viewRaf);
+    commitPan(); // animate from the committed position (no standing transform)
     const start = { ...view };
     const goal = clamped(target);
     const t0 = performance.now();
@@ -1171,7 +1186,8 @@
 
   function zoomAt(clientX: number, clientY: number, factor: number) {
     bumpInteract();
-    const p = clientToSvg(clientX, clientY);
+    const p = clientToSvg(clientX, clientY); // absolute map coord under the cursor
+    commitPan(); // fold any standing pan in first; preserves the visible region
     const fx = (p.x - view.x) / view.w;
     const fy = (p.y - view.y) / view.h;
     const nw = Math.max(MIN_W, Math.min(MAX_W, view.w * factor));
@@ -1181,6 +1197,7 @@
   /** Zoom toward the viewport centre, animated (used by the +/- buttons). */
   function zoomCenter(factor: number) {
     bumpInteract();
+    commitPan();
     const fx = 0.5;
     const fy = 0.5;
     const px = view.x + fx * view.w;
@@ -1191,6 +1208,7 @@
   }
   /** Rotate the whole map by the configured step (replaces the old reset button). */
   function rotateMap() {
+    commitPan(); // rotation changes the clamp bounds; fold the live pan in first
     rotation += mapView.rotationStepDeg;
     rotAnim.set(rotation);
   }
@@ -1304,11 +1322,13 @@
     const wasDrag = moved;
     pointers.delete(e.pointerId);
     if (pointers.size === 0) dragging = false;
-    // Bake any live transform-pan into the viewBox, then drop the transform.
-    if (panOffset.x || panOffset.y) {
-      view = clamped({ ...view, x: view.x - panOffset.x * dragScale, y: view.y - panOffset.y * dragScale });
-      panOffset = { x: 0, y: 0 };
-    }
+    // NOTE: we deliberately do NOT bake the transform into the viewBox here. A
+    // release changes nothing on screen (the composited transform just stays),
+    // so a pan can never re-raster and snap when you let go. The standing pan is
+    // folded into the viewBox lazily by commitPan(), only when the viewBox is
+    // about to change anyway (zoom / rotate / fly-to). panOffset is clamped to
+    // the overscan ring in onMove, so the standing transform always stays within
+    // the rendered area.
     if (!wasDrag) {
       // Map building: a tap anywhere on the grid positions the next tile.
       if (canBuild) {
