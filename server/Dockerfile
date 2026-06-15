@@ -14,7 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY server/package.json server/package-lock.json* ./
 RUN npm install
 
-COPY server/tsconfig.json ./
+COPY server/tsconfig.json server/build.mjs ./
 COPY server/src ./src
 # The shared, isomorphic engine (single source of truth for game rules).
 COPY frontend/src/lib /app/frontend/src/lib
