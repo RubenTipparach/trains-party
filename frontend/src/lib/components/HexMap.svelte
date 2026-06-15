@@ -11,7 +11,7 @@
   import { anim } from '$lib/game/anim.svelte';
   import { routing } from '$lib/game/routing.svelte';
   import { locate } from '$lib/game/locate.svelte';
-  import { TILES, rotatePaths, trackLays, tokenPlays, corpRoutes, routeThroughStops, tileSupply, exhaustedTilesOnHex, configFor, placementCoords, isLegalPlacement } from '$lib/engine';
+  import { TILES, rotatePaths, trackLays, tokenPlays, corpRoutes, routeThroughStops, neighbor, tileSupply, exhaustedTilesOnHex, configFor, placementCoords, isLegalPlacement } from '$lib/engine';
   import TileGraphic from './TileGraphic.svelte';
 
   // The active board: a procedurally-built RoLA runtime map (state.map), or the
@@ -339,7 +339,7 @@
   /** Animate one route; resolves true when finished, false if skipped. */
   function animateRoute(
     pts: { x: number; y: number }[],
-    stopRev: number[],
+    stopRev: (number | null)[],
     color: string
   ): Promise<boolean> {
     return new Promise((resolve) => {
@@ -383,14 +383,17 @@
           cars.push({ ...p, opacity: fade(s) });
         }
         train = { cars, color };
-        // Glow + coin as the locomotive reaches each revenue centre.
+        // Glow + coin as the locomotive reaches each revenue centre. Track-only
+        // vertices (edge midpoints between stops) carry a null revenue and fire
+        // nothing - the train just rides the rail through them.
         for (let i = 0; i < pts.length; i++) {
           if (!fired[i] && head >= cum[i]) {
             fired[i] = true;
+            const val = stopRev[i];
+            if (val == null) continue;
             const gid = ++glowId;
             glows = [...glows, { id: gid, x: pts[i].x, y: pts[i].y, color }];
             setTimeout(() => (glows = glows.filter((g) => g.id !== gid)), 1200);
-            const val = stopRev[i] || 0;
             if (val > 0) {
               const id = ++coinId;
               coins = [...coins, { id, x: pts[i].x, y: pts[i].y, val, color }];
@@ -436,14 +439,78 @@
     // Run each of the corporation's trains along its route in turn.
     for (const route of routes) {
       if (route.hexes.length < 2) continue;
-      const pts = route.hexes.map((h) => hexCenter(h));
-      const stopRev = route.hexes.map((h) => stopRevenue(snap, h));
+      // Follow the laid track (centre -> edge -> edge -> centre) so the train
+      // rides the rails between stops instead of cutting straight across hexes.
+      // Fall back to centre-to-centre lines if the path cannot be reconstructed.
+      const poly = trackPolyline(snap, c, route.hexes);
+      const pts = poly ? poly.pts : route.hexes.map((h) => hexCenter(h));
+      const stopRev: (number | null)[] = poly
+        ? poly.stopRev
+        : route.hexes.map((h) => stopRevenue(snap, h));
       if (!(await animateRoute(pts, stopRev, route.color))) {
         animSegColors = {};
         return; // skipped
       }
     }
     animSegColors = {};
+  }
+
+  /**
+   * Reconstruct the geometric polyline a train follows along the laid track for
+   * an ordered stop list: it walks the route's own track segments (centre to edge,
+   * across the shared edge to the neighbour, on to the next centre), emitting an
+   * absolute point at every centre and edge crossing. `stopRev[i]` is the revenue
+   * to award when the train reaches `pts[i]` (a city/town/offboard centre) or null
+   * for an intermediate edge point. Returns null if the segments cannot be walked.
+   */
+  type WalkEnd = number | 'c';
+  function trackPolyline(
+    snap: typeof game.state,
+    corp: (typeof game.state)['corporations'][number],
+    stops: string[]
+  ): { pts: { x: number; y: number }[]; stopRev: (number | null)[] } | null {
+    const res = routeThroughStops(snap, stops, 99, new Set(), new Set(), corp);
+    if (!res?.route.segs || res.route.segs.length === 0) return null;
+    // Index the route's own segments by hex so the walk only follows chosen track.
+    const conv = (e: string): WalkEnd => (e === 'c' ? 'c' : Number(e));
+    const byHex: Record<string, { a: WalkEnd; b: WalkEnd; id: string }[]> = {};
+    for (const id of res.route.segs) {
+      const bar = id.indexOf('|');
+      const hex = id.slice(0, bar);
+      const [ra, rb] = id.slice(bar + 1).split('-');
+      (byHex[hex] ??= []).push({ a: conv(ra), b: conv(rb), id });
+    }
+    const ptOf = (hex: string, end: WalkEnd) => {
+      const c = hexCenter(hex);
+      return end === 'c' ? c : edgeMidpoint(c.x, c.y, end);
+    };
+    const last = stops[stops.length - 1];
+    const pts: { x: number; y: number }[] = [hexCenter(stops[0])];
+    const stopRev: (number | null)[] = [stopRevenue(snap, stops[0])];
+    const used = new Set<string>();
+    let hex = stops[0];
+    let entry: WalkEnd = 'c';
+    for (let guard = 0; guard < 400; guard++) {
+      const seg = (byHex[hex] ?? []).find((s) => !used.has(s.id) && (s.a === entry || s.b === entry));
+      if (!seg) break; // dead end (reached the final stop, or an unexpected gap)
+      used.add(seg.id);
+      const other: WalkEnd = seg.a === entry ? seg.b : seg.a;
+      if (other === 'c') {
+        pts.push(hexCenter(hex));
+        stopRev.push(stopRevenue(snap, hex));
+        if (hex === last) break;
+        entry = 'c'; // continue out the far side of this stop
+      } else {
+        pts.push(ptOf(hex, other));
+        stopRev.push(null);
+        const nb = neighbor(activeMap, hex, other);
+        if (!nb) break;
+        hex = nb;
+        entry = ((other + 3) % 6) as WalkEnd; // arrive on the opposite edge
+      }
+    }
+    // Need at least the two stop centres to animate a meaningful run.
+    return pts.length >= 2 ? { pts, stopRev } : null;
   }
 
   /** Revenue of a single revenue centre hex under its current tile / base. */

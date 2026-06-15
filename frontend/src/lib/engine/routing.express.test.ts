@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { initialState } from './setup';
-import { replay } from './index';
+import { replay, neighbor } from './index';
 import { routeThroughStops, trainReach, corpRoutes } from './routes';
-import type { GameAction } from './types';
+import { hexCenter, edgeMidpoint, APOTHEM } from '../hexgeo';
+import type { GameAction, GameState, CorporationState } from './types';
 
 /**
  * Regression: the RoLA Express minor (ER) carries `boost_stop_if_single_train`,
@@ -81,5 +82,76 @@ describe('Express single-train stop boost (manual route resolution)', () => {
     expect(res!.route.revenue).toBe(80);
     // The auto best route agrees, confirming the boost is consistent across paths.
     expect(corpRoutes(s, er).revenue).toBe(80);
+  });
+});
+
+/**
+ * Mirror of the HexMap `trackPolyline` walk: rebuild the geometric path a train
+ * follows along the laid track for an ordered stop list. Kept in lockstep with
+ * the component so the run animation rides the rails (centre -> edge -> edge ->
+ * centre) instead of cutting straight across hexes.
+ */
+type WalkEnd = number | 'c';
+function trackPolyline(s: GameState, corp: CorporationState, stops: string[]) {
+  const res = routeThroughStops(s, stops, 99, new Set(), new Set(), corp);
+  if (!res?.route.segs) return null;
+  const conv = (e: string): WalkEnd => (e === 'c' ? 'c' : Number(e));
+  const byHex: Record<string, { a: WalkEnd; b: WalkEnd; id: string }[]> = {};
+  for (const id of res.route.segs) {
+    const bar = id.indexOf('|');
+    const hex = id.slice(0, bar);
+    const [ra, rb] = id.slice(bar + 1).split('-');
+    (byHex[hex] ??= []).push({ a: conv(ra), b: conv(rb), id });
+  }
+  const map = s.map!;
+  const ptOf = (hex: string, end: WalkEnd) => {
+    const c = hexCenter(hex);
+    return end === 'c' ? c : edgeMidpoint(c.x, c.y, end);
+  };
+  const last = stops[stops.length - 1];
+  const pts = [hexCenter(stops[0])];
+  const stopRev: (number | null)[] = [1];
+  const used = new Set<string>();
+  let hex = stops[0];
+  let entry: WalkEnd = 'c';
+  for (let guard = 0; guard < 400; guard++) {
+    const seg = (byHex[hex] ?? []).find((g) => !used.has(g.id) && (g.a === entry || g.b === entry));
+    if (!seg) break;
+    used.add(seg.id);
+    const other: WalkEnd = seg.a === entry ? seg.b : seg.a;
+    if (other === 'c') {
+      pts.push(hexCenter(hex));
+      stopRev.push(1);
+      if (hex === last) break;
+      entry = 'c';
+    } else {
+      pts.push(ptOf(hex, other));
+      stopRev.push(null);
+      const nb = neighbor(map, hex, other);
+      if (!nb) break;
+      hex = nb;
+      entry = ((other + 3) % 6) as WalkEnd;
+    }
+  }
+  return { pts, stopRev };
+}
+
+describe('run animation follows the laid track', () => {
+  it('rides centre -> edge -> edge -> centre through the pass-through hex', () => {
+    const s = liveState();
+    const er = s.corporations.find((c) => c.sym === 'ER')!;
+    const poly = trackPolyline(s, er, ['I6', 'H5', 'G8'])!;
+    expect(poly).not.toBeNull();
+    // Three stop vertices (revenue centres) plus intermediate edge crossings.
+    const stopVerts = poly.stopRev.filter((r) => r != null).length;
+    expect(stopVerts).toBe(3);
+    expect(poly.pts.length).toBeGreaterThan(3); // edge points between the stops
+    // The polyline is continuous: every step stays within a single hex (the
+    // longest legal track segment is edge-to-edge across one hex = 2*APOTHEM), so
+    // it never cuts straight from city centre to city centre over a gap.
+    for (let i = 1; i < poly.pts.length; i++) {
+      const d = Math.hypot(poly.pts[i].x - poly.pts[i - 1].x, poly.pts[i].y - poly.pts[i - 1].y);
+      expect(d).toBeLessThanOrEqual(2 * APOTHEM + 1);
+    }
   });
 });
