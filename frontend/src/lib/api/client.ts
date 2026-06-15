@@ -137,6 +137,7 @@ export const loginUrl = (redirect: string) =>
 
 export const getAnnouncement = () => call<{ message: string; updatedAt: number }>('GET', '/announcement');
 export const listOpenRooms = () => call<RoomView[]>('GET', '/rooms');
+export const listLiveRooms = () => call<RoomView[]>('GET', '/rooms/live');
 export const listMyRooms = () => call<RoomView[]>('GET', '/me/rooms');
 export const getRoom = (code: string) => call<RoomView>('GET', `/rooms/${code}`);
 export const createRoom = (opts: CreateOpts) => call<RoomView>('POST', '/rooms', opts);
@@ -144,6 +145,10 @@ export const claimSeat = (code: string, seatId: string) =>
   call<RoomView>('POST', `/rooms/${code}/seats/${seatId}/claim`);
 export const releaseSeat = (code: string, seatId: string) =>
   call<RoomView>('POST', `/rooms/${code}/seats/${seatId}/release`);
+export const seatBot = (code: string, seatId: string) =>
+  call<RoomView>('POST', `/rooms/${code}/seats/${seatId}/bot`);
+export const openSeat = (code: string, seatId: string) =>
+  call<RoomView>('POST', `/rooms/${code}/seats/${seatId}/open`);
 export const startRoom = (code: string) => call<StateResp>('POST', `/rooms/${code}/start`);
 export const fetchState = (code: string, since = -1) =>
   call<StateResp>('GET', `/rooms/${code}/state?since=${since}`);

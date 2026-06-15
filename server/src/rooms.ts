@@ -245,6 +245,48 @@ export function registerRooms(app: FastifyInstance): void {
     return roomView(room);
   });
 
+  // Host fills a seat with a bot (waiting room only).
+  app.post('/rooms/:code/seats/:seatId/bot', async (req, reply) => {
+    const me = requireAuth(req, reply);
+    if (!me) return;
+    const { code, seatId } = req.params as { code: string; seatId: string };
+    const room = getRoom(code);
+    if (!room) return reply.code(404).send({ error: 'not_found' });
+    if (room.creator_discord_id !== me) return reply.code(403).send({ error: 'not_host' });
+    if (room.status !== 'lobby') return reply.code(409).send({ error: 'not_joinable' });
+    if (!getSeats(room.code).some((s) => s.seat_id === seatId)) return reply.code(404).send({ error: 'no_such_seat' });
+    db.prepare("UPDATE room_seats SET bot = 1, discord_id = NULL, name = ? WHERE room_code = ? AND seat_id = ?").run(
+      `Bot ${seatId.replace(/^p/, '')}`,
+      room.code,
+      seatId
+    );
+    return roomView(room);
+  });
+
+  // Host clears a seat back to open (waiting room only).
+  app.post('/rooms/:code/seats/:seatId/open', async (req, reply) => {
+    const me = requireAuth(req, reply);
+    if (!me) return;
+    const { code, seatId } = req.params as { code: string; seatId: string };
+    const room = getRoom(code);
+    if (!room) return reply.code(404).send({ error: 'not_found' });
+    if (room.creator_discord_id !== me) return reply.code(403).send({ error: 'not_host' });
+    if (room.status !== 'lobby') return reply.code(409).send({ error: 'not_joinable' });
+    db.prepare("UPDATE room_seats SET bot = 0, discord_id = NULL, name = 'Open' WHERE room_code = ? AND seat_id = ?").run(
+      room.code,
+      seatId
+    );
+    return roomView(room);
+  });
+
+  // Live (in-progress) games anyone can see.
+  app.get('/rooms/live', async () => {
+    const rooms = db
+      .prepare("SELECT * FROM rooms WHERE status = 'active' ORDER BY updated_at DESC LIMIT 50")
+      .all() as RoomRow[];
+    return rooms.map((r) => roomView(r)).filter((v) => !v.finished);
+  });
+
   // --- start --------------------------------------------------------------
   app.post('/rooms/:code/start', async (req, reply) => {
     const me = requireAuth(req, reply);
