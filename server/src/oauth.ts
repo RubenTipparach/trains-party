@@ -48,7 +48,24 @@ function requireAuth(req: FastifyRequest, reply: FastifyReply): string | null {
 }
 
 export function registerAuth(app: FastifyInstance): void {
-  app.get('/auth/discord/enabled', async () => ({ signIn: CFG.discord.signIn, autoJoin: CFG.discord.autoJoin }));
+  app.get('/auth/discord/enabled', async () => ({
+    signIn: CFG.discord.signIn,
+    autoJoin: CFG.discord.autoJoin,
+    anon: true
+  }));
+
+  // Guest login: no Discord. Mints a profile with a non-snowflake id (so the bot
+  // never tries to DM it) and a session. Lets people play without an account.
+  app.post('/auth/anon', async (req) => {
+    const raw = String((req.body as { name?: string })?.name ?? '').trim().slice(0, 24);
+    const name = raw || 'Guest';
+    const id = 'g_' + randomBytes(9).toString('base64url');
+    db.prepare(
+      'INSERT INTO profiles (discord_id, username, display_name, avatar, created_at, updated_at) VALUES (?,?,?,?,?,?)'
+    ).run(id, name, name, null, now(), now());
+    const token = createSession(id);
+    return { token, profile: meView(id) };
+  });
 
   app.get('/auth/discord/login', async (req, reply) => {
     if (!CFG.discord.signIn) return reply.code(404).send({ error: 'discord_disabled' });

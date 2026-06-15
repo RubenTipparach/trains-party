@@ -119,8 +119,11 @@ export interface CreateOpts {
 
 // --- auth / identity -------------------------------------------------------
 
-export const authEnabled = () => call<{ signIn: boolean; autoJoin: boolean }>('GET', '/auth/discord/enabled');
+export const authEnabled = () =>
+  call<{ signIn: boolean; autoJoin: boolean; anon: boolean }>('GET', '/auth/discord/enabled');
 export const me = () => call<Profile>('GET', '/me');
+/** Guest sign-in (no Discord): returns a token + profile. */
+export const anonLogin = (name: string) => call<{ token: string; profile: Profile }>('POST', '/auth/anon', { name });
 export const logout = () => call<{ ok: boolean }>('POST', '/auth/logout');
 export const setNotify = (p: { notifyTurn?: boolean; notifyAuction?: boolean }) =>
   call<Profile['notify']>('PUT', '/me/notify', p);

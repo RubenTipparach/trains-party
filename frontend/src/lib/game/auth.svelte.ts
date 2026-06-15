@@ -7,7 +7,7 @@
 import * as api from '$lib/api/client';
 
 class Auth {
-  enabled = $state<{ signIn: boolean; autoJoin: boolean } | null>(null);
+  enabled = $state<{ signIn: boolean; autoJoin: boolean; anon: boolean } | null>(null);
   profile = $state<api.Profile | null>(null);
   loading = $state(true);
   private started = false;
@@ -29,7 +29,7 @@ class Auth {
     try {
       this.enabled = await api.authEnabled();
     } catch {
-      this.enabled = { signIn: false, autoJoin: false };
+      this.enabled = { signIn: false, autoJoin: false, anon: true };
     }
     if (api.getToken()) {
       try {
@@ -49,6 +49,18 @@ class Auth {
 
   loginUrl(redirect: string): string {
     return api.loginUrl(redirect);
+  }
+
+  /** Sign in as a guest (no Discord). */
+  async signInAnon(name: string): Promise<void> {
+    const r = await api.anonLogin(name);
+    api.setToken(r.token);
+    this.profile = r.profile;
+  }
+
+  /** A guest profile has a non-snowflake id (so no Discord features). */
+  get isGuest(): boolean {
+    return !!this.profile && !/^\d+$/.test(this.profile.discordId);
   }
 
   async signOut(): Promise<void> {
