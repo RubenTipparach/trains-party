@@ -38,6 +38,8 @@
   const accentOf = (id: string) => GAMES.find((g) => g.id === id)?.accent ?? '#f5c542';
   const amIn = (r: api.RoomView) => !!myDiscordId && r.seats.some((s) => s.discordId === myDiscordId);
   const seatCount = (r: api.RoomView) => `${r.seats.filter((s) => s.taken).length}/${r.seats.length}`;
+  const players = (r: api.RoomView) =>
+    r.seats.map((s) => ({ name: s.bot ? s.name : s.discordId ? s.name : 'open', bot: s.bot, open: !s.bot && !s.discordId }));
   const roomHref = (r: api.RoomView) => `${base}/${r.title}/room/${r.code}`;
 
   function ago(t: number): string {
@@ -252,6 +254,7 @@
                 <span class="rtitle">{titleOf(r.title)}</span>
                 <span class="rcode">Room {r.code.toUpperCase()}</span>
                 <span class="rmeta">{seatCount(r)} players<span class="dot">•</span>{r.label}<span class="dot">•</span>{ago(r.updatedAt || 0)}</span>
+                <span class="rplayers">{#each players(r) as p}<span class="pchip" class:bot={p.bot} class:open={p.open}>{p.name}</span>{/each}</span>
               </div>
               <div class="rbtns">
                 {#if amIn(r) && r.creatorDiscordId === myDiscordId}
@@ -280,6 +283,7 @@
                 <span class="rtitle">{titleOf(r.title)}</span>
                 <span class="rcode">Room {r.code.toUpperCase()}</span>
                 <span class="rmeta">{r.label}<span class="dot">•</span>{r.seq} moves<span class="dot">•</span>{ago(r.updatedAt || 0)}</span>
+                <span class="rplayers">{#each players(r) as p}<span class="pchip" class:bot={p.bot} class:open={p.open}>{p.name}</span>{/each}</span>
               </a>
               <a class="ghost sm rbtns" href={roomHref(r)}>Resume</a>
             </li>
@@ -298,6 +302,7 @@
                 <span class="rtitle">{titleOf(r.title)}</span>
                 <span class="rcode">Room {r.code.toUpperCase()}</span>
                 <span class="rmeta">Finished<span class="dot">•</span>{r.seq} moves<span class="dot">•</span>{ago(r.updatedAt || 0)}</span>
+                <span class="rplayers">{#each players(r) as p}<span class="pchip" class:bot={p.bot} class:open={p.open}>{p.name}</span>{/each}</span>
               </a>
               <a class="ghost sm rbtns" href={roomHref(r)}>Review</a>
             </li>
@@ -468,11 +473,15 @@
   .rooms { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
   .room { display: flex; align-items: stretch; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 12px; background: var(--bg-soft); overflow: hidden; }
   .room.dim { opacity: 0.75; }
-  .rmain { flex: 1; display: grid; grid-template-columns: 1fr auto; grid-template-areas: 'title code' 'meta meta'; gap: 0.15rem 0.6rem; padding: 0.7rem 0.9rem; text-decoration: none; color: inherit; }
+  .rmain { flex: 1; display: grid; grid-template-columns: 1fr auto; grid-template-areas: 'title code' 'meta meta' 'players players'; gap: 0.15rem 0.6rem; padding: 0.7rem 0.9rem; text-decoration: none; color: inherit; }
   a.rmain:hover { background: rgba(255, 255, 255, 0.03); }
   .rtitle { grid-area: title; font-weight: 700; color: var(--accent); }
   .rcode { grid-area: code; font: 700 0.75rem ui-monospace, monospace; letter-spacing: 0.06em; color: var(--muted); align-self: center; }
   .rmeta { grid-area: meta; font-size: 0.78rem; color: var(--muted); display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: center; }
+  .rplayers { grid-area: players; display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.2rem; }
+  .pchip { font-size: 0.72rem; padding: 0.05rem 0.5rem; border-radius: 999px; border: 1px solid var(--line); color: var(--ink); background: rgba(255, 255, 255, 0.03); }
+  .pchip.bot { color: var(--muted); }
+  .pchip.open { color: var(--muted); opacity: 0.55; border-style: dashed; }
   .rbtns { display: flex; align-items: center; gap: 0.4rem; padding: 0 0.7rem; border-left: 1px solid var(--line); }
   .rdel { border: none; border-left: 1px solid var(--line); background: none; color: var(--muted); font-size: 0.78rem; padding: 0 0.9rem; cursor: pointer; }
   .rdel:hover { color: #e0655c; background: rgba(224, 101, 92, 0.08); }
