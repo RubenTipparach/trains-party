@@ -1977,8 +1977,7 @@
      viewBox is expanded to match), so a drag can slide real content in from
      beyond the visible edge. .sea (overflow:hidden) clips it back to the
      viewport, and clipping also confines pointer hit-testing to the visible
-     area. will-change promotes it to its own layer so panning is a pure
-     compositor translate (no re-raster). */
+     area. */
   .map {
     position: absolute;
     left: -35%;
@@ -1988,10 +1987,17 @@
     display: block;
     touch-action: none;
     cursor: grab;
-    will-change: transform;
   }
+  /* Promote to its own compositor layer ONLY while dragging, so a live pan is a
+     pure compositor translate (no re-raster). It is deliberately NOT persistent:
+     on release we bake the live transform into the viewBox and reset the
+     transform in the same frame; if the layer stayed promoted the compositor
+     could apply the transform reset a frame before the viewBox re-raster lands,
+     showing the old raster at the new transform - a snap proportional to the pan
+     distance. Demoting on release makes that frame rasterise atomically. */
   .map.grabbing {
     cursor: grabbing;
+    will-change: transform;
   }
   .introskip {
     position: absolute;
