@@ -3,12 +3,13 @@
 # the rest of the frontend (build artifacts, static assets) is excluded.
 **/node_modules
 **/dist
-**/build
 **/.svelte-kit
+frontend/build
 frontend/static
 .git
 .github
-**/data
+# The SQLite data dir only - NOT frontend/src/lib/data (the engine's game data).
+server/data
 **/*.sqlite
 **/*.log
 **/.env
