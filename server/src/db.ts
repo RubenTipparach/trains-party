@@ -120,6 +120,14 @@ export function migrate(): void {
       created_at INTEGER NOT NULL,
       expires_at INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS lobby_chat (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      discord_id TEXT,
+      name       TEXT NOT NULL,
+      body       TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
   `);
 
   // Evolve an older rooms/actions schema (Stage 0 shipped a minimal one).

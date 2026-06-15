@@ -112,6 +112,50 @@ export function registerRooms(app: FastifyInstance): void {
     return rooms.map((r) => roomView(r));
   });
 
+  // --- my games (any status I hold a seat in) -----------------------------
+  app.get('/me/rooms', async (req, reply) => {
+    const me = requireAuth(req, reply);
+    if (!me) return;
+    const codes = db
+      .prepare('SELECT DISTINCT room_code FROM room_seats WHERE discord_id = ?')
+      .all(me) as { room_code: string }[];
+    const out = [];
+    for (const { room_code } of codes) {
+      const room = getRoom(room_code);
+      if (room) {
+        try {
+          out.push(roomView(room));
+        } catch {
+          /* skip a room whose state cannot be derived */
+        }
+      }
+    }
+    out.sort((a, b) => b.updatedAt - a.updatedAt);
+    return out;
+  });
+
+  // --- global lobby chat --------------------------------------------------
+  app.get('/lobby/chat', async (req) => {
+    const since = Number((req.query as { since?: string }).since ?? 0);
+    const rows = db
+      .prepare('SELECT id, discord_id, name, body, created_at FROM lobby_chat WHERE id > ? ORDER BY id DESC LIMIT 80')
+      .all(since) as { id: number; discord_id: string | null; name: string; body: string; created_at: number }[];
+    return rows
+      .reverse()
+      .map((r) => ({ id: r.id, discordId: r.discord_id, name: r.name, body: r.body, at: r.created_at }));
+  });
+
+  app.post('/lobby/chat', async (req, reply) => {
+    const me = requireAuth(req, reply);
+    if (!me) return;
+    const body = String((req.body as { body?: string })?.body ?? '').trim().slice(0, 500);
+    if (!body) return reply.code(400).send({ error: 'empty' });
+    const info = db
+      .prepare('INSERT INTO lobby_chat (discord_id, name, body, created_at) VALUES (?,?,?,?)')
+      .run(me, profileName(me), body, now());
+    return { id: Number(info.lastInsertRowid), discordId: me, name: profileName(me), body, at: now() };
+  });
+
   // --- room meta ----------------------------------------------------------
   app.get('/rooms/:code', async (req, reply) => {
     const room = getRoom((req.params as { code: string }).code);
