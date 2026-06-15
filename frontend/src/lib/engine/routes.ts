@@ -266,24 +266,24 @@ function withAdd(set: Set<string>, v: string): Set<string> {
   return n;
 }
 
-/** Best set of routes for a corporation's trains (greedy, longest train first). */
-export function corpRoutes(s: GameState, corp: CorporationState): { routes: Route[]; revenue: number } {
-  const tokenCities = corp.tokenHexes.filter((h) => isCity(s, h));
-  // Resourceful: rusted trains get one final run before they are discarded.
-  const roster = [...corp.trains, ...(corp.rustedTrains ?? [])];
-  if (tokenCities.length === 0 || roster.length === 0) return { routes: [], revenue: 0 };
-
-  const trainDefs = configFor(s.title).trains;
-  const trains = [...roster].sort((a, b) => trainMaxStops(trainDefs, b) - trainMaxStops(trainDefs, a));
-  // Express: +1 stop while the company owns a single train.
-  const expressBoost = roster.length === 1 && rolaAbility(s.title, corp, 'boost_stop_if_single_train') ? 1 : 0;
-
+/**
+ * Greedy assignment of routes to trains in the given order: each train takes its
+ * best route avoiding track already used by earlier trains; a train that cannot
+ * reach a second stop falls back to a RoLA local (single hub) route.
+ */
+function assignInOrder(
+  s: GameState,
+  corp: CorporationState,
+  order: string[],
+  trainDefs: TrainDef[],
+  expressBoost: number,
+  tokenCities: string[]
+): { routes: Route[]; revenue: number } {
   const usedSegs = new Set<string>();
   const usedLinks = new Set<string>();
   const routes: Route[] = [];
   let revenue = 0;
-
-  for (const train of trains) {
+  for (const train of order) {
     const maxStops = trainMaxStops(trainDefs, train) + expressBoost;
     const diesel = isDiesel(trainDefs, train);
     let pick: { route: Route; segs: Set<string>; links: Set<string> } | null = null;
@@ -311,6 +311,53 @@ export function corpRoutes(s: GameState, corp: CorporationState): { routes: Rout
     }
   }
   return { routes, revenue };
+}
+
+/** All permutations of a small array. */
+function permutations<T>(a: T[]): T[][] {
+  if (a.length <= 1) return [a.slice()];
+  const out: T[][] = [];
+  for (let i = 0; i < a.length; i++) {
+    const rest = [...a.slice(0, i), ...a.slice(i + 1)];
+    for (const p of permutations(rest)) out.push([a[i], ...p]);
+  }
+  return out;
+}
+
+/**
+ * Best set of routes for a corporation's trains. A single greedy pass (each train
+ * takes its best remaining route) depends on the order trains are served, so it
+ * can be suboptimal when two trains compete for the same high-value track. We try
+ * every train ORDER for a small roster and keep the highest-revenue assignment -
+ * closer to the optimal non-overlapping set the 18xx.games engine finds, without
+ * the cost of full route enumeration. The result is at least as good as the plain
+ * greedy pass. Routes are returned longest-first so callers can pair them with
+ * reach-sorted trains (reach is nested, so this matching is always valid).
+ */
+export function corpRoutes(s: GameState, corp: CorporationState): { routes: Route[]; revenue: number } {
+  const tokenCities = corp.tokenHexes.filter((h) => isCity(s, h));
+  // Resourceful: rusted trains get one final run before they are discarded.
+  const roster = [...corp.trains, ...(corp.rustedTrains ?? [])];
+  if (tokenCities.length === 0 || roster.length === 0) return { routes: [], revenue: 0 };
+
+  const trainDefs = configFor(s.title).trains;
+  // Express: +1 stop while the company owns a single train.
+  const expressBoost = roster.length === 1 && rolaAbility(s.title, corp, 'boost_stop_if_single_train') ? 1 : 0;
+
+  const longestFirst = [...roster].sort((a, b) => trainMaxStops(trainDefs, b) - trainMaxStops(trainDefs, a));
+  let best = assignInOrder(s, corp, longestFirst, trainDefs, expressBoost, tokenCities);
+
+  // Order independence: a 2-4 train roster may earn more under a different service
+  // order. Try them all (bounded: at most 24 orders) and keep the best.
+  if (roster.length > 1 && roster.length <= 4) {
+    for (const order of permutations(roster)) {
+      const cand = assignInOrder(s, corp, order, trainDefs, expressBoost, tokenCities);
+      if (cand.revenue > best.revenue) best = cand;
+    }
+  }
+
+  best.routes.sort((a, b) => b.hexes.length - a.hexes.length);
+  return best;
 }
 
 /** Total run revenue a corporation can earn this OR. */
