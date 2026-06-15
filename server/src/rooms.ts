@@ -138,7 +138,7 @@ export function registerRooms(app: FastifyInstance): void {
   app.get('/lobby/chat', async (req) => {
     const since = Number((req.query as { since?: string }).since ?? 0);
     const rows = db
-      .prepare('SELECT id, discord_id, name, body, created_at FROM lobby_chat WHERE id > ? ORDER BY id DESC LIMIT 80')
+      .prepare('SELECT id, discord_id, name, body, created_at FROM lobby_chat WHERE id > ? ORDER BY id DESC LIMIT 50')
       .all(since) as { id: number; discord_id: string | null; name: string; body: string; created_at: number }[];
     return rows
       .reverse()

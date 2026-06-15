@@ -78,7 +78,7 @@
     try {
       const msgs = await api.lobbyChat(lastChatId);
       if (msgs.length) {
-        chat = [...chat, ...msgs].slice(-200);
+        chat = [...chat, ...msgs].slice(-50);
         lastChatId = chat[chat.length - 1].id;
       }
     } catch {
