@@ -181,6 +181,52 @@ export function registerRooms(app: FastifyInstance): void {
     }
   });
 
+  // The action-log delta (seq > since), so a client can replay incrementally.
+  app.get('/rooms/:code/actions', async (req, reply) => {
+    const room = getRoom((req.params as { code: string }).code);
+    if (!room) return reply.code(404).send({ error: 'not_found' });
+    const since = Number((req.query as { since?: string }).since ?? 0);
+    const rows = db
+      .prepare('SELECT payload FROM actions WHERE room_code = ? AND seq > ? ORDER BY seq')
+      .all(room.code, since) as { payload: string }[];
+    return { code: room.code, seq: room.seq, actions: rows.map((r) => JSON.parse(r.payload)) };
+  });
+
+  // Host edits game options while the room is still gathering (lobby only).
+  app.post('/rooms/:code/options', async (req, reply) => {
+    const me = requireAuth(req, reply);
+    if (!me) return;
+    const room = getRoom((req.params as { code: string }).code);
+    if (!room) return reply.code(404).send({ error: 'not_found' });
+    if (room.creator_discord_id !== me) return reply.code(403).send({ error: 'not_host' });
+    if (room.status !== 'lobby') return reply.code(409).send({ error: 'not_joinable' });
+    const b = (req.body ?? {}) as Record<string, unknown>;
+    const sets: string[] = [];
+    const vals: unknown[] = [];
+    if (typeof b.seed === 'number' && Number.isFinite(b.seed)) {
+      sets.push('seed = ?');
+      vals.push(Math.floor(b.seed as number));
+    }
+    if (b.mapMode === 'auto' || b.mapMode === 'manual') {
+      sets.push('map_mode = ?');
+      vals.push(b.mapMode);
+    }
+    if (typeof b.hostileMergers === 'boolean') {
+      sets.push('hostile_mergers = ?');
+      vals.push(b.hostileMergers ? 1 : 0);
+    }
+    if (typeof b.localRoutes === 'boolean') {
+      sets.push('local_routes = ?');
+      vals.push(b.localRoutes ? 1 : 0);
+    }
+    if (sets.length) {
+      sets.push('updated_at = ?');
+      vals.push(now(), room.code);
+      db.prepare(`UPDATE rooms SET ${sets.join(', ')} WHERE code = ?`).run(...(vals as never[]));
+    }
+    return roomView(getRoom(room.code)!);
+  });
+
   // --- submit an action ---------------------------------------------------
   app.post('/rooms/:code/actions', async (req, reply) => {
     const me = requireAuth(req, reply);

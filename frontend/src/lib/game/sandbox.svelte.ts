@@ -19,6 +19,8 @@ import {
 } from '$lib/engine';
 import { botAction, type BotLevel } from './bots';
 import { newCode, normCode, readSession, writeSession } from './sessions';
+import * as api from '$lib/api/client';
+import type { RoomView, ApiError } from '$lib/api/client';
 
 /** A compact round label cached on each saved session for the lobby. */
 function statusOf(s: GameState): string {
@@ -76,6 +78,17 @@ class Sandbox {
   cursor = $state(0);
   error = $state<string | null>(null);
 
+  // --- server-backed (async multiplayer) mode -----------------------------
+  /** When true, the action log is authoritative on the server: act() submits and
+   *  the room polls for other players' moves. Bots run server-side. */
+  serverMode = $state(false);
+  /** The signed-in player's Discord id (to know which seat is theirs). */
+  myDiscordId = $state<string | null>(null);
+  /** Per-seat occupancy from the server room (who holds each seat / is a bot). */
+  private seatMeta = $state<{ id: string; discordId: string | null; bot: boolean }[]>([]);
+  /** True while a move is in flight to the server. */
+  serverBusy = $state(false);
+
   private base = $derived(
     initialState(seatIds(this.seats), this.title, RULES_VERSION, { seed: this.seed, mapMode: this.mapMode, hostileMergers: this.hostileMergers, localRoutes: this.localRoutes })
   );
@@ -102,10 +115,10 @@ class Sandbox {
     return this.cursor < this.actions.length;
   }
   get canUndo(): boolean {
-    return this.actions.length > 0;
+    return !this.serverMode && this.actions.length > 0;
   }
   get canRedo(): boolean {
-    return this.redoStack.length > 0;
+    return !this.serverMode && this.redoStack.length > 0;
   }
 
   get active(): string | null {
@@ -120,7 +133,13 @@ class Sandbox {
    * are gated on this so you cannot act on a bot's (or another player's) turn.
    */
   get canAct(): boolean {
-    return !this.reviewing && !!this.active && !this.isBot(this.active);
+    if (this.reviewing || !this.active) return false;
+    if (this.serverMode) {
+      // It must be MY seat's turn (a human seat I hold) and no move in flight.
+      const seat = this.seatMeta.find((s) => s.id === this.active);
+      return !!seat && !seat.bot && seat.discordId === this.myDiscordId && !this.serverBusy;
+    }
+    return !this.isBot(this.active);
   }
   level(id: string): BotLevel {
     return this.seats.find((s) => s.id === id)?.level ?? 'normal';
@@ -158,6 +177,10 @@ class Sandbox {
   }
 
   act(action: GameAction) {
+    if (this.serverMode) {
+      void this.actServer(action);
+      return;
+    }
     // Acting while reviewing the past first returns to the live head.
     if (this.reviewing) this.cursor = this.actions.length;
     try {
@@ -179,9 +202,10 @@ class Sandbox {
     }
   }
 
-  /** Bot plays one move if it's a bot's turn (only when live, not reviewing). */
+  /** Bot plays one move if it's a bot's turn (only when live, not reviewing).
+   *  No-op in server mode: bots are advanced authoritatively on the server. */
   botStep(): boolean {
-    if (this.reviewing) return false;
+    if (this.serverMode || this.reviewing) return false;
     const a = this.active;
     if (!a || !this.isBot(a)) return false;
     const action = botAction(this.live, this.level(a));
@@ -224,7 +248,7 @@ class Sandbox {
   }
 
   private persist() {
-    if (!this.code) return;
+    if (this.serverMode || !this.code) return; // server games live on the server
     writeSession({
       v: RULES_VERSION,
       code: this.code,
@@ -284,6 +308,71 @@ class Sandbox {
     this.cursor = valid.length;
     this.error = null;
     if (valid.length < sess.actions.length) this.persist();
+  }
+
+  // --- server-backed mode ---------------------------------------------------
+
+  /** Load a server room: seats, options, and the action log come from the server;
+   *  the engine replays the log identically (same base + same actions). */
+  loadServerRoom(code: string, room: RoomView, actions: GameAction[], myDiscordId: string | null) {
+    this.serverMode = true;
+    this.myDiscordId = myDiscordId;
+    this.code = normCode(code);
+    this.title = room.title;
+    this.seed = room.options.seed;
+    this.mapMode = room.options.mapMode as 'auto' | 'manual';
+    this.hostileMergers = room.options.hostileMergers;
+    this.localRoutes = room.options.localRoutes;
+    this.seats = room.seats.map((s) => ({ id: s.seatId, name: s.name, bot: s.bot, level: (s.level as BotLevel) ?? 'normal' }));
+    this.seatMeta = room.seats.map((s) => ({ id: s.seatId, discordId: s.discordId, bot: s.bot }));
+    this.actions = actions;
+    this.redoStack = [];
+    this.cursor = actions.length;
+    this.createdAt = Date.now();
+    this.error = null;
+  }
+
+  /** Submit a move to the server: optimistic locally, then reconcile with the log. */
+  private async actServer(action: GameAction) {
+    if (this.serverBusy) return;
+    // Validate locally first so an obviously-illegal move never desyncs the log.
+    try {
+      apply(replay(this.base, this.actions), action);
+    } catch (e) {
+      this.error = (e as Error).message;
+      return;
+    }
+    const prevLen = this.actions.length;
+    this.actions = [...this.actions, action]; // optimistic: show it immediately
+    this.cursor = this.actions.length;
+    this.error = null;
+    this.serverBusy = true;
+    try {
+      await api.submitAction(this.code, action);
+      await this.syncFromServer(); // pull any bot moves the server played after mine
+    } catch (e) {
+      this.actions = this.actions.slice(0, prevLen); // roll back
+      this.cursor = this.actions.length;
+      const ae = e as ApiError;
+      this.error = (ae.data as { message?: string })?.message ?? ae.message ?? 'move rejected';
+    } finally {
+      this.serverBusy = false;
+    }
+  }
+
+  /** Pull new actions (other players, server-side bots) and append them. */
+  async syncFromServer() {
+    if (!this.serverMode || !this.code) return;
+    try {
+      const wasLive = this.cursor === this.actions.length;
+      const r = await api.fetchActions(this.code, this.actions.length);
+      if (r.actions.length) {
+        this.actions = [...this.actions, ...r.actions];
+        if (wasLive) this.cursor = this.actions.length;
+      }
+    } catch {
+      /* transient: retry on the next poll */
+    }
   }
 }
 

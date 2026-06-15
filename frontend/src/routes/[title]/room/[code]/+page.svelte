@@ -1,6 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { base } from '$app/paths';
+  import { goto } from '$app/navigation';
+  import * as api from '$lib/api/client';
+  import { auth } from '$lib/game/auth.svelte';
   import { fade, fly } from 'svelte/transition';
   import HexMap from '$lib/components/HexMap.svelte';
   import StockMarket from '$lib/components/StockMarket.svelte';
@@ -34,10 +37,42 @@
   // when navigating between rooms (the page component is reused across params).
   const code = $derived($page.params.code ?? '');
   const urlTitle = $derived($page.params.title ?? '1889');
+
+  // Load the room. If a server room exists for this code, play it server-backed
+  // (poll + submit moves); otherwise it is a local sandbox game.
+  let loadingCode = '';
+  async function openRoom(c: string, title: string) {
+    if (api.apiConfigured()) {
+      try {
+        await auth.init();
+        const room = await api.getRoom(c);
+        if (room.status === 'lobby') {
+          goto(`${base}/wait/${c}`, { replaceState: true }); // not started yet
+          return;
+        }
+        const { actions } = await api.fetchActions(c, 0);
+        game.loadServerRoom(c, room, actions, auth.profile?.discordId ?? null);
+        return;
+      } catch {
+        /* not a server room -> fall back to the local sandbox */
+      }
+    }
+    game.loadRoom(c, title);
+  }
   $effect(() => {
-    if (code && game.code !== code) game.loadRoom(code, urlTitle);
+    if (code && game.code !== code && loadingCode !== code) {
+      loadingCode = code;
+      openRoom(code, urlTitle);
+    }
   });
   const ready = $derived(!!code && game.code === code);
+
+  // Poll a server-backed room for other players' (and server bots') moves.
+  $effect(() => {
+    if (!game.serverMode || game.code !== code) return;
+    const t = setInterval(() => game.syncFromServer(), 2500);
+    return () => clearInterval(t);
+  });
 
   // Active title's branding (header, footer, theme) - the board is title-agnostic.
   const meta = $derived(GAMES.find((g) => g.id === game.title) ?? GAMES[0]);
@@ -102,9 +137,10 @@
   });
 
   // Auto-play bot turns with a watchable pause between moves (skippable).
+  // Server games advance bots on the server, so skip local bot stepping there.
   $effect(() => {
     const a = game.active;
-    if (a && game.isBot(a) && !game.reviewing) {
+    if (a && game.isBot(a) && !game.reviewing && !game.serverMode) {
       let cancelled = false;
       (async () => {
         await anim.wait(900);
