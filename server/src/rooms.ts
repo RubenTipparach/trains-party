@@ -371,6 +371,24 @@ export function registerRooms(app: FastifyInstance): void {
       const before = deriveState(room);
       // Any seat still open (human, unclaimed) is filled by a bot.
       db.prepare("UPDATE room_seats SET bot = 1 WHERE room_code = ? AND bot = 0 AND discord_id IS NULL").run(room.code);
+
+      // Randomize turn order. The engine derives player order from the seat id
+      // (p1 acts first), so we shuffle the OCCUPANTS across the seat slots. No
+      // actions exist yet, so this is replay-safe once persisted: the action log
+      // references p1..pN, which now map to a randomized seating.
+      const seats = getSeats(room.code);
+      const occ = seats.map((s) => ({ discordId: s.discord_id, name: s.name, bot: s.bot, level: s.level }));
+      for (let i = occ.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [occ[i], occ[j]] = [occ[j], occ[i]];
+      }
+      const assign = db.prepare(
+        'UPDATE room_seats SET discord_id = ?, name = ?, bot = ?, level = ? WHERE room_code = ? AND seat_id = ?'
+      );
+      db.transaction(() => {
+        seats.forEach((s, i) => assign.run(occ[i].discordId, occ[i].name, occ[i].bot, occ[i].level, room.code, s.seat_id));
+      })();
+
       db.prepare("UPDATE rooms SET status = 'active', updated_at = ? WHERE code = ?").run(now(), room.code);
       room.status = 'active';
       const after = runBots(room);
