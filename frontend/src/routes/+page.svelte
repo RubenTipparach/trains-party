@@ -7,6 +7,7 @@
   import { GAMES } from '$lib/data/games';
   import { listSessions, deleteSession, migrateLegacySaves, type SessionMeta } from '$lib/game/sessions';
   import { auth } from '$lib/game/auth.svelte';
+  import { linkify } from '$lib/util/linkify';
   import * as api from '$lib/api/client';
 
   // --- local (sandbox) games ---------------------------------------------
@@ -250,9 +251,9 @@
       <div class="lgrid">
         <section class="panel chatpanel">
           <h2>Global chat</h2>
-          {#if announcement}<div class="announce">{announcement}</div>{/if}
+          {#if announcement}<div class="announce">{@html linkify(announcement)}</div>{/if}
           <div class="cmsgs">
-            {#each chat as m (m.id)}<div class="cmsg"><span class="cname">{m.name}</span> {m.body}</div>{:else}<div class="empty">No messages yet. Say hi!</div>{/each}
+            {#each chat as m (m.id)}<div class="cmsg"><span class="cname">{m.name}</span> {@html linkify(m.body)}</div>{:else}<div class="empty">No messages yet. Say hi!</div>{/each}
           </div>
           <form class="cform" onsubmit={(e) => { e.preventDefault(); send(); }}>
             <input placeholder="Message everyone…" bind:value={chatInput} maxlength="500" />
@@ -409,8 +410,9 @@
   /* chat panel */
   .chatpanel { display: flex; flex-direction: column; }
   .cmsgs { max-height: 360px; min-height: 150px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.3rem; padding: 0.2rem 0; }
-  .cmsg { font-size: 0.88rem; color: var(--ink); }
+  .cmsg { font-size: 0.88rem; color: var(--ink); word-break: break-word; }
   .cname { font-weight: 700; color: var(--rail); margin-right: 0.3rem; }
+  .cmsg :global(a), .announce :global(a) { color: #7fd1ff; text-decoration: underline; }
   .cform { display: flex; gap: 0.5rem; padding-top: 0.6rem; margin-top: 0.5rem; border-top: 1px solid var(--line); }
   .cform input { flex: 1; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 0.45rem 0.7rem; font: inherit; }
   /* local games list */
