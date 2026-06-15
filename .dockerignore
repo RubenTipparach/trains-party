@@ -1,10 +1,11 @@
 # Build context for the server image is the repo root (see CI deploy step).
-# Keep the image small: only server/ sources are needed.
+# The server bundles the shared engine from frontend/src/lib, so that stays in;
+# the rest of the frontend (build artifacts, static assets) is excluded.
 **/node_modules
 **/dist
 **/build
 **/.svelte-kit
-frontend
+frontend/static
 .git
 .github
 **/data
