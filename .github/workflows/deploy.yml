@@ -183,7 +183,17 @@ jobs:
           add APP_BASE_URL "$APP_BASE_URL"
           if [ -n "$ARGS" ]; then
             echo "Staging secrets:$(echo $ARGS | sed 's/=[^ ]*/=***/g')"
-            flyctl secrets set $ARGS --app "$APP" --stage
+            ok=0
+            for attempt in 1 2 3; do
+              if flyctl secrets set $ARGS --app "$APP" --stage; then ok=1; break; fi
+              echo "::warning::Staging secrets failed (attempt ${attempt}/3, often a transient Fly 5xx); retrying in 10s"
+              sleep 10
+            done
+            # Secrets persist across deploys, so a failed re-stage must not block
+            # shipping code - the running app keeps the secrets from a prior sync.
+            if [ "$ok" -ne 1 ]; then
+              echo "::warning::Could not stage secrets after 3 tries; continuing with the existing secrets."
+            fi
           else
             echo "::notice::No Discord secrets set; skipping."
           fi
