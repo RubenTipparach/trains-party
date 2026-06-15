@@ -21,6 +21,7 @@ in the sibling High Frontier fan game.
 | **Auto-join the community server** | `BOT_TOKEN` + `GUILD_ID` + OAuth `guilds.join` | On sign-in, add the player to your Discord server so DM invites "just work". Optional. |
 | **Channel announcements** | `WEBHOOK_URL` | Post "a room is looking for players" / "game finished" to a channel via webhook (no bot token needed). |
 | **Turn notifications (DM)** | `BOT_TOKEN` | DM a human player when it becomes their turn. Optional. |
+| **Admin portal (`/admin`)** | `CLIENT_ID` + `CLIENT_SECRET` + `ADMIN_DISCORD_ID` | Identify-only Discord sign-in restricted to an allowlist. Edit the announcement banner and the channel webhook. See Section 8. |
 
 Identity model: **Discord sign-in is primary.** A signed-in user is identified
 by their Discord snowflake; the server maps that user to a *seat* (`p1..p4`) in a
@@ -42,6 +43,7 @@ one is optional; features light up as their vars are provided.
 | `DISCORD_GUILD_ID` | Home server for `guilds.join` auto-add | Public |
 | `DISCORD_WEBHOOK_URL` | Channel webhook for announcements | **Secret** |
 | `DISCORD_REDIRECT_URI` | Override the OAuth callback URL | Optional |
+| `ADMIN_DISCORD_ID` | Discord user id(s) allowlisted for `/admin` (comma-separated `ADMIN_DISCORD_IDS` also accepted) | Public id, kept in a secret |
 | `SESSION_TTL_DAYS` | Session lifetime (default 30) | Optional |
 
 Capability matrix:
@@ -71,6 +73,8 @@ The server derives the redirect URI from the incoming request host unless
    (Developer Mode -> right-click server -> Copy Server ID).
 6. **Channel webhook** (optional): Channel -> Edit -> Integrations -> Webhooks ->
    New Webhook -> copy URL.
+7. **Admin id** (optional): with Developer Mode on, right-click your own name ->
+   Copy User ID. That is `ADMIN_DISCORD_ID` (Section 8).
 
 Scopes used: `identify` (always), `guilds.join` (only if auto-join is enabled).
 
@@ -138,6 +142,24 @@ CREATE TABLE invites (
   invitee_discord_id  TEXT NOT NULL,
   created_at          INTEGER NOT NULL,
   accepted            INTEGER NOT NULL DEFAULT 0
+);
+
+-- Server-wide key/value settings, editable from /admin and surfaced to clients:
+-- the announcement banner, the channel webhook URL, and the admin allowlist
+-- (seeded from ADMIN_DISCORD_ID on boot so the id stays out of source and
+-- rotates with the secret).
+CREATE TABLE server_settings (
+  key        TEXT PRIMARY KEY,          -- 'announcement' | 'discord_webhook_url' | 'admin_discord_ids'
+  value      TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+-- Admin portal sessions: only the SHA-256 of the cookie token is stored.
+CREATE TABLE admin_sessions (
+  token_hash TEXT PRIMARY KEY,
+  discord_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL           -- sliding: renewed on each gated request
 );
 ```
 
@@ -225,7 +247,73 @@ and never throw; errors are truncated to ~200 chars.
 
 ---
 
-## 8. Frontend wiring
+## 8. Admin portal (`/admin`)
+
+A small operator dashboard, modeled on the High Frontier admin portal. It is
+gated by an **allowlist of Discord ids**, signs in with identify-only OAuth, and
+edits the server-wide settings (announcement banner + channel webhook). It needs
+no bot token - only `CLIENT_ID` + `CLIENT_SECRET` + `ADMIN_DISCORD_ID`.
+
+### 8.1 Allowlist (seeded from the secret)
+
+On every boot the server reads `ADMIN_DISCORD_ID` (or comma-separated
+`ADMIN_DISCORD_IDS`) and writes it to `server_settings['admin_discord_ids']`.
+Seeding from the secret keeps the id out of source and means it **rotates with
+the secret**: drop an id and redeploy, and any live session for it is revoked on
+its next request (the allowlist is re-checked every time, not just at login).
+
+### 8.2 Sign-in and sessions
+
+- Admin sign-in reuses the **identify-only** OAuth helper (no `guilds.join`),
+  separate from player sign-in: `GET /admin/login` creates the OAuth `state`
+  and redirects to Discord; the callback verifies the returned id is on the
+  allowlist.
+- On success the server calls `createAdminSession(discordId)`: generate a short
+  random code, store only its **SHA-256** in `admin_sessions` with a 48h TTL,
+  and set the raw code in an **httpOnly** cookie `tp_admin`
+  (`sameSite=lax`, `path=/admin`).
+- `adminFromRequest(req, res)` reads the cookie, hashes it, looks up an unexpired
+  row, and **re-checks the allowlist**. With `res` present (every gated request)
+  it slides the expiry forward (`now + TTL`) so active use never logs out.
+
+```js
+function requireAdmin(req, res, next) {
+  if (adminFromRequest(req, res)) return next();
+  return res.status(403).json({ error: 'admin_auth_required' });
+}
+```
+
+### 8.3 Endpoints
+
+| Method + path | Gate | Purpose |
+| --- | --- | --- |
+| `GET  /admin/login` | public | Start admin OAuth (identify-only), redirect to Discord. |
+| `GET  /admin/callback` | public | Validate `state`, check allowlist, mint admin session, redirect to `/admin`. |
+| `POST /admin/logout` | cookie | Clear the admin session + cookie. |
+| `POST /admin/announcement` | `requireAdmin` | Save the banner text to `server_settings['announcement']`. |
+| `POST /admin/discord-webhook` | `requireAdmin` | Validate (Section 7 `isWebhookUrl`) and save `server_settings['discord_webhook_url']`. |
+| `POST /admin/discord-webhook/test` | `requireAdmin` | Fire a test message to the supplied-or-saved webhook (verify before saving). |
+| `GET  /announcement` | public | Current banner `{ message, updatedAt }`, shown atop the lobby for every client. |
+
+### 8.4 `server_settings` keys
+
+| Key | Purpose |
+| --- | --- |
+| `admin_discord_ids` | Comma-separated allowlisted Discord ids (seeded from `ADMIN_DISCORD_ID`). |
+| `announcement` | Server-wide banner shown atop the lobby/global chat. A default row is inserted on first boot. |
+| `discord_webhook_url` | Channel webhook; a value saved here **overrides** the `DISCORD_WEBHOOK_URL` env default, and a blank value falls back to it. |
+
+### 8.5 Notes
+
+- The banner is the natural place for "maintenance at 9pm", "new title live",
+  etc. Render `https://` URLs in it as links, but escape everything for its
+  context even though the admin is the only author (injection-safe output).
+- Good first candidates for Trains-Party-specific admin actions later: list and
+  close stale `lobby` rooms, and view recent games - all `requireAdmin` gated.
+
+---
+
+## 9. Frontend wiring
 
 - **Config:** add `PUBLIC_API_BASE` (the Fly server URL), injected at build time
   in `.github/workflows/deploy.yml` exactly like `BUILD_SHA`. The static client
@@ -251,7 +339,7 @@ OAuth callback redirects the browser, so it is not subject to CORS, but `/me`,
 
 ---
 
-## 9. Deployment (Fly.io)
+## 10. Deployment (Fly.io)
 
 Set secrets once; they persist across deploys:
 
@@ -261,7 +349,8 @@ fly secrets set \
   DISCORD_CLIENT_SECRET=... \
   DISCORD_BOT_TOKEN=... \
   DISCORD_GUILD_ID=... \
-  DISCORD_WEBHOOK_URL=...
+  DISCORD_WEBHOOK_URL=... \
+  ADMIN_DISCORD_ID=...        # your Discord user id, for /admin
 ```
 
 Local dev:
@@ -279,7 +368,7 @@ invalid.
 
 ---
 
-## 10. Security notes
+## 11. Security notes
 
 - **Persist OAuth `state`** in SQLite (not memory): single-use, 10-minute TTL.
   Fly machines auto-stop, which would wipe an in-memory store mid-sign-in.
@@ -291,10 +380,13 @@ invalid.
   server re-validates every action against the replayed state.
 - **Snowflakes are public**, but treat bot/client secrets as sensitive and keep
   them out of commits, logs, and the static client bundle.
+- **Admin allowlist is re-checked every request**, seeded from `ADMIN_DISCORD_ID`
+  on boot: removing an id and redeploying revokes any live admin session. Admin
+  cookies are httpOnly and scoped to `/admin`; only the token hash is stored.
 
 ---
 
-## 11. Suggested rollout (stages gate on verification - `CLAUDE.md` Section 3.8)
+## 12. Suggested rollout (stages gate on verification - `CLAUDE.md` Section 3.8)
 
 1. Extract the engine into a shared package both `frontend/` and `server/` import (prerequisite for authoritative validation).
 2. Authoritative server core: rooms + action log + state sync + fixture-replay tests (no Discord yet).
@@ -302,4 +394,5 @@ invalid.
 4. Lobby + seat claiming + server-side bots.
 5. In-room chat.
 6. Invites + DM/webhook notifications.
-7. Deploy: Fly secrets, `deploy.yml` wiring, redirect URIs, CORS origins.
+7. Admin portal: allowlist seeding, identify-only admin OAuth, announcement banner + webhook config.
+8. Deploy: Fly secrets (incl. `ADMIN_DISCORD_ID`), `deploy.yml` wiring, redirect URIs, CORS origins.

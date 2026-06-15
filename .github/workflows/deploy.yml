@@ -153,6 +153,51 @@ jobs:
           echo "--- machines after ---"
           flyctl machine list -a "$APP"
 
+      # Push the Discord secrets (and the derived public app URL) to Fly so the
+      # server can do sign-in, bot DMs, and the allowlisted admin portal. Only
+      # secrets that are present are staged; --stage defers them to the deploy
+      # below (no extra restart). Missing ones are skipped, so the server keeps
+      # degrading gracefully when a feature is not configured.
+      - name: Sync server secrets to Fly.io
+        if: steps.fly_gate.outputs.ready == 'true'
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          DISCORD_CLIENT_ID: ${{ secrets.DISCORD_CLIENT_ID }}
+          DISCORD_CLIENT_SECRET: ${{ secrets.DISCORD_CLIENT_SECRET }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_GUILD_ID: ${{ secrets.DISCORD_GUILD_ID }}
+          DISCORD_REDIRECT_URI: ${{ secrets.DISCORD_REDIRECT_URI }}
+          ADMIN_DISCORD_ID: ${{ secrets.ADMIN_DISCORD_ID }}
+        run: |
+          set -e
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          APP_BASE_URL="https://${OWNER}.github.io/${{ github.event.repository.name }}"
+          ARGS=""
+          add() { if [ -n "$2" ]; then ARGS="$ARGS $1=$2"; fi; }
+          add DISCORD_CLIENT_ID "$DISCORD_CLIENT_ID"
+          add DISCORD_CLIENT_SECRET "$DISCORD_CLIENT_SECRET"
+          add DISCORD_BOT_TOKEN "$DISCORD_BOT_TOKEN"
+          add DISCORD_GUILD_ID "$DISCORD_GUILD_ID"
+          add DISCORD_REDIRECT_URI "$DISCORD_REDIRECT_URI"
+          add ADMIN_DISCORD_ID "$ADMIN_DISCORD_ID"
+          add APP_BASE_URL "$APP_BASE_URL"
+          if [ -n "$ARGS" ]; then
+            echo "Staging secrets:$(echo $ARGS | sed 's/=[^ ]*/=***/g')"
+            ok=0
+            for attempt in 1 2 3; do
+              if flyctl secrets set $ARGS --app "$APP" --stage; then ok=1; break; fi
+              echo "::warning::Staging secrets failed (attempt ${attempt}/3, often a transient Fly 5xx); retrying in 10s"
+              sleep 10
+            done
+            # Secrets persist across deploys, so a failed re-stage must not block
+            # shipping code - the running app keeps the secrets from a prior sync.
+            if [ "$ok" -ne 1 ]; then
+              echo "::warning::Could not stage secrets after 3 tries; continuing with the existing secrets."
+            fi
+          else
+            echo "::notice::No Discord secrets set; skipping."
+          fi
+
       - name: Deploy API to Fly.io
         if: steps.fly_gate.outputs.ready == 'true'
         env:

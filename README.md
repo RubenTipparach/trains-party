@@ -12,6 +12,14 @@ Built as a TypeScript port of the architecture pioneered by the canonical
 for the full design and **[CLAUDE.md](./CLAUDE.md)** for the development guide and the
 board-game-service lessons we follow.
 
+## Live
+
+- **Play:** https://rubentipparach.github.io/trains-party
+- **API:** https://trains-party.fly.dev
+- **Admin portal:** https://trains-party.fly.dev/admin — sign in with Discord
+  (restricted to the `ADMIN_DISCORD_ID` allowlist); edit the lobby announcement
+  banner and manage rooms. See **[discord-integration.md](./discord-integration.md)**.
+
 ## Quick start
 
 ```bash

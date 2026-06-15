@@ -1,41 +1,58 @@
 import Fastify from 'fastify';
-import { db, migrate } from './db.js';
+import cors from '@fastify/cors';
+import cookie from '@fastify/cookie';
+import { db, migrate } from './db';
+import { CFG } from './config';
+import { seedAdminAllowlist } from './auth';
+import { registerAuth } from './oauth';
+import { registerRooms } from './rooms';
+import { registerAdmin } from './admin';
 
 /**
- * Trains Party API (Stage 0).
+ * Trains Party API.
  *
- * Doctrine (see CLAUDE.md): REST is authoritative. Clients poll GET state and
- * submit actions; the server appends to the per-room action log and re-validates
- * every operation through the shared engine. WebSocket acceleration is added later
- * as a best-effort optimisation only.
- *
- * Stage 0 ships a health check and the persistence layer; the room/action/state
- * endpoints below are stubs filled in during the multiplayer stage.
+ * Doctrine (CLAUDE.md): REST is authoritative. Clients poll GET state and submit
+ * actions; the server appends to the per-room action log and re-validates every
+ * operation through the shared engine. Discord layers on top: sign-in (identity),
+ * bot DMs (turn/auction pings, invites), and an allowlisted admin portal.
  */
 
-const PORT = Number(process.env.PORT ?? 8080);
-const HOST = process.env.HOST ?? '0.0.0.0';
-const RULES_VERSION = process.env.RULES_VERSION ?? 'dev';
-
 migrate();
+seedAdminAllowlist();
 
 const app = Fastify({ logger: true });
+
+// Treat an empty JSON body as {} (bodiless POSTs like /start, /logout, /close).
+app.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, body, done) => {
+  const s = (body as string).trim();
+  if (!s) return done(null, {});
+  try {
+    done(null, JSON.parse(s));
+  } catch (e) {
+    done(e as Error, undefined);
+  }
+});
+
+await app.register(cors, {
+  origin: CFG.corsOrigins.length ? CFG.corsOrigins : true, // reflect origin when unset
+  credentials: true
+});
+await app.register(cookie);
 
 app.get('/health', async () => ({
   ok: true,
   service: 'trains-party',
-  rulesVersion: RULES_VERSION,
+  rulesVersion: CFG.rulesVersion,
+  discord: { signIn: CFG.discord.signIn, autoJoin: CFG.discord.autoJoin, bot: !!CFG.discord.botToken },
   rooms: (db.prepare('SELECT COUNT(*) AS n FROM rooms').get() as { n: number }).n
 }));
 
-// --- Stubs (Stage 4: multiplayer) ------------------------------------------
-app.post('/rooms', async (_req, reply) => reply.code(501).send({ error: 'not implemented' }));
-app.get('/rooms/:code', async (_req, reply) => reply.code(501).send({ error: 'not implemented' }));
-app.get('/rooms/:code/state', async (_req, reply) => reply.code(501).send({ error: 'not implemented' }));
-app.post('/rooms/:code/actions', async (_req, reply) => reply.code(501).send({ error: 'not implemented' }));
+registerAuth(app);
+registerRooms(app);
+registerAdmin(app);
 
 app
-  .listen({ port: PORT, host: HOST })
+  .listen({ port: CFG.port, host: CFG.host })
   .then((addr) => app.log.info(`trains-party server listening on ${addr}`))
   .catch((err) => {
     app.log.error(err);

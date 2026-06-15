@@ -209,8 +209,10 @@ export function initialState(
     mapBuild,
     minorMatrix,
     hostileMergers: rola ? !!opts.hostileMergers : undefined,
-    // Local routes default on; the config default applies when the option is unset.
-    localRoutes: opts.localRoutes ?? cfg.localRoutes,
+    // Local (single-stop hub) routes are a RoLA rule. Guard them to RoLA so a
+    // caller passing localRoutes can't enable them for 1889, which has no such
+    // rule. For RoLA the option (or the config default) applies.
+    localRoutes: cfg.localRoutes ? (opts.localRoutes ?? cfg.localRoutes) : undefined,
     log: [
       rola
         ? 'Stock round 1 begins; minors may launch'
