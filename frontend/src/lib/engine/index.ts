@@ -37,7 +37,8 @@ export {
   tokenPlays,
   corporationsCanBuyPrivates,
   mustBuyTrain,
-  emergencyFor
+  emergencyFor,
+  cheapestBuyableTrain
 } from './operating';
 export type { OperatingView } from './operating';
 export { legalLays, neighbor, tileSupply, exhaustedTilesOnHex, blockedHexes, specialLayOptions } from './track';

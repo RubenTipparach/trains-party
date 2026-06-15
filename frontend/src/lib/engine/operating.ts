@@ -439,7 +439,7 @@ function doBuyTrain(s: GameState, c: CorporationState, train: string, tradeIn?: 
 
 /** Cheapest train a corp may buy next: top of the depot stack, or any cheaper
  * discard sitting in the bank pool (forced purchases pick the lowest price). */
-function cheapestDepotTrain(s: GameState): { name: string; price: number } | null {
+export function cheapestBuyableTrain(s: GameState): { name: string; price: number } | null {
   const cfg = configFor(s.title);
   const d = s.depot.find((x) => x.remaining !== 0);
   let best: { name: string; price: number } | null = null;
@@ -464,7 +464,7 @@ export function mustBuyTrain(s: GameState, c: CorporationState): boolean {
 export function emergencyFor(s: GameState, c: CorporationState): { train: string; price: number } | null {
   if (!s.or || s.or.step !== 'trains') return null;
   if (!mustBuyTrain(s, c)) return null;
-  const cheapest = cheapestDepotTrain(s);
+  const cheapest = cheapestBuyableTrain(s);
   if (!cheapest) return null;
   if (c.cash >= cheapest.price) return null; // affordable: mandatory but not an emergency
   return { train: cheapest.name, price: cheapest.price };

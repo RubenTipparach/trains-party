@@ -18,6 +18,7 @@ import {
   mergePartners,
   availableMajors,
   adaptiveHomes,
+  cheapestBuyableTrain,
   type GameAction,
   type GameState
 } from '$lib/engine';
@@ -205,10 +206,17 @@ function botOperating(s: GameState): GameAction | null {
     if (e.canDeclareBankruptcy) return { type: 'declare_bankruptcy', player: me };
   }
   // Buy the cheapest train if the corporation has none and can afford it (forced
-  // when it can run a route, optional otherwise).
-  if (v.canBuyTrain && c.trains.length === 0) {
-    const def = configFor(s.title).trains.find((t) => t.name === v.canBuyTrain)!;
-    if (c.cash >= def.price) return { type: 'buy_train', player: me, corp: v.corp, train: v.canBuyTrain };
+  // when it can run a route, optional otherwise). This considers the cheapest
+  // BUYABLE train, which may be a discard sitting in the bank pool priced below
+  // the depot's top train - the only such train the corporation can afford. The
+  // emergency block above already covers the case where even that is unaffordable,
+  // so without this the bot would pass and soft-lock on a mandatory buy it could
+  // actually make.
+  if (c.trains.length === 0) {
+    const cheap = cheapestBuyableTrain(s);
+    if (cheap && c.cash >= cheap.price) {
+      return { type: 'buy_train', player: me, corp: v.corp, train: cheap.name };
+    }
   }
   return { type: 'pass', player: me };
 }
