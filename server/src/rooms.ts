@@ -325,6 +325,32 @@ export function registerRooms(app: FastifyInstance): void {
     return roomView(room);
   });
 
+  // Host changes the table size (number of seats) while gathering. Existing
+  // seats p1..pN are preserved; new ones are added open, extras removed.
+  app.post('/rooms/:code/players', async (req, reply) => {
+    const me = requireAuth(req, reply);
+    if (!me) return;
+    const room = getRoom((req.params as { code: string }).code);
+    if (!room) return reply.code(404).send({ error: 'not_found' });
+    if (room.creator_discord_id !== me) return reply.code(403).send({ error: 'not_host' });
+    if (room.status !== 'lobby') return reply.code(409).send({ error: 'not_joinable' });
+    const count = Math.max(2, Math.min(6, Math.floor(Number((req.body as { count?: number })?.count) || 0)));
+    const existing = getSeats(room.code);
+    const ins = db.prepare(
+      'INSERT INTO room_seats (room_code, seat_id, discord_id, name, bot, level, joined_at) VALUES (?,?,?,?,?,?,?)'
+    );
+    db.transaction(() => {
+      db.prepare('DELETE FROM room_seats WHERE room_code = ?').run(room.code);
+      for (let i = 1; i <= count; i++) {
+        const prev = existing.find((s) => s.seat_id === `p${i}`);
+        if (prev) ins.run(room.code, prev.seat_id, prev.discord_id, prev.name, prev.bot, prev.level, now());
+        else ins.run(room.code, `p${i}`, null, 'Open', 0, 'normal', now());
+      }
+    })();
+    db.prepare('UPDATE rooms SET max_players = ?, updated_at = ? WHERE code = ?').run(count, now(), room.code);
+    return roomView(getRoom(room.code)!);
+  });
+
   // Live (in-progress) games anyone can see.
   app.get('/rooms/live', async () => {
     const rooms = db

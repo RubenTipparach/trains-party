@@ -161,6 +161,8 @@ export const updateOptions = (
   code: string,
   opts: { seed?: number; mapMode?: 'auto' | 'manual'; hostileMergers?: boolean; localRoutes?: boolean }
 ) => call<RoomView>('POST', `/rooms/${code}/options`, opts);
+export const setPlayers = (code: string, count: number) =>
+  call<RoomView>('POST', `/rooms/${code}/players`, { count });
 export const invite = (code: string, discordId: string) =>
   call<{ ok: boolean; dm: { ok: boolean; error?: string } }>('POST', `/rooms/${code}/invite`, { discordId });
 

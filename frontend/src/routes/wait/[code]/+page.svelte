@@ -46,6 +46,8 @@
   const leave = (seatId: string) => act(() => api.releaseSeat(code, seatId));
   const makeBot = (seatId: string) => act(() => api.seatBot(code, seatId));
   const makeOpen = (seatId: string) => act(() => api.openSeat(code, seatId));
+  const setOption = (o: Parameters<typeof api.updateOptions>[1]) => act(() => api.updateOptions(code, o));
+  const setSize = (count: number) => act(() => api.setPlayers(code, count));
 
   async function start() {
     busy = true;
@@ -145,6 +147,39 @@
         {/each}
       </ul>
 
+      {#if isHost}
+        <div class="opts">
+          <h2 class="oh">Game options</h2>
+          <label class="orow">
+            Players
+            <select disabled={busy} onchange={(e) => setSize(+e.currentTarget.value)}>
+              {#each [2, 3, 4] as n}<option value={n} selected={room.seats.length === n}>{n}</option>{/each}
+            </select>
+          </label>
+          {#if room.title === 'rola'}
+            <label class="orow">
+              <input type="checkbox" checked={room.options.localRoutes} disabled={busy} onchange={(e) => setOption({ localRoutes: e.currentTarget.checked })} />
+              Local routes (single-stop hub runs)
+            </label>
+            <label class="orow">
+              <input type="checkbox" checked={room.options.hostileMergers} disabled={busy} onchange={(e) => setOption({ hostileMergers: e.currentTarget.checked })} />
+              Hostile mergers (refused merges go to a share vote)
+            </label>
+            <label class="orow">
+              Map
+              <select disabled={busy} onchange={(e) => setOption({ mapMode: e.currentTarget.value as 'auto' | 'manual' })}>
+                <option value="auto" selected={room.options.mapMode === 'auto'}>Auto (procedural)</option>
+                <option value="manual" selected={room.options.mapMode === 'manual'}>Manual (players build)</option>
+              </select>
+            </label>
+            <div class="orow">
+              Seed <span class="mono">{room.options.seed}</span>
+              <button class="ghost sm" disabled={busy} onclick={() => setOption({ seed: Math.floor(Math.random() * 1_000_000_000) })}>Regenerate</button>
+            </div>
+          {/if}
+        </div>
+      {/if}
+
       {#if err}<p class="err">{err}</p>{/if}
 
       <div class="foot">
@@ -186,4 +221,9 @@
   .or::before, .or::after { content: ''; flex: 1; height: 1px; background: var(--line); }
   .guest { display: flex; gap: 0.5rem; }
   .guest input { flex: 1; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 0.5rem 0.7rem; font: inherit; }
+  .opts { margin-top: 1.2rem; border-top: 1px solid var(--line); padding-top: 1rem; }
+  .oh { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--rail); margin: 0 0 0.7rem; }
+  .orow { display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem; margin: 0.45rem 0; }
+  .orow select { background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 0.35rem 0.6rem; font: inherit; }
+  .mono { font: 0.85rem ui-monospace, monospace; color: var(--muted); }
 </style>
