@@ -25,7 +25,7 @@
   let err = $state<string | null>(null);
 
   let guestName = $state('');
-  let showCreate = $state(false);
+  let modalOpen = $state(false);
   let newTitle = $state('1889');
   let newPlayers = $state(2);
   const playable = GAMES.filter((g) => g.status === 'playable');
@@ -183,6 +183,8 @@
   onDestroy(() => timers.forEach(clearInterval));
 </script>
 
+<svelte:window onkeydown={(e) => modalOpen && e.key === 'Escape' && (modalOpen = false)} />
+
 <main in:fade={{ duration: 400 }}>
   <header class="hero">
     <div class="badge" in:fly={{ y: -12, duration: 500 }}>18xx · web</div>
@@ -221,23 +223,23 @@
 
       {#if announcement}<p class="announce">{announcement}</p>{/if}
 
-      <button class="play newbtn" onclick={() => (showCreate = !showCreate)}>+ New game</button>
-      {#if showCreate}
-        <div class="create" in:fade={{ duration: 150 }}>
-          <label>Game
-            <select bind:value={newTitle}>
-              {#each playable as g}<option value={g.id}>{g.title}</option>{/each}
-            </select>
-          </label>
-          <label>Players
-            <select bind:value={newPlayers}>
-              {#each [2, 3, 4] as n}<option value={n}>{n}</option>{/each}
-            </select>
-          </label>
-          <button class="play" disabled={busy} onclick={createOnline}>Create</button>
-        </div>
-      {/if}
+      <button class="play newbtn" onclick={() => { err = null; modalOpen = true; }}>+ New game</button>
       {#if err}<p class="err">{err}</p>{/if}
+
+      <h3 class="grp">Lobby chat</h3>
+      <div class="chat">
+        <div class="cmsgs">
+          {#each chat as m (m.id)}
+            <div class="cmsg"><span class="cname">{m.name}</span> {m.body}</div>
+          {:else}
+            <div class="empty">No messages yet. Say hi!</div>
+          {/each}
+        </div>
+        <form class="cform" onsubmit={(e) => { e.preventDefault(); send(); }}>
+          <input placeholder="Message the lobby…" bind:value={chatInput} maxlength="500" />
+          <button class="play sm" disabled={!chatInput.trim()}>Send</button>
+        </form>
+      </div>
 
       <h3 class="grp">Open games</h3>
       {#if openRooms.length === 0}
@@ -303,21 +305,6 @@
         </ul>
       {/if}
 
-      <h3 class="grp">Lobby chat</h3>
-      <div class="chat">
-        <div class="cmsgs">
-          {#each chat as m (m.id)}
-            <div class="cmsg"><span class="cname">{m.name}</span> {m.body}</div>
-          {:else}
-            <div class="empty">No messages yet. Say hi!</div>
-          {/each}
-        </div>
-        <form class="cform" onsubmit={(e) => { e.preventDefault(); send(); }}>
-          <input placeholder="Message the lobby…" bind:value={chatInput} maxlength="500" />
-          <button class="play sm" disabled={!chatInput.trim()}>Send</button>
-        </form>
-      </div>
-
       {#if sessions.length}
         <h3 class="grp">Local games (this device)</h3>
         <ul class="rooms">
@@ -334,6 +321,35 @@
         </ul>
       {/if}
     </section>
+
+    <!-- New game modal: pick a title (big buttons) + players, then create -->
+    {#if modalOpen}
+      <div class="backdrop">
+        <button class="bdrop-close" aria-label="Close" onclick={() => (modalOpen = false)}></button>
+        <div class="modal" role="dialog" aria-modal="true" tabindex="-1">
+          <button class="modalx" aria-label="Close" onclick={() => (modalOpen = false)}>×</button>
+          <h2 class="mtitle">New game</h2>
+          <p class="msub">Choose a game</p>
+          <div class="gamegrid">
+            {#each playable as g (g.id)}
+              <button class="gamebtn" class:sel={newTitle === g.id} style="--accent:{g.accent}" onclick={() => (newTitle = g.id)}>
+                <span class="gbtitle">{g.title}</span>
+                {#if g.subtitle}<span class="gbsub">{g.subtitle}</span>{/if}
+              </button>
+            {/each}
+          </div>
+          <div class="mrow">
+            <label>Players
+              <select bind:value={newPlayers}>
+                {#each [2, 3, 4] as n}<option value={n}>{n}</option>{/each}
+              </select>
+            </label>
+            <button class="play" disabled={busy} onclick={createOnline}>Create game</button>
+          </div>
+          {#if err}<p class="err">{err}</p>{/if}
+        </div>
+      </div>
+    {/if}
   {/if}
 
   <footer class="foot" in:fade={{ duration: 600, delay: 500 }}>
@@ -406,7 +422,7 @@
   .or { display: flex; align-items: center; gap: 0.6rem; color: var(--muted); font-size: 0.8rem; }
   .or::before, .or::after { content: ''; flex: 1; height: 1px; background: var(--line); }
   .guest { display: flex; gap: 0.5rem; }
-  .guest input, .create select {
+  .guest input, .mrow select {
     background: var(--bg);
     color: var(--ink);
     border: 1px solid var(--line);
@@ -426,8 +442,27 @@
   .gtag { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 0.05rem 0.4rem; margin-left: 0.3rem; }
   .newbtn { font-size: 1rem; padding: 0.6rem 1.3rem; }
   .announce { background: rgba(245, 197, 66, 0.08); border: 1px solid var(--rail-deep); border-radius: 10px; padding: 0.6rem 0.9rem; color: var(--ink); font-size: 0.9rem; white-space: pre-wrap; }
-  .create { display: flex; flex-wrap: wrap; gap: 0.7rem; align-items: end; margin: 0.8rem 0 0.2rem; }
-  .create label { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.78rem; color: var(--muted); }
+  /* new-game modal */
+  .backdrop { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 1rem; z-index: 50; }
+  .bdrop-close { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: rgba(6, 16, 24, 0.66); cursor: default; }
+  .modal { position: relative; z-index: 1; width: 100%; max-width: 460px; background: var(--bg-soft); border: 1px solid var(--line); border-radius: 16px; padding: 1.6rem 1.4rem 1.4rem; box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45); }
+  .modalx { position: absolute; top: 0.7rem; right: 0.9rem; background: none; border: 0; color: var(--muted); font-size: 1.5rem; line-height: 1; cursor: pointer; }
+  .mtitle { margin: 0; font-size: 1.3rem; }
+  .msub { margin: 0.2rem 0 0.9rem; color: var(--muted); font-size: 0.85rem; }
+  .gamegrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.7rem; }
+  .gamebtn {
+    display: flex; flex-direction: column; gap: 0.25rem; align-items: flex-start;
+    text-align: left; padding: 0.9rem 1rem;
+    background: var(--bg); color: var(--ink);
+    border: 1px solid var(--line); border-left: 4px solid var(--accent);
+    border-radius: 12px; cursor: pointer; transition: transform 140ms ease, border-color 140ms ease, background 140ms ease;
+  }
+  .gamebtn:hover { transform: translateY(-2px); }
+  .gamebtn.sel { background: rgba(245, 197, 66, 0.1); border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  .gbtitle { font-weight: 800; font-size: 1.05rem; color: var(--accent); }
+  .gbsub { font-size: 0.78rem; color: var(--muted); }
+  .mrow { display: flex; align-items: end; justify-content: space-between; gap: 0.8rem; margin-top: 1.1rem; }
+  .mrow label { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.78rem; color: var(--muted); }
   .grp { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 1.5rem 0 0.6rem; }
   .empty { color: var(--muted); font-size: 0.9rem; }
   .rooms { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
