@@ -11,7 +11,22 @@ import { browser } from '$app/environment';
 import { env } from '$env/dynamic/public';
 import type { GameAction } from '$lib/engine';
 
-export const API_BASE = (env.PUBLIC_API_BASE ?? '').replace(/\/$/, '');
+/**
+ * Where the API lives. An explicit PUBLIC_API_BASE wins (override / preview
+ * builds); otherwise it is derived at runtime like the High Frontier client:
+ * localhost in dev, else the known Fly app URL. So a normal GitHub Pages build
+ * needs no build-time env var.
+ */
+function resolveBase(): string {
+  const explicit = (env.PUBLIC_API_BASE ?? '').trim();
+  if (explicit) return explicit;
+  if (!browser) return '';
+  const h = location.hostname;
+  if (h === 'localhost' || h === '127.0.0.1') return 'http://localhost:8080';
+  return 'https://trains-party.fly.dev'; // app name in server/fly.toml
+}
+
+export const API_BASE = resolveBase().replace(/\/$/, '');
 export const apiConfigured = () => !!API_BASE;
 
 const TOKEN_KEY = 'tp.session.token';

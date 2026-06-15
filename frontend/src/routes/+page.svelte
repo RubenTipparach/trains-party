@@ -14,7 +14,9 @@
   const refreshLocal = () => (sessions = listSessions());
 
   // --- online lobby -------------------------------------------------------
-  const online = api.apiConfigured();
+  // Set on mount (browser) so the API base is resolved before we decide to show
+  // the online sections (avoids an SSR/prerender hydration mismatch).
+  let online = $state(false);
   let announcement = $state('');
   let openRooms = $state<api.RoomView[]>([]);
   let myRooms = $state<api.RoomView[]>([]);
@@ -156,6 +158,7 @@
 
   let timers: ReturnType<typeof setInterval>[] = [];
   onMount(async () => {
+    online = api.apiConfigured();
     migrateLegacySaves();
     refreshLocal();
     await auth.init();
