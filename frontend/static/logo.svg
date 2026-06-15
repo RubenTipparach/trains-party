@@ -14,9 +14,9 @@
   <g clip-path="url(#badge)">
     <rect width="512" height="512" fill="url(#bg)"/>
 
-    <!-- faint hex, a nod to the map -->
-    <polygon points="256,64 396,144 396,304 256,384 116,304 116,144"
-             fill="none" stroke="#2a5b73" stroke-width="6" opacity="0.45"/>
+    <!-- hex frame (a nod to the map) enclosing the train, red border -->
+    <polygon points="246,90 423,192 423,396 246,498 69,396 69,192"
+             fill="none" stroke="#e0392b" stroke-width="12" stroke-linejoin="round"/>
 
     <!-- confetti -->
     <g opacity="0.95">
