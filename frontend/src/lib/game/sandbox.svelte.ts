@@ -145,12 +145,24 @@ class Sandbox {
     return this.seats.find((s) => s.id === id)?.level ?? 'normal';
   }
 
+  /** Clear server-backed mode so a local game runs locally (bots auto-play, moves
+   *  apply + persist locally). Without this, loading a local game after an online
+   *  one would leave serverMode stuck on - bots stop advancing and moves route to
+   *  a server room that doesn't exist, so the board only updates on a full reload. */
+  private goLocal() {
+    this.serverMode = false;
+    this.myDiscordId = null;
+    this.seatMeta = [];
+    this.serverBusy = false;
+  }
+
   /** Start a fresh game in a new (or given) room. Returns the room code. */
   newGame(
     seats: SeatConfig[],
     title = '1889',
     opts: { seed?: number; mapMode?: 'auto' | 'manual'; hostileMergers?: boolean; localRoutes?: boolean; code?: string } = {}
   ): string {
+    this.goLocal();
     this.seats = seats;
     this.title = title;
     this.seed = opts.seed ?? Math.floor(Math.random() * 1_000_000_000);
@@ -274,6 +286,7 @@ class Sandbox {
    * rules change that invalidates a late action only rewinds the game slightly.
    */
   loadRoom(code: string, title?: string) {
+    this.goLocal();
     const sess = readSession(code);
     if (!sess || !Array.isArray(sess.actions) || !Array.isArray(sess.seats)) {
       this.newGame(DEFAULT_SEATS, title ?? this.title, { code });
