@@ -166,15 +166,27 @@ export function advanceCycleAfterOrs(s: GameState): void {
   s.srCount += 1;
   s.stock = { acted: false, bought: false, passes: 0, soldThisRound: {} };
   s.current = s.priority;
+  // A player who held priority may have been knocked out during the OR set (RoLA);
+  // hand the turn to the next player still in the game.
+  for (let k = 0; k < s.players.length && s.players[s.current].out; k++) {
+    s.current = (s.current + 1) % s.players.length;
+  }
+  s.priority = s.current;
   s.players.forEach((p) => (p.passed = false));
   s.log.push('Operating rounds complete; stock round begins');
 }
 
-/** End the game: the player with the highest value wins. */
+/** Players still in the game (a bankrupt RoLA player is removed; the rest play on). */
+function activeCount(s: GameState): number {
+  return s.players.filter((p) => !p.out).length;
+}
+
+/** End the game: the highest-value player still in the game wins. */
 function endGame(s: GameState): void {
   s.finished = true;
   let best: { id: string; value: number } | null = null;
   for (const p of s.players) {
+    if (p.out) continue; // eliminated players cannot win
     const v = playerValue(s, p.id);
     if (!best || v > best.value) best = { id: p.id, value: v };
   }
@@ -504,8 +516,61 @@ function doEmrSell(s: GameState, c: CorporationState, sym: string, count: number
 }
 
 /**
- * The president cannot fund the mandatory train even after selling everything:
- * they go bankrupt and the game ends immediately.
+ * RoLA bankruptcy (rulebook): remove the bankrupt president from the game and let
+ * play continue. Every company they presided over is removed - its trains go to the
+ * bank pool, its hub tokens are removed, the OTHER shareholders are paid their
+ * shares' final value, and its marker is cleared off the stock track. The bankrupt
+ * player's shares in surviving companies return to those pools, and they leave the
+ * turn order.
+ */
+function removeBankruptPlayer(s: GameState, presId: string): void {
+  const pres = s.players.find((p) => p.id === presId)!;
+  for (const co of s.corporations) {
+    if (co.president !== presId || co.dissolved) continue;
+    const unit = co.shareUnit ?? 10;
+    const price = currentPrice(s, co); // per-share value, read before clearing the marker
+    for (const pl of s.players) {
+      const held = pl.shares[co.sym] ?? 0;
+      if (held <= 0) continue;
+      if (pl.id !== presId) {
+        const payout = Math.round((held / unit) * price); // exchange shares at final value
+        pl.cash += payout;
+        s.bank -= payout;
+      }
+      delete pl.shares[co.sym];
+    }
+    (s.trainPool ??= []).push(...co.trains); // trains to the bank pool, buyable
+    co.trains = [];
+    co.tokenHexes = []; // hub tokens removed from cities
+    co.cash = 0;
+    co.president = null;
+    co.floated = false;
+    co.dissolved = true;
+    co.parPrice = null;
+    co.priceRow = null; // marker off the stock track
+    co.priceCol = null;
+    co.ipoShares = 100;
+    co.poolShares = 0;
+    s.log.push(`${co.sym} is removed from the game (its president is bankrupt)`);
+  }
+  // Surviving companies: the bankrupt's shares return to those pools.
+  for (const co of s.corporations) {
+    if (co.dissolved) continue;
+    const held = pres.shares[co.sym] ?? 0;
+    if (held > 0) {
+      co.poolShares += held;
+      delete pres.shares[co.sym];
+    }
+  }
+  for (const priv of s.companies) if (priv.owner === presId) (priv.owner = null), (priv.closed = true);
+  pres.shares = {};
+  pres.out = true;
+}
+
+/**
+ * The president cannot fund the mandatory train even after selling everything, so
+ * they go bankrupt. In 1889 this ends the game; in RoLA (rulebook) the player is
+ * removed and the remaining players play on.
  */
 function doDeclareBankruptcy(s: GameState, c: CorporationState): void {
   const emg = emergencyFor(s, c);
@@ -515,8 +580,20 @@ function doDeclareBankruptcy(s: GameState, c: CorporationState): void {
   // Only valid when the president truly cannot pay and has nothing left to sell.
   if (pres.cash >= shortfall) throw new GameError('the president can still pay for the train');
   if (emrSellable(s, pres.id).length > 0) throw new GameError('the president must sell shares before declaring bankruptcy');
-  s.bankrupt = pres.id;
   s.log.push(`${pname(s, pres.id)} cannot fund a train for ${c.sym} and goes bankrupt`);
+
+  if (configFor(s.title).minors) {
+    // RoLA: knock the player out and continue (rulebook).
+    removeBankruptPlayer(s, pres.id);
+    if (activeCount(s) <= 1) {
+      endGame(s); // last player standing wins
+      return;
+    }
+    nextCorp(s); // the operating corp was just removed; carry on past it
+    return;
+  }
+  // 1889: bankruptcy ends the game.
+  s.bankrupt = pres.id;
   endGame(s);
 }
 

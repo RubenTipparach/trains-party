@@ -56,12 +56,25 @@ function maybeTakePresidency(s: GameState, c: CorporationState, buyerId: string)
   }
 }
 
+/** Players still in the game (a bankrupt RoLA player is removed but the rest play on). */
+export function activeCount(s: GameState): number {
+  return s.players.filter((p) => !p.out).length;
+}
+/** Next non-eliminated player index, clockwise from `from`. */
+function nextActiveIdx(s: GameState, from: number): number {
+  const n = s.players.length;
+  for (let k = 1; k <= n; k++) {
+    const i = (from + k) % n;
+    if (!s.players[i].out) return i;
+  }
+  return from;
+}
 function advancePriority(s: GameState): void {
-  s.priority = (s.current + 1) % s.players.length;
+  s.priority = nextActiveIdx(s, s.current);
 }
 function endTurn(s: GameState): void {
   const st = s.stock!;
-  s.current = (s.current + 1) % s.players.length;
+  s.current = nextActiveIdx(s, s.current);
   st.acted = false;
   st.bought = false;
 }
@@ -105,7 +118,9 @@ function doInitiate(s: GameState, id: string, bid: number): void {
 
   const n = s.players.length;
   const startIdx = s.players.findIndex((pp) => pp.id === id);
-  const order = Array.from({ length: n }, (_, k) => s.players[(startIdx + k) % n].id);
+  const order = Array.from({ length: n }, (_, k) => s.players[(startIdx + k) % n])
+    .filter((p) => !p.out) // eliminated players take no part
+    .map((p) => p.id);
   const la: LaunchAuctionState = { initiator: id, order, passed: [], highBid: bid, highBidder: id, turn: null, winner: null };
   advanceAuction(s, la, id); // clockwise from the initiator, skipping who can't pay
   st.launchAuction = la;
@@ -133,9 +148,9 @@ function doResolveLaunch(s: GameState, id: string, sym: string, home?: string): 
   }
   launchMinor(s, c, id, la.highBid); // treasury = winning bid, 40% cert, price = 1/2 bid
   st.launchAuction = null;
-  // Turn resumes with the player clockwise from the initiator.
+  // Turn resumes with the next player still in the game, clockwise from the initiator.
   const initIdx = s.players.findIndex((pp) => pp.id === la.initiator);
-  s.current = (initIdx + 1) % s.players.length;
+  s.current = nextActiveIdx(s, initIdx);
   s.priority = s.current;
   st.acted = false;
   st.bought = false;
@@ -303,7 +318,7 @@ export function applyRolaStock(s: GameState, action: GameAction): void {
       } else {
         st.passes += 1;
         s.log.push(`${pname(s, action.player)} passes`);
-        if (st.passes >= s.players.length) endStockRound(s);
+        if (st.passes >= activeCount(s)) endStockRound(s);
         else endTurn(s);
       }
       break;

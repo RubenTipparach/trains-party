@@ -21,6 +21,9 @@ export interface PlayerState {
   shares: Record<string, number>;
   /** Passed in the current pass-around (auction / stock round). */
   passed: boolean;
+  /** RoLA: this player went bankrupt and was removed from the game; play continues
+   *  with the rest. Skipped in all turn rotations and cannot win. */
+  out?: boolean;
 }
 
 export interface CompanyState {
