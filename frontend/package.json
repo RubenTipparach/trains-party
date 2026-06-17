@@ -13,6 +13,7 @@
     "test:watch": "vitest",
     "sim": "vite-node scripts/simulate.ts",
     "sim:verify": "vite-node scripts/simulate.ts -- --verify",
+    "sim:render": "vite-node scripts/orShots.ts",
     "screenshots": "node scripts/screenshots.mjs",
     "profile": "node scripts/profile.mjs"
   },
