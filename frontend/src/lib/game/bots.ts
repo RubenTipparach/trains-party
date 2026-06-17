@@ -529,60 +529,60 @@ function revenueAfter(s: GameState, sym: string, action: GameAction): number {
 }
 
 /**
- * The largest finite-distance train in the title (1889: the 6-train), used as a
- * bounded "probe" to estimate a network's revenue potential without the cost of
- * an unlimited diesel walk over the whole map.
+ * A bounded "probe" train used to estimate a network's revenue potential. We cap
+ * the reach (distance <= PROBE_REACH) rather than use the biggest train: a probe
+ * long enough to reward expansion past a starter line, but short enough that the
+ * route DFS stays cheap on large late-game networks. (1889: the 4-train.)
  */
+const PROBE_REACH = 4;
 function probeTrain(s: GameState): string | null {
-  const finite = configFor(s.title).trains.filter((t) => t.distance <= 90);
+  const finite = configFor(s.title).trains.filter((t) => t.distance <= 90 && t.distance <= PROBE_REACH);
   if (!finite.length) return null;
   return finite.reduce((m, t) => (t.distance > m.distance ? t : m)).name;
 }
 
 /**
- * Route revenue after applying `action`, both for the corporation's current roster
- * (`immediate`) and for the network's potential with one bounded probe train added
- * (`potential`). Potential lets the bot lay track toward new revenue centres even
- * before it owns a train long enough to use them - growing the network now, which
- * in turn justifies buying bigger trains later.
+ * A network's revenue "potential" after applying `action`: the revenue TWO bounded
+ * probe trains could run on the resulting network. Two probes (rather than the real
+ * roster) reward laying toward both more reach AND a second non-overlapping route -
+ * which is what justifies buying more/bigger trains and advancing phases - while
+ * keeping the cost fixed and cheap (no full-roster permutation blow-up per candidate
+ * lay, which is brutal on large late-game networks).
  */
-function layRevenue(s: GameState, sym: string, action: GameAction, probe: string | null): { potential: number; immediate: number } {
+function layPotential(s: GameState, sym: string, action: GameAction, probe: string | null): number {
   try {
     const ns = apply(s, action);
     const cc = corpOf(ns, sym);
-    const immediate = routeRevenue(ns, cc);
-    if (probe) cc.trains = [...cc.trains, probe];
-    const potential = routeRevenue(ns, cc);
-    return { potential, immediate };
+    if (probe) cc.trains = [probe, probe];
+    return routeRevenue(ns, cc);
   } catch {
-    return { potential: -1, immediate: -1 };
+    return -1;
   }
 }
 
 /** Lay the tile that grows the most profitable network: by network potential first
- *  (laying toward more reachable revenue), then immediate revenue, then new revenue
- *  centres (cities/towns), then cheaper cost, then the home hex. */
+ *  (laying toward more reachable revenue), then new revenue centres (cities/towns),
+ *  then cheaper cost, then the home hex. */
 function strategicTrack(s: GameState, sym: string, c: CorporationState): GameAction | null {
   const lays = trackLays(s).filter((l) => l.cost <= c.cash);
   if (!lays.length) return null;
   const me = c.president!;
   const probe = probeTrain(s);
 
-  type Scored = { l: (typeof lays)[number]; potential: number; immediate: number; centres: number; cost: number; home: number };
+  type Scored = { l: (typeof lays)[number]; potential: number; centres: number; cost: number; home: number };
   const scored: Scored[] = lays.map((l) => {
     const act: GameAction = { type: 'lay_tile', player: me, corp: sym, hex: l.hex, tile: l.tile, rotation: l.rotation };
-    const { potential, immediate } = layRevenue(s, sym, act, probe);
     const def = TILES[l.tile];
-    const centres = (def?.cities ?? 0) + (def?.towns ?? 0);
-    return { l, potential, immediate, centres, cost: l.cost, home: l.hex === c.coordinates ? 1 : 0 };
+    return {
+      l,
+      potential: layPotential(s, sym, act, probe),
+      centres: (def?.cities ?? 0) + (def?.towns ?? 0),
+      cost: l.cost,
+      home: l.hex === c.coordinates ? 1 : 0
+    };
   });
   scored.sort(
-    (a, b) =>
-      b.potential - a.potential ||
-      b.immediate - a.immediate ||
-      b.centres - a.centres ||
-      a.cost - b.cost ||
-      b.home - a.home
+    (a, b) => b.potential - a.potential || b.centres - a.centres || a.cost - b.cost || b.home - a.home
   );
   const best = scored[0].l;
   return { type: 'lay_tile', player: me, corp: sym, hex: best.hex, tile: best.tile, rotation: best.rotation };

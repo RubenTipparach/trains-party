@@ -93,9 +93,33 @@ On its turn the bot sells (if warranted) before its one purchase, then ends the 
   Mandatory, emergency, and first-train purchases reuse the robust Testing logic
   (which also buys the cheapest *buyable* train, including a discard in the pool).
 
+## Simulator
+
+`frontend/scripts/simulate.ts` runs whole games driven entirely by bots and reports
+how long they last (steps, stock rounds, end phase), the winning margin, and timing -
+handy for gauging game length and confirming bots never stall or emit an illegal move.
+
+```
+cd frontend
+npm run sim                                          # default matrix (1889 + RoLA)
+npm run sim -- --title=1889 --players=4 --level=easy  # one config
+npm run sim -- --title=rola --games=20 --trace        # sample 20 seeds, print each
+```
+
+The engine and bots are deterministic, so a 1889 game is identical for a given
+(players, level); RoLA derives its map/minor order from a seed, so seeds vary games.
+Rough current shape: 1889 Easy reaches phase 4-5 in ~8-10 stock rounds at 3-6
+players (2-player still grinds at phase 2 - see below); Testing stays at phase 2.
+
 ## Limitations / next
 
 - **RoLA strategy**: the Easy bot delegates RoLA (and mergers) to the Testing logic.
+- **Founds a single corporation**: the bot never starts a second corporation, so
+  2-player 1889 games (one corp each) tend to grind at phase 2. Multi-corp play is
+  a follow-up.
+- **Known RoLA engine stall** (pre-existing, ~10% of seeds): a floated minor can end
+  up in the operating order with no president, which no bot can act for. Tracked
+  separately from the bot work.
 - **Dividend policy** is basic (pay when earning); no withhold-to-save planning yet.
 - **Trashing is bounded** to risk-shedding and locked-in strong rivals, rather than
   blanket dumping (which is usually self-defeating); this is a deliberate first-draft

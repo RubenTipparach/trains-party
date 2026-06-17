@@ -287,6 +287,44 @@ describe('stock round - selling', () => {
     expect(shares(s, 'p1', 'AR')).toBe(20); // p1 keeps its shares
     expect(corp(s, 'AR').floated).toBe(true); // the 50%th share also floats it
   });
+
+  it('omits par/buy options that would exceed the certificate limit', () => {
+    // 6-player cert limit is 11. Craft a stock turn where p1 sits just under it.
+    const s: GameState = initialState(
+      ['p1', 'p2', 'p3', 'p4', 'p5', 'p6'].map((id) => ({ id, name: id }))
+    );
+    s.round = 'stock';
+    s.stock = { acted: false, bought: false, passes: 0, soldThisRound: {} };
+    s.current = 0; // p1 to act, nothing bought yet
+    // Two white-zone corps p2 presides over; p1 holds plain shares (each 10% = 1 cert).
+    for (const sym of ['IR', 'SR']) {
+      const c = corp(s, sym);
+      c.parPrice = 100;
+      c.priceRow = 0;
+      c.priceCol = 3; // a white (non-yellow) cell, so the shares count toward the limit
+      c.president = 'p2';
+      c.floated = true;
+    }
+    const ar = corp(s, 'AR');
+    ar.parPrice = 100;
+    ar.priceRow = 0;
+    ar.priceCol = 3;
+    ar.president = 'p2';
+    ar.floated = true;
+    ar.ipoShares = 70;
+    s.players[0].cash = 2000;
+    s.players[0].shares = { IR: 60, SR: 40 }; // 6 + 4 = 10 certs (one under the limit)
+    s.players[1].shares = { IR: 20, SR: 20, AR: 20 };
+
+    expect(stockLegalActions(s).buyIpo).toContain('AR'); // 11th cert fits
+    expect(stockLegalActions(s).par.length).toBeGreaterThan(0); // and a new par fits
+
+    s.players[0].shares = { IR: 60, SR: 50 }; // 6 + 5 = 11 certs (exactly the limit)
+    const la = stockLegalActions(s);
+    expect(la.buyIpo).not.toContain('AR'); // a 12th certificate is over the limit
+    expect(la.par).toEqual([]); // and no new corporation may be started either
+    expect(() => apply(s, { type: 'buy', player: 'p1', corp: 'AR', from: 'ipo' })).toThrow();
+  });
 });
 
 describe('stock round - ends on a full lap of passes', () => {

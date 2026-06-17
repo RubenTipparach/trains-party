@@ -398,15 +398,20 @@ export function stockLegalActions(s: GameState): StockLegalActions {
   const buyPool: string[] = [];
   const sell: string[] = [];
   const minPar = 2 * cfg.parPrices[cfg.parPrices.length - 1];
+  // A new certificate is over the limit unless the corporation sits in the yellow
+  // zone (whose shares do not count). Mirrors the checks in doPar / doBuy so the
+  // listed options are actually playable (the UI and bots both rely on this).
+  const certRoom = certCount(s, id) + 1 <= certLimit(s);
   for (const c of s.corporations) {
     // At most one buy per turn; a corporation sold this round cannot be bought.
     const soldThisRound = st.soldThisRound[id]?.includes(c.sym) ?? false;
     if (!st.bought && !soldThisRound) {
       if (c.parPrice === null) {
-        if (p.cash >= minPar) par.push(c.sym);
+        if (p.cash >= minPar && certRoom) par.push(c.sym);
       } else {
-        if (c.ipoShares >= 10 && holdLimitOk(s, c, p, 10) && p.cash >= c.parPrice) buyIpo.push(c.sym);
-        if (c.poolShares >= 10 && holdLimitOk(s, c, p, 10) && p.cash >= currentPrice(s, c)) buyPool.push(c.sym);
+        const certOk = corpZone(s, c) === 'yellow' || certRoom;
+        if (c.ipoShares >= 10 && holdLimitOk(s, c, p, 10) && p.cash >= c.parPrice && certOk) buyIpo.push(c.sym);
+        if (c.poolShares >= 10 && holdLimitOk(s, c, p, 10) && p.cash >= currentPrice(s, c) && certOk) buyPool.push(c.sym);
       }
     }
     if (canSell(s, id, c.sym)) sell.push(c.sym);
