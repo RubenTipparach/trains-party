@@ -125,6 +125,11 @@ cd frontend
 npm run sim                                          # default matrix (1889 + RoLA)
 npm run sim -- --title=1889 --players=4 --level=easy  # one config
 npm run sim -- --title=rola --games=20 --trace        # sample 20 seeds, print each
+npm run sim:verify                                    # pass/fail gate (exits non-zero
+                                                      # if any game stalls or doesn't finish)
+npm run screenshots                                   # capture board PNGs of bot games
+                                                      # (needs a dev server + a browser:
+                                                      # npm run dev; npx playwright install chromium)
 ```
 
 The engine and bots are deterministic, so a 1889 game is identical for a given

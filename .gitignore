@@ -10,6 +10,10 @@ dist/
 .vite/
 *.tsbuildinfo
 
+# Generated bot-game screenshots (npm run screenshots)
+screenshots/
+frontend/screenshots/
+
 # SQLite data
 *.sqlite
 *.sqlite3

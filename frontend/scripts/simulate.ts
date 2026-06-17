@@ -132,12 +132,17 @@ const levelArg = arg('level') as BotLevel | undefined; // testing | easy | norma
 const playersArg = arg('players');
 const gamesArg = Number(arg('games') ?? 10); // seeds to sample for seeded titles
 const trace = flag('trace');
+// --verify turns the sim into a pass/fail gate: it asserts the hard invariants
+// (every game finishes; no game stalls or emits an illegal action) and exits
+// non-zero on any failure, so it can be run later to catch regressions.
+const verify = flag('verify');
 
 const titles = titleArg ? [titleArg] : ['1889', 'rola'];
 const levels: BotLevel[] = levelArg ? [levelArg] : ['easy', 'testing'];
 
-console.log(`Bot self-play simulator  (rules ${RULES_VERSION}, step cap ${STEP_CAP})`);
+console.log(`Bot self-play simulator  (rules ${RULES_VERSION}, step cap ${STEP_CAP})${verify ? '  [verify]' : ''}`);
 
+const failures: string[] = [];
 for (const title of titles) {
   const playerCounts = playersArg
     ? [Number(playersArg)]
@@ -153,7 +158,23 @@ for (const title of titles) {
       const games: GameStats[] = [];
       for (let i = 0; i < seedCount; i++) games.push(runGame(title, players, level, 1000 + i));
       summarize(`${title}  ${players}p  ${level}`, games, trace || seedCount === 1);
+      if (verify) {
+        for (const g of games) {
+          if (g.stalled) failures.push(`${title} ${players}p ${level} seed ${g.seed}: STALLED / illegal action at ${g.round}`);
+          else if (!g.finished) failures.push(`${title} ${players}p ${level} seed ${g.seed}: did not finish (hit the ${STEP_CAP}-step cap)`);
+        }
+      }
     }
   }
 }
 console.log('');
+
+if (verify) {
+  if (failures.length) {
+    console.error(`VERIFY FAILED (${failures.length}):`);
+    for (const f of failures) console.error('  - ' + f);
+    process.exit(1);
+  }
+  console.log('VERIFY PASSED: every game finished with no stalls or illegal actions.');
+}
+
