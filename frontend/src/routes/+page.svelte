@@ -7,6 +7,7 @@
   import { GAMES } from '$lib/data/games';
   import { listSessions, deleteSession, migrateLegacySaves, type SessionMeta } from '$lib/game/sessions';
   import { auth } from '$lib/game/auth.svelte';
+  import { linkify } from '$lib/util/linkify';
   import * as api from '$lib/api/client';
 
   // --- local (sandbox) games ---------------------------------------------
@@ -26,6 +27,7 @@
   let err = $state<string | null>(null);
 
   let inviteCode = $state('');
+  let copiedCode = $state('');
   let guestName = $state('');
   let modalOpen = $state(false);
   let settingsOpen = $state(false);
@@ -138,6 +140,14 @@
     if (c) goto(waitHref(c));
   }
 
+  function copyInvite(code: string) {
+    const url = `${location.origin}${base}/room/${code}`;
+    navigator.clipboard?.writeText(url).then(() => {
+      copiedCode = code;
+      setTimeout(() => (copiedCode = ''), 1500);
+    });
+  }
+
   function removeLocal(code: string) {
     deleteSession(code); refreshLocal();
   }
@@ -189,7 +199,7 @@
     {#snippet gameCard(r: api.RoomView, actions: Snippet<[api.RoomView]>)}
       <div class="gcard" style="--accent:{accentOf(r.title)}">
         <div class="ginfo">
-          <div class="gtop"><span class="gname">{titleOf(r.title)}</span><span class="gcode">{r.code.toUpperCase()}</span></div>
+          <div class="gname">{titleOf(r.title)} <span class="gcode">{r.code.toUpperCase()}</span></div>
           <div class="gmeta">hosted by <b>{hostName(r)}</b><span class="dot">•</span>{seatCount(r)}{#if r.status === 'active'}<span class="dot">•</span><b class="turn">{activeName(r)}</b>'s turn{/if}<span class="dot">•</span>{r.label}<span class="dot">•</span>{ago(r.updatedAt || 0)}</div>
           <div class="gplayers">{#each players(r) as p}<span class="pchip" class:bot={p.bot} class:open={p.open}>{p.name}</span>{/each}</div>
         </div>
@@ -198,7 +208,9 @@
     {/snippet}
     {#snippet resumeAct(r: api.RoomView)}<a class="play sm" href={roomHref(r)}>Resume</a>{/snippet}
     {#snippet openAct(r: api.RoomView)}
-      {#if amIn(r)}<a class="play sm" href={waitHref(r.code)}>Manage</a>
+      {#if amIn(r)}
+        <a class="play sm" href={waitHref(r.code)}>Manage</a>
+        <button class="ghost sm" onclick={() => copyInvite(r.code)}>{copiedCode === r.code ? 'Copied!' : 'Invite'}</button>
       {:else if r.seats.some((s) => !s.taken)}<button class="play sm" disabled={busy} onclick={() => joinRoom(r)}>Join</button>
       {:else}<span class="muted sm">Full</span>{/if}
     {/snippet}
@@ -239,9 +251,9 @@
       <div class="lgrid">
         <section class="panel chatpanel">
           <h2>Global chat</h2>
-          {#if announcement}<div class="announce">{announcement}</div>{/if}
+          {#if announcement}<div class="announce">{@html linkify(announcement)}</div>{/if}
           <div class="cmsgs">
-            {#each chat as m (m.id)}<div class="cmsg"><span class="cname">{m.name}</span> {m.body}</div>{:else}<div class="empty">No messages yet. Say hi!</div>{/each}
+            {#each chat as m (m.id)}<div class="cmsg"><span class="cname">{m.name}</span> {@html linkify(m.body)}</div>{:else}<div class="empty">No messages yet. Say hi!</div>{/each}
           </div>
           <form class="cform" onsubmit={(e) => { e.preventDefault(); send(); }}>
             <input placeholder="Message everyone…" bind:value={chatInput} maxlength="500" />
@@ -251,7 +263,20 @@
 
         <section class="panel">
           <h2>Your games</h2>
-          {#each myActive as r (r.code)}{@render gameCard(r, resumeAct)}{:else}<p class="empty">No games in progress.</p>{/each}
+          {#each myActive as r (r.code)}{@render gameCard(r, resumeAct)}{/each}
+          {#each sessions as s (s.code)}
+            <div class="gcard" style="--accent:{accentOf(s.title)}">
+              <div class="ginfo">
+                <div class="gname">{titleOf(s.title)} <span class="gcode">{s.code.toUpperCase()}</span><span class="localtag">local</span></div>
+                <div class="gmeta">{s.seats.length} players<span class="dot">•</span>{s.status}<span class="dot">•</span>{ago(s.updatedAt)}</div>
+              </div>
+              <div class="gact">
+                <a class="play sm" href={`${base}/${s.title}/room/${s.code}`}>Resume</a>
+                <button class="ghost sm" onclick={() => removeLocal(s.code)}>Delete</button>
+              </div>
+            </div>
+          {/each}
+          {#if myActive.length === 0 && sessions.length === 0}<p class="empty">No games yet.</p>{/if}
         </section>
       </div>
 
@@ -270,23 +295,6 @@
         </section>
       </div>
 
-      {#if sessions.length}
-        <section class="panel">
-          <h2>Local games (this device)</h2>
-          <ul class="rooms">
-            {#each sessions as s (s.code)}
-              <li class="room" style="--accent:{accentOf(s.title)}">
-                <a class="rmain" href={`${base}/${s.title}/room/${s.code}`}>
-                  <span class="rtitle">{titleOf(s.title)}</span>
-                  <span class="rcode">{s.code.toUpperCase()}</span>
-                  <span class="rmeta">{s.seats.length} players<span class="dot">•</span>{s.status}<span class="dot">•</span>{ago(s.updatedAt)}</span>
-                </a>
-                <button class="rdel" onclick={() => removeLocal(s.code)}>Delete</button>
-              </li>
-            {/each}
-          </ul>
-        </section>
-      {/if}
     </div>
 
     <!-- New game modal: pick a title (big buttons) + players, then create -->
@@ -374,7 +382,7 @@
   .lgrid { display: grid; grid-template-columns: 1.5fr 1fr; gap: 1rem; align-items: start; }
   .lgrid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-top: 1rem; align-items: start; }
   @media (max-width: 820px) { .lgrid, .lgrid3 { grid-template-columns: 1fr; } }
-  .panel { background: var(--bg-soft); border: 1px solid var(--line); border-radius: 14px; padding: 1rem 1.1rem; }
+  .panel { background: var(--bg-soft); border: 1px solid var(--line); border-radius: 14px; padding: 1.2rem 1.35rem; }
   .panel h2 { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--rail); margin: 0 0 0.7rem; }
   .settings { margin-bottom: 1rem; }
   .srow { display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem; margin: 0.35rem 0; }
@@ -383,36 +391,27 @@
   .muted { color: var(--muted); }
   .muted.sm { font-size: 0.8rem; }
   /* game cards */
-  .gcard { display: flex; align-items: center; gap: 0.6rem; border-top: 1px solid var(--line); padding: 0.7rem 0; }
-  .gcard:first-of-type { border-top: 0; padding-top: 0.2rem; }
+  .gcard { display: flex; align-items: center; gap: 1rem; border-top: 1px solid var(--line); padding: 0.85rem 0; }
+  .gcard:first-of-type { border-top: 0; padding-top: 0.25rem; }
   .ginfo { flex: 1; min-width: 0; }
-  .gtop { display: flex; align-items: baseline; gap: 0.5rem; }
-  .gname { font-weight: 800; color: var(--accent); }
-  .gcode { font: 700 0.7rem ui-monospace, monospace; color: var(--muted); letter-spacing: 0.05em; }
-  .gmeta { font-size: 0.76rem; color: var(--muted); display: flex; flex-wrap: wrap; gap: 0.25rem; align-items: center; margin: 0.15rem 0; }
+  .gname { font-weight: 800; color: var(--accent); line-height: 1.25; }
+  .gcode { display: inline-block; font: 700 0.64rem ui-monospace, monospace; color: var(--muted); letter-spacing: 0.05em; border: 1px solid var(--line); border-radius: 5px; padding: 0.05rem 0.35rem; margin-left: 0.25rem; vertical-align: middle; }
+  .gmeta { font-size: 0.76rem; color: var(--muted); display: flex; flex-wrap: wrap; gap: 0.25rem; align-items: center; margin: 0.3rem 0; }
   .turn { color: var(--rail); }
-  .gplayers { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-top: 0.15rem; }
-  .gact { flex-shrink: 0; }
+  .gplayers { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.2rem; }
+  .gact { flex-shrink: 0; display: flex; gap: 0.4rem; align-items: center; }
   .pchip { font-size: 0.72rem; padding: 0.05rem 0.5rem; border-radius: 999px; border: 1px solid var(--line); color: var(--ink); background: rgba(255, 255, 255, 0.03); }
   .pchip.bot { color: var(--muted); }
   .pchip.open { color: var(--muted); opacity: 0.55; border-style: dashed; }
   /* chat panel */
   .chatpanel { display: flex; flex-direction: column; }
   .cmsgs { max-height: 360px; min-height: 150px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.3rem; padding: 0.2rem 0; }
-  .cmsg { font-size: 0.88rem; color: var(--ink); }
+  .cmsg { font-size: 0.88rem; color: var(--ink); word-break: break-word; }
   .cname { font-weight: 700; color: var(--rail); margin-right: 0.3rem; }
+  .cmsg :global(a), .announce :global(a) { color: #7fd1ff; text-decoration: underline; }
   .cform { display: flex; gap: 0.5rem; padding-top: 0.6rem; margin-top: 0.5rem; border-top: 1px solid var(--line); }
   .cform input { flex: 1; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 0.45rem 0.7rem; font: inherit; }
-  /* local games list */
-  .rooms { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
-  .room { display: flex; align-items: stretch; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 12px; background: var(--bg); overflow: hidden; }
-  .rmain { flex: 1; display: grid; grid-template-columns: 1fr auto; grid-template-areas: 'title code' 'meta meta'; gap: 0.15rem 0.6rem; padding: 0.6rem 0.9rem; text-decoration: none; color: inherit; }
-  a.rmain:hover { background: rgba(255, 255, 255, 0.03); }
-  .rtitle { grid-area: title; font-weight: 700; color: var(--accent); }
-  .rcode { grid-area: code; font: 700 0.72rem ui-monospace, monospace; letter-spacing: 0.05em; color: var(--muted); align-self: center; }
-  .rmeta { grid-area: meta; font-size: 0.76rem; color: var(--muted); display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: center; }
-  .rdel { border: none; border-left: 1px solid var(--line); background: none; color: var(--muted); font-size: 0.78rem; padding: 0 0.9rem; cursor: pointer; }
-  .rdel:hover { color: #e0655c; background: rgba(224, 101, 92, 0.08); }
+  .localtag { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 0.05rem 0.4rem; margin-left: 0.4rem; vertical-align: middle; }
   /* new-game modal */
   .backdrop { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 1rem; z-index: 50; }
   .bdrop-close { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: rgba(6, 16, 24, 0.66); cursor: default; }

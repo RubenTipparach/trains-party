@@ -29,6 +29,10 @@ function resolveBase(): string {
 export const API_BASE = resolveBase().replace(/\/$/, '');
 export const apiConfigured = () => !!API_BASE;
 
+/** WebSocket URL for a room's realtime pings (http(s) -> ws(s)). */
+export const wsUrl = (code: string): string =>
+  `${API_BASE.replace(/^http/, 'ws')}/rooms/${code}/ws`;
+
 const TOKEN_KEY = 'tp.session.token';
 export const getToken = (): string | null => (browser ? localStorage.getItem(TOKEN_KEY) : null);
 export function setToken(t: string | null): void {
@@ -152,8 +156,17 @@ export const openSeat = (code: string, seatId: string) =>
 export const startRoom = (code: string) => call<StateResp>('POST', `/rooms/${code}/start`);
 export const fetchState = (code: string, since = -1) =>
   call<StateResp>('GET', `/rooms/${code}/state?since=${since}`);
+/** The action-log delta after `since` (so a client can replay incrementally). */
+export const fetchActions = (code: string, since = 0) =>
+  call<{ code: string; seq: number; actions: GameAction[] }>('GET', `/rooms/${code}/actions?since=${since}`);
 export const submitAction = (code: string, action: GameAction) =>
   call<StateResp>('POST', `/rooms/${code}/actions`, { action });
+export const updateOptions = (
+  code: string,
+  opts: { seed?: number; mapMode?: 'auto' | 'manual'; hostileMergers?: boolean; localRoutes?: boolean }
+) => call<RoomView>('POST', `/rooms/${code}/options`, opts);
+export const setPlayers = (code: string, count: number) =>
+  call<RoomView>('POST', `/rooms/${code}/players`, { count });
 export const invite = (code: string, discordId: string) =>
   call<{ ok: boolean; dm: { ok: boolean; error?: string } }>('POST', `/rooms/${code}/invite`, { discordId });
 

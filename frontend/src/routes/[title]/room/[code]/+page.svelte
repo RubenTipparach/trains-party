@@ -1,6 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { base } from '$app/paths';
+  import { goto } from '$app/navigation';
+  import * as api from '$lib/api/client';
+  import { auth } from '$lib/game/auth.svelte';
   import { fade, fly } from 'svelte/transition';
   import HexMap from '$lib/components/HexMap.svelte';
   import StockMarket from '$lib/components/StockMarket.svelte';
@@ -34,10 +37,42 @@
   // when navigating between rooms (the page component is reused across params).
   const code = $derived($page.params.code ?? '');
   const urlTitle = $derived($page.params.title ?? '1889');
+
+  // Load the room. If a server room exists for this code, play it server-backed
+  // (poll + submit moves); otherwise it is a local sandbox game.
+  let loadingCode = '';
+  async function openRoom(c: string, title: string) {
+    if (api.apiConfigured()) {
+      try {
+        await auth.init();
+        const room = await api.getRoom(c);
+        if (room.status === 'lobby') {
+          goto(`${base}/wait/${c}`, { replaceState: true }); // not started yet
+          return;
+        }
+        const { actions } = await api.fetchActions(c, 0);
+        game.loadServerRoom(c, room, actions, auth.profile?.discordId ?? null);
+        return;
+      } catch {
+        /* not a server room -> fall back to the local sandbox */
+      }
+    }
+    game.loadRoom(c, title);
+  }
   $effect(() => {
-    if (code && game.code !== code) game.loadRoom(code, urlTitle);
+    if (code && game.code !== code && loadingCode !== code) {
+      loadingCode = code;
+      openRoom(code, urlTitle);
+    }
   });
   const ready = $derived(!!code && game.code === code);
+
+  // Poll a server-backed room for other players' (and server bots') moves.
+  $effect(() => {
+    if (!game.serverMode || game.code !== code) return;
+    const t = setInterval(() => game.syncFromServer(), 2500);
+    return () => clearInterval(t);
+  });
 
   // Active title's branding (header, footer, theme) - the board is title-agnostic.
   const meta = $derived(GAMES.find((g) => g.id === game.title) ?? GAMES[0]);
@@ -102,9 +137,10 @@
   });
 
   // Auto-play bot turns with a watchable pause between moves (skippable).
+  // Server games advance bots on the server, so skip local bot stepping there.
   $effect(() => {
     const a = game.active;
-    if (a && game.isBot(a) && !game.reviewing) {
+    if (a && game.isBot(a) && !game.reviewing && !game.serverMode) {
       let cancelled = false;
       (async () => {
         await anim.wait(900);
@@ -295,12 +331,6 @@
     />
   </div>
 
-  <!-- room identity chip (desktop) -->
-  <div class="roomchip">
-    <span class="rtitle">{meta.title}</span>
-    {#if game.code}<span class="rcode">Room {game.code.toUpperCase()}</span>{/if}
-  </div>
-
   <!-- floating cycle/round tracker (RoLA): the board-style visual aid -->
   <div class="trackerfloat" class:shifted={!!active}>
     <RoundTracker />
@@ -310,6 +340,7 @@
        operating panel header (mobile folds it into the op sheet during ORs) -->
   {#snippet turnStatus()}
     <span class="srnd">{roundLabel}</span>
+    {#if game.code}<span class="scode" title="Room code">{game.code.toUpperCase()}</span>{/if}
     <span class="splayer">{game.canAct ? 'Your turn · ' : ''}{playerName(game.active)}</span>
     {#if game.isBot(game.active)}<span class="sbot">BOT</span>{/if}
     <span class="sbank">Bank {currency}{game.state.bank.toLocaleString()}</span>
@@ -803,21 +834,7 @@
     }
   }
 
-  /* ---- room identity chip ---- */
-  .roomchip {
-    display: none;
-    position: absolute;
-    z-index: 12;
-    top: 14px;
-    left: 14px;
-    align-items: center;
-    gap: 0.55rem;
-    padding: 0.4rem 0.8rem;
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--bg) 84%, transparent);
-    backdrop-filter: blur(8px);
-    border: 1px solid var(--line);
-  }
+  /* ---- room identity (op-panel header title) ---- */
   .rtitle {
     font-weight: 800;
     color: var(--rail);
@@ -863,6 +880,14 @@
     background: var(--rail);
     border-radius: 999px;
     padding: 0.12rem 0.5rem;
+  }
+  .scode {
+    font: 700 0.7rem ui-monospace, monospace;
+    letter-spacing: 0.06em;
+    color: var(--accent);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 0.1rem 0.45rem;
   }
   .splayer {
     font-weight: 700;
@@ -1127,8 +1152,7 @@
     /* perf: backdrop blur is expensive on phones - use solid surfaces instead */
     .dock,
     .panelhost,
-    .statusbar,
-    .roomchip {
+    .statusbar {
       backdrop-filter: none;
       background: var(--bg);
     }
@@ -1164,9 +1188,6 @@
        moves into the panel header, so hide the floating chip during ORs. */
     .board-root.opdock .trackerfloat {
       left: calc(var(--opw) + 64px);
-    }
-    .board-root.opdock .roomchip {
-      display: none;
     }
   }
 
@@ -1211,9 +1232,6 @@
       width: 26px;
       height: 1px;
       margin: 2px 0;
-    }
-    .roomchip {
-      display: inline-flex;
     }
     /* Always centred over the *visible board*: the left/right docked panels set
        --leftpad/--rightpad, and the pill centres in the space between them rather

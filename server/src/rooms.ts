@@ -23,6 +23,7 @@ import {
   type RoomRow
 } from './engine';
 import { dispatchNotifications, roomLink } from './notify';
+import { bus } from './ws';
 
 interface SeatInput {
   id: string;
@@ -181,6 +182,52 @@ export function registerRooms(app: FastifyInstance): void {
     }
   });
 
+  // The action-log delta (seq > since), so a client can replay incrementally.
+  app.get('/rooms/:code/actions', async (req, reply) => {
+    const room = getRoom((req.params as { code: string }).code);
+    if (!room) return reply.code(404).send({ error: 'not_found' });
+    const since = Number((req.query as { since?: string }).since ?? 0);
+    const rows = db
+      .prepare('SELECT payload FROM actions WHERE room_code = ? AND seq > ? ORDER BY seq')
+      .all(room.code, since) as { payload: string }[];
+    return { code: room.code, seq: room.seq, actions: rows.map((r) => JSON.parse(r.payload)) };
+  });
+
+  // Host edits game options while the room is still gathering (lobby only).
+  app.post('/rooms/:code/options', async (req, reply) => {
+    const me = requireAuth(req, reply);
+    if (!me) return;
+    const room = getRoom((req.params as { code: string }).code);
+    if (!room) return reply.code(404).send({ error: 'not_found' });
+    if (room.creator_discord_id !== me) return reply.code(403).send({ error: 'not_host' });
+    if (room.status !== 'lobby') return reply.code(409).send({ error: 'not_joinable' });
+    const b = (req.body ?? {}) as Record<string, unknown>;
+    const sets: string[] = [];
+    const vals: unknown[] = [];
+    if (typeof b.seed === 'number' && Number.isFinite(b.seed)) {
+      sets.push('seed = ?');
+      vals.push(Math.floor(b.seed as number));
+    }
+    if (b.mapMode === 'auto' || b.mapMode === 'manual') {
+      sets.push('map_mode = ?');
+      vals.push(b.mapMode);
+    }
+    if (typeof b.hostileMergers === 'boolean') {
+      sets.push('hostile_mergers = ?');
+      vals.push(b.hostileMergers ? 1 : 0);
+    }
+    if (typeof b.localRoutes === 'boolean') {
+      sets.push('local_routes = ?');
+      vals.push(b.localRoutes ? 1 : 0);
+    }
+    if (sets.length) {
+      sets.push('updated_at = ?');
+      vals.push(now(), room.code);
+      db.prepare(`UPDATE rooms SET ${sets.join(', ')} WHERE code = ?`).run(...(vals as never[]));
+    }
+    return roomView(getRoom(room.code)!);
+  });
+
   // --- submit an action ---------------------------------------------------
   app.post('/rooms/:code/actions', async (req, reply) => {
     const me = requireAuth(req, reply);
@@ -202,6 +249,7 @@ export function registerRooms(app: FastifyInstance): void {
       appendAction(room, action); // validates via engine, persists
       const after = runBots(room); // advance consecutive bot turns
       dispatchNotifications(room, before, after);
+      bus.broadcast(room.code, room.seq); // realtime ping (best-effort; clients pull via REST)
       return { code: room.code, seq: room.seq, state: after, room: roomView(room, after) };
     } catch (e) {
       return fail(reply, e);
@@ -279,6 +327,32 @@ export function registerRooms(app: FastifyInstance): void {
     return roomView(room);
   });
 
+  // Host changes the table size (number of seats) while gathering. Existing
+  // seats p1..pN are preserved; new ones are added open, extras removed.
+  app.post('/rooms/:code/players', async (req, reply) => {
+    const me = requireAuth(req, reply);
+    if (!me) return;
+    const room = getRoom((req.params as { code: string }).code);
+    if (!room) return reply.code(404).send({ error: 'not_found' });
+    if (room.creator_discord_id !== me) return reply.code(403).send({ error: 'not_host' });
+    if (room.status !== 'lobby') return reply.code(409).send({ error: 'not_joinable' });
+    const count = Math.max(2, Math.min(6, Math.floor(Number((req.body as { count?: number })?.count) || 0)));
+    const existing = getSeats(room.code);
+    const ins = db.prepare(
+      'INSERT INTO room_seats (room_code, seat_id, discord_id, name, bot, level, joined_at) VALUES (?,?,?,?,?,?,?)'
+    );
+    db.transaction(() => {
+      db.prepare('DELETE FROM room_seats WHERE room_code = ?').run(room.code);
+      for (let i = 1; i <= count; i++) {
+        const prev = existing.find((s) => s.seat_id === `p${i}`);
+        if (prev) ins.run(room.code, prev.seat_id, prev.discord_id, prev.name, prev.bot, prev.level, now());
+        else ins.run(room.code, `p${i}`, null, 'Open', 0, 'normal', now());
+      }
+    })();
+    db.prepare('UPDATE rooms SET max_players = ?, updated_at = ? WHERE code = ?').run(count, now(), room.code);
+    return roomView(getRoom(room.code)!);
+  });
+
   // Live (in-progress) games anyone can see.
   app.get('/rooms/live', async () => {
     const rooms = db
@@ -299,10 +373,29 @@ export function registerRooms(app: FastifyInstance): void {
       const before = deriveState(room);
       // Any seat still open (human, unclaimed) is filled by a bot.
       db.prepare("UPDATE room_seats SET bot = 1 WHERE room_code = ? AND bot = 0 AND discord_id IS NULL").run(room.code);
+
+      // Randomize turn order. The engine derives player order from the seat id
+      // (p1 acts first), so we shuffle the OCCUPANTS across the seat slots. No
+      // actions exist yet, so this is replay-safe once persisted: the action log
+      // references p1..pN, which now map to a randomized seating.
+      const seats = getSeats(room.code);
+      const occ = seats.map((s) => ({ discordId: s.discord_id, name: s.name, bot: s.bot, level: s.level }));
+      for (let i = occ.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [occ[i], occ[j]] = [occ[j], occ[i]];
+      }
+      const assign = db.prepare(
+        'UPDATE room_seats SET discord_id = ?, name = ?, bot = ?, level = ? WHERE room_code = ? AND seat_id = ?'
+      );
+      db.transaction(() => {
+        seats.forEach((s, i) => assign.run(occ[i].discordId, occ[i].name, occ[i].bot, occ[i].level, room.code, s.seat_id));
+      })();
+
       db.prepare("UPDATE rooms SET status = 'active', updated_at = ? WHERE code = ?").run(now(), room.code);
       room.status = 'active';
       const after = runBots(room);
       dispatchNotifications(room, before, after);
+      bus.broadcast(room.code, room.seq); // realtime: opening bot moves land on the board live
       return { code: room.code, seq: room.seq, state: after, room: roomView(room, after) };
     } catch (e) {
       return fail(reply, e);
