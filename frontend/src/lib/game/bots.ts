@@ -37,6 +37,7 @@ import {
   availableMajors,
   adaptiveHomes,
   cheapestBuyableTrain,
+  corporationsCanBuyPrivates,
   currentPrice,
   maxSellCount,
   routeRevenue,
@@ -62,6 +63,9 @@ const DR_RESERVE = 260; // Dougo lowers IR's float cost, so dip the reserve for 
 const STEAL_TREASURY = 100; // a corporation this cash-rich is worth stealing
 const SPEC_CASH_FLOOR = 200; // only speculate on shares with comfortable spare cash
 const STRONG_PRICE = 90; // a rival at/above this share price is worth denting
+const MAX_OWN_CORPS = 3; // a cash-rich bot keeps founding presidencies up to this many
+const FOUND_BUFFER = 150; // cash to keep in reserve before founding an ADDITIONAL corp
+const RUST_CUSHION = 100; // treasury to keep after a train bought purely to rust rivals
 
 function cashOf(s: GameState, id: string): number {
   return s.players.find((p) => p.id === id)?.cash ?? 0;
@@ -486,16 +490,20 @@ function pickStrategicBuy(
     if (!c.floated && sl.buyIpo.includes(c.sym)) return { type: 'buy', player: me, corp: c.sym, from: 'ipo' };
   }
 
-  // 2. Found a corporation if we run none: par at the highest price we can sustain
-  //    to float, so it is well capitalized and has room to appreciate.
-  if (myCorps.length === 0 && sl.par.length > 0) {
-    const par = PAR_PRICES.filter((p) => 5 * p <= cash).sort((a, b) => b - a)[0];
-    if (par && cash >= 2 * par) return { type: 'par', player: me, corp: sl.par[0], price: par };
-  }
-
-  // 3. Steal an undervalued / cash-rich company from a weak president.
+  // 2. Steal an undervalued / cash-rich company from a weak president - grabbing an
+  //    established corp (treasury + trains) beats founding one from scratch.
   const steal = pickStealBuy(s, me, sl);
   if (steal) return steal;
+
+  // 3. Found a corporation, and keep founding more while flush: each presidency is
+  //    another income stream and another engine for rusting rivals. Par at the
+  //    highest price we can self-float (~5x par); for a 2nd+ corp also keep a cash
+  //    buffer so we don't over-extend. (sl.par already respects the cert limit.)
+  if (sl.par.length > 0 && myCorps.length < MAX_OWN_CORPS) {
+    const buffer = myCorps.length > 0 ? FOUND_BUFFER : 0;
+    const par = PAR_PRICES.filter((p) => 5 * p + buffer <= cash).sort((a, b) => b - a)[0];
+    if (par && cash >= 2 * par) return { type: 'par', player: me, corp: sl.par[0], price: par };
+  }
 
   // 4. Speculate on an appreciating share with surplus cash.
   return pickAppreciateBuy(s, me, sl, cash);
@@ -623,15 +631,60 @@ function extraTrainHelps(s: GameState, c: CorporationState, train: string): bool
   return routeRevenue(clone, cc) > r0;
 }
 
-/** Optional train buying: buy only when an extra train would increase profit.
- *  Mandatory / emergency / first-train cases are left to the testing logic. */
+/** Would buying `train` rust trains that RIVAL corporations own (financial damage)?
+ *  The bought train never rusts on itself, so our corp always keeps it to run. */
+function rustsRivals(s: GameState, c: CorporationState, train: string): boolean {
+  const rusts = configFor(s.title).trains.filter((t) => t.rustsOn === train).map((t) => t.name);
+  if (!rusts.length) return false;
+  let rivalHit = 0;
+  for (const corp of s.corporations) {
+    if (!corp.floated || corp.president === c.president) continue; // ignore our own losses
+    rivalHit += corp.trains.filter((t) => rusts.includes(t)).length;
+  }
+  return rivalHit > 0;
+}
+
+/**
+ * Train buying. Buy the next train when it either earns more (more profitable routes
+ * than trains) OR rusts a rival's trains - the train rush is how you advance phases
+ * and inflict financial damage, which a bot playing to win wants. A pure rusting buy
+ * keeps a treasury cushion so it doesn't cripple itself. Mandatory / emergency /
+ * first-train cases are left to the (robust) testing logic.
+ */
 function strategicTrains(s: GameState, v: NonNullable<ReturnType<typeof operatingView>>, c: CorporationState): GameAction | null {
   if (v.emergency || v.mustBuy || c.trains.length === 0) return null; // forced cases -> testing
   if (!v.canBuyTrain) return null; // at the train limit (no plain buy offered)
   const cheap = cheapestBuyableTrain(s);
   if (!cheap || c.cash < cheap.price) return null; // can't afford an optional buy
-  if (extraTrainHelps(s, c, cheap.name)) {
+  const earns = extraTrainHelps(s, c, cheap.name);
+  const rusts = rustsRivals(s, c, cheap.name) && c.cash - cheap.price >= RUST_CUSHION;
+  if (earns || rusts) {
     return { type: 'buy_train', player: c.president!, corp: v.corp, train: cheap.name };
+  }
+  return null;
+}
+
+/**
+ * Sell the president's private companies into the operating corporation (phase 3+):
+ * the corporation pays the player up to twice face value, banking that cash before
+ * the 5-train closes privates for nothing. Keeps a train-buy reserve so it does not
+ * starve the treasury, and only after the corporation's own trains are sorted.
+ */
+function pickBuyCompany(s: GameState, c: CorporationState, v: NonNullable<ReturnType<typeof operatingView>>): GameAction | null {
+  if (!corporationsCanBuyPrivates(s)) return null;
+  if (v.emergency || v.mustBuy || c.trains.length === 0) return null; // trains come first
+  const me = c.president!;
+  const cheap = cheapestBuyableTrain(s);
+  const reserve = cheap ? cheap.price : 0; // keep enough to buy the next train
+  const owned = s.companies
+    .filter((co) => !co.closed && co.owner === me)
+    // Some privates may not be sold to a corporation (Uno-Takamatsu Ferry past
+    // phase 5); keeping that one is fine anyway as it never closes.
+    .filter((co) => !co.abilities.some((a) => a.type === 'revenue_change' && a.noCorpSale))
+    .sort((a, b) => b.value - a.value); // richest private first
+  for (const co of owned) {
+    const price = Math.min(2 * co.value, c.cash - reserve);
+    if (price >= 1) return { type: 'buy_company', player: me, corp: v.corp, company: co.sym, price };
   }
   return null;
 }
@@ -649,7 +702,8 @@ function botOperatingEasy(s: GameState): GameAction | null {
   }
   if (v.step === 'track') return strategicTrack(s, v.corp, c); // null only when no lays -> testing passes
   if (v.step === 'token') return strategicToken(s, v.corp, c);
-  if (v.step === 'trains') return strategicTrains(s, v, c); // null -> testing (mandatory/none)
+  // Buy trains (earn / rust) first, then bank the president's privates into the corp.
+  if (v.step === 'trains') return strategicTrains(s, v, c) ?? pickBuyCompany(s, c, v); // null -> testing
   return null; // leadoff / run / emergency -> testing
 }
 
