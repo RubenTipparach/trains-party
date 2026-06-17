@@ -327,6 +327,33 @@ describe('stock round - selling', () => {
   });
 });
 
+describe('operating round - skips companies that leave play', () => {
+  it('advances past a presidentless slot in the operating order', () => {
+    // A RoLA minor can dissolve to price 0 mid-set, leaving a presidentless slot in
+    // the already-built operating order. The round must skip it, not park there.
+    // (Modelled here with 1889 corps for a simple, deterministic check.)
+    const s = toStockRound();
+    const ar = corp(s, 'AR');
+    ar.floated = true;
+    ar.president = 'p1';
+    ar.tokenHexes = ['K8'];
+    const ir = corp(s, 'IR');
+    ir.floated = true;
+    ir.president = null; // the slot that has left play
+    const sr = corp(s, 'SR');
+    sr.floated = true;
+    sr.president = 'p2';
+    sr.tokenHexes = ['I2'];
+    s.round = 'operating';
+    s.or = { order: ['AR', 'IR', 'SR'], index: 0, step: 'trains', orNumber: 1, orsThisSet: 1, yellowLaid: 0 };
+
+    expect(activePlayer(s)).toBe('p1'); // AR (no trains, no route) just needs to finish
+    const next = apply(s, { type: 'pass', player: 'p1' });
+    expect(next.or!.order[next.or!.index]).toBe('SR'); // IR was skipped
+    expect(activePlayer(next)).toBe('p2'); // and the round did not stall on it
+  });
+});
+
 describe('stock round - ends on a full lap of passes', () => {
   it('with no floated corporations, the empty operating round returns to a stock round', () => {
     let s = toStockRound();

@@ -197,13 +197,24 @@ export function operatingActivePlayer(s: GameState): string | null {
   return activeCorp(s).president;
 }
 
+/** A company can still take its operating turn (RoLA minors can dissolve mid-set,
+ *  leaving a presidentless, unfloated slot in the already-built order). */
+function operable(s: GameState, c: CorporationState): boolean {
+  return c.floated && !c.dissolved && c.president !== null;
+}
+
 function nextCorp(s: GameState): void {
   const or = s.or!;
-  or.index += 1;
   or.step = 'track';
   or.yellowLaid = 0;
   or.upgraded = false;
   or.issued = false;
+  or.index += 1;
+  // Skip any companies that left play mid-set (a RoLA minor can dissolve to a 0
+  // price during the set), so the order never parks on a presidentless slot.
+  while (or.index < or.order.length && !operable(s, corp(s, or.order[or.index]))) {
+    or.index += 1;
+  }
   if (or.index >= or.order.length) {
     if (or.orNumber < or.orsThisSet) startOperatingRound(s, or.orNumber + 1);
     else finishOperatingSet(s);
@@ -278,6 +289,12 @@ function doRun(s: GameState, c: CorporationState, revenue: number, mode: 'pay' |
   if (s.bank < 0 && !s.endTriggered) {
     s.endTriggered = true;
     s.log.push('The bank has broken. The game will end after this set of operating rounds.');
+  }
+  // RoLA: withholding can move the price onto 0 and dissolve the company. A
+  // dissolved company has no president or buy step, so end its turn immediately.
+  if (c.dissolved) {
+    nextCorp(s);
+    return;
   }
   s.or!.step = 'trains';
 }
@@ -683,6 +700,8 @@ export function applyOperating(s: GameState, action: GameAction): void {
       if (action.type === 'issue') issueShare(s, c);
       else redeemShare(s, c);
       s.or.issued = true;
+      // Issuing can move the price onto 0 and dissolve the company; end its turn.
+      if (c.dissolved) nextCorp(s);
       break;
     }
     case 'special_lay':
