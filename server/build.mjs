@@ -49,7 +49,7 @@ await build({
   target: 'node22',
   outfile: 'dist/index.js',
   sourcemap: true,
-  external: ['better-sqlite3', 'fastify', '@fastify/cors', '@fastify/cookie'],
+  external: ['better-sqlite3', 'fastify', '@fastify/cors', '@fastify/cookie', '@fastify/websocket'],
   plugins: [libResolver],
   logLevel: 'info'
 }).catch((e) => {

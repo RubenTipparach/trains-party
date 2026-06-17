@@ -7,6 +7,7 @@ import { seedAdminAllowlist } from './auth';
 import { registerAuth } from './oauth';
 import { registerRooms } from './rooms';
 import { registerAdmin } from './admin';
+import { registerWs } from './ws';
 
 /**
  * Trains Party API.
@@ -47,6 +48,7 @@ app.get('/health', async () => ({
   rooms: (db.prepare('SELECT COUNT(*) AS n FROM rooms').get() as { n: number }).n
 }));
 
+await registerWs(app); // realtime room pings (best-effort; REST stays authoritative)
 registerAuth(app);
 registerRooms(app);
 registerAdmin(app);

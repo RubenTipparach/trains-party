@@ -150,6 +150,7 @@ class Sandbox {
    *  one would leave serverMode stuck on - bots stop advancing and moves route to
    *  a server room that doesn't exist, so the board only updates on a full reload. */
   private goLocal() {
+    this.disconnectRealtime();
     this.serverMode = false;
     this.myDiscordId = null;
     this.seatMeta = [];
@@ -343,6 +344,68 @@ class Sandbox {
     this.cursor = actions.length;
     this.createdAt = Date.now();
     this.error = null;
+    this.connectRealtime();
+  }
+
+  // --- realtime (best-effort WebSocket; REST polling stays the reliable path) ---
+  private ws: WebSocket | null = null;
+  private wsTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Open a WebSocket for live room pings. Each ping just says "the room advanced";
+   *  we then pull the authoritative delta over REST (same path as polling), so a
+   *  dropped or duplicated frame can never desync. Auto-reconnects; if it never
+   *  connects, the 2.5s poll still delivers moves. */
+  connectRealtime() {
+    if (typeof WebSocket === 'undefined' || !this.serverMode || !this.code) return;
+    this.disconnectRealtime();
+    const code = this.code;
+    let ws: WebSocket;
+    try {
+      ws = new WebSocket(api.wsUrl(code));
+    } catch {
+      return; // polling remains the fallback
+    }
+    this.ws = ws;
+    ws.onmessage = (ev) => {
+      try {
+        const m = JSON.parse(ev.data as string);
+        if (m?.type === 'sync') void this.syncFromServer();
+      } catch {
+        /* ignore malformed frames */
+      }
+    };
+    const retry = () => {
+      if (this.ws !== ws) return; // superseded by a newer socket
+      this.ws = null;
+      if (this.serverMode && this.code === code) {
+        this.wsTimer = setTimeout(() => this.connectRealtime(), 3000);
+      }
+    };
+    ws.onclose = retry;
+    ws.onerror = () => {
+      try {
+        ws.close();
+      } catch {
+        /* already closing */
+      }
+    };
+  }
+
+  disconnectRealtime() {
+    if (this.wsTimer) {
+      clearTimeout(this.wsTimer);
+      this.wsTimer = null;
+    }
+    if (this.ws) {
+      const ws = this.ws;
+      this.ws = null;
+      ws.onclose = null; // do not trigger the reconnect path on an intentional close
+      try {
+        ws.close();
+      } catch {
+        /* already closed */
+      }
+    }
   }
 
   /** Submit a move to the server: optimistic locally, then reconcile with the log. */
@@ -373,18 +436,35 @@ class Sandbox {
     }
   }
 
-  /** Pull new actions (other players, server-side bots) and append them. */
+  private syncing = false;
+  private syncAgain = false;
+
+  /** Pull new actions (other players, server-side bots) and append them.
+   *  Serialized: a WS ping, the post-submit sync, and the 2.5s poll can all fire
+   *  it, and two concurrent fetches with the same `since` would append the same
+   *  delta twice and corrupt the log. So only one runs at a time; a request that
+   *  arrives mid-fetch sets a flag to run once more after (no missed update). */
   async syncFromServer() {
     if (!this.serverMode || !this.code) return;
+    if (this.syncing) {
+      this.syncAgain = true;
+      return;
+    }
+    this.syncing = true;
     try {
-      const wasLive = this.cursor === this.actions.length;
-      const r = await api.fetchActions(this.code, this.actions.length);
-      if (r.actions.length) {
-        this.actions = [...this.actions, ...r.actions];
-        if (wasLive) this.cursor = this.actions.length;
-      }
+      do {
+        this.syncAgain = false;
+        const wasLive = this.cursor === this.actions.length;
+        const r = await api.fetchActions(this.code, this.actions.length);
+        if (r.actions.length) {
+          this.actions = [...this.actions, ...r.actions];
+          if (wasLive) this.cursor = this.actions.length;
+        }
+      } while (this.syncAgain);
     } catch {
-      /* transient: retry on the next poll */
+      /* transient: retry on the next ping / poll */
+    } finally {
+      this.syncing = false;
     }
   }
 }

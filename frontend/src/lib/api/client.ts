@@ -29,6 +29,10 @@ function resolveBase(): string {
 export const API_BASE = resolveBase().replace(/\/$/, '');
 export const apiConfigured = () => !!API_BASE;
 
+/** WebSocket URL for a room's realtime pings (http(s) -> ws(s)). */
+export const wsUrl = (code: string): string =>
+  `${API_BASE.replace(/^http/, 'ws')}/rooms/${code}/ws`;
+
 const TOKEN_KEY = 'tp.session.token';
 export const getToken = (): string | null => (browser ? localStorage.getItem(TOKEN_KEY) : null);
 export function setToken(t: string | null): void {

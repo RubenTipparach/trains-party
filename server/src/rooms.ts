@@ -23,6 +23,7 @@ import {
   type RoomRow
 } from './engine';
 import { dispatchNotifications, roomLink } from './notify';
+import { bus } from './ws';
 
 interface SeatInput {
   id: string;
@@ -248,6 +249,7 @@ export function registerRooms(app: FastifyInstance): void {
       appendAction(room, action); // validates via engine, persists
       const after = runBots(room); // advance consecutive bot turns
       dispatchNotifications(room, before, after);
+      bus.broadcast(room.code, room.seq); // realtime ping (best-effort; clients pull via REST)
       return { code: room.code, seq: room.seq, state: after, room: roomView(room, after) };
     } catch (e) {
       return fail(reply, e);
@@ -393,6 +395,7 @@ export function registerRooms(app: FastifyInstance): void {
       room.status = 'active';
       const after = runBots(room);
       dispatchNotifications(room, before, after);
+      bus.broadcast(room.code, room.seq); // realtime: opening bot moves land on the board live
       return { code: room.code, seq: room.seq, state: after, room: roomView(room, after) };
     } catch (e) {
       return fail(reply, e);
