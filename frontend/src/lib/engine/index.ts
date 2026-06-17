@@ -26,7 +26,7 @@ export { configFor, currencyFor, gameTitles, DEFAULT_TITLE } from './registry';
 export * from './types';
 export { minBid, auctionActivePlayer, auctionView, maxBidFor } from './auction';
 export type { AuctionView, AuctionCompanyView, AuctionPlayerView } from './auction';
-export { stockLegalActions, exchangeOptions } from './stock';
+export { stockLegalActions, exchangeOptions, currentPrice, canSell, maxSellCount } from './stock';
 export { rolaStockLegalActions, maxRolaSell, availableMinors } from './rolaRound';
 export { parForBid, launchablePars, MIN_LAUNCH_BID, BID_INCREMENT } from './rolaStock';
 export type { RolaStockLegal } from './rolaRound';

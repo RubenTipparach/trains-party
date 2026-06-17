@@ -268,6 +268,25 @@ describe('stock round - selling', () => {
     expect(corp(s, 'AR').president).toBe('p2'); // presidency transfers
     expect(shares(s, 'p1', 'AR')).toBe(10);
   });
+
+  it('transfers the presidency to a buyer who out-holds the president (no sale needed)', () => {
+    let s = toStockRound();
+    s = apply(s, { type: 'par', player: 'p1', corp: 'AR', price: 65 }); // p1 20% (pres)
+    s = apply(s, { type: 'pass', player: 'p1' });
+    s = apply(s, { type: 'buy', player: 'p2', corp: 'AR', from: 'ipo' }); // p2 10%
+    s = apply(s, { type: 'pass', player: 'p2' });
+    s = apply(s, { type: 'pass', player: 'p3' });
+    s = apply(s, { type: 'pass', player: 'p1' });
+    s = apply(s, { type: 'buy', player: 'p2', corp: 'AR', from: 'ipo' }); // p2 20% (ties, no steal)
+    expect(corp(s, 'AR').president).toBe('p1');
+    s = apply(s, { type: 'pass', player: 'p2' });
+    s = apply(s, { type: 'pass', player: 'p3' });
+    s = apply(s, { type: 'pass', player: 'p1' });
+    s = apply(s, { type: 'buy', player: 'p2', corp: 'AR', from: 'ipo' }); // p2 30% > p1 20%
+    expect(corp(s, 'AR').president).toBe('p2'); // seized by buying, p1 never sold
+    expect(shares(s, 'p1', 'AR')).toBe(20); // p1 keeps its shares
+    expect(corp(s, 'AR').floated).toBe(true); // the 50%th share also floats it
+  });
 });
 
 describe('stock round - ends on a full lap of passes', () => {

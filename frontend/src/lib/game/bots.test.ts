@@ -39,23 +39,99 @@ function floatIRAtBuyStep(cash: number): GameState {
 }
 
 describe('bot mandatory train purchase', () => {
-  it('buys an affordable pool train instead of soft-locking on the unaffordable depot top', () => {
-    const s = floatIRAtBuyStep(350); // can afford the pooled 4 (300), not the depot 5 (450)
-    const a = botAction(s, 'normal');
-    expect(a).not.toBeNull();
-    expect(a!.type).toBe('buy_train');
-    expect((a as any).train).toBe('4');
-    // The chosen action is legal: applying it adds the train, no throw.
-    const next = apply(s, a!);
-    const ir = next.corporations.find((c) => c.sym === 'IR')!;
-    expect(ir.trains).toContain('4');
-  });
+  // Both the testing and strategic ('easy') bots must handle a forced buy; the
+  // strategic bot delegates the mandatory/emergency cases to the testing logic.
+  for (const level of ['testing', 'easy'] as const) {
+    it(`(${level}) buys an affordable pool train instead of soft-locking on the unaffordable depot top`, () => {
+      const s = floatIRAtBuyStep(350); // can afford the pooled 4 (300), not the depot 5 (450)
+      const a = botAction(s, level);
+      expect(a).not.toBeNull();
+      expect(a!.type).toBe('buy_train');
+      expect((a as any).train).toBe('4');
+      // The chosen action is legal: applying it adds the train, no throw.
+      const next = apply(s, a!);
+      const ir = next.corporations.find((c) => c.sym === 'IR')!;
+      expect(ir.trains).toContain('4');
+    });
 
-  it('still raises money (emergency) when even the cheapest buyable train is unaffordable', () => {
-    const s = floatIRAtBuyStep(50); // cannot afford the pooled 4 either -> emergency path
-    const a = botAction(s, 'normal');
-    expect(a).not.toBeNull();
-    // The president sells shares or the corp funds the buy; never an illegal pass.
-    expect(a!.type).not.toBe('pass');
+    it(`(${level}) still raises money (emergency) when even the cheapest buyable train is unaffordable`, () => {
+      const s = floatIRAtBuyStep(50); // cannot afford the pooled 4 either -> emergency path
+      const a = botAction(s, level);
+      expect(a).not.toBeNull();
+      // The president sells shares or the corp funds the buy; never an illegal pass.
+      expect(a!.type).not.toBe('pass');
+    });
+  }
+});
+
+describe('strategic bot steals a beatable, cash-rich company', () => {
+  it('out-buys a weak president (< 50%) of a treasury-rich floated corp', () => {
+    // p1 already presides over a floated IR (so it founds nothing). p2 presides over
+    // AR with only 20%; AR is floated and cash-rich. p1 holds 40% of AR, so buying
+    // one more share out-holds p2 and seizes the AR presidency.
+    const s: GameState = initialState([
+      { id: 'p1', name: 'A' },
+      { id: 'p2', name: 'B' }
+    ] as any);
+    s.round = 'stock';
+    s.srCount = 2; // a later stock round (strategy / selling enabled)
+    s.stock = { acted: false, bought: false, passes: 0, soldThisRound: {} } as any;
+    s.current = 0; // p1 to act
+
+    const ir = s.corporations.find((c) => c.sym === 'IR')!;
+    ir.floated = true;
+    ir.president = 'p1';
+    ir.parPrice = 75;
+    ir.priceRow = 3;
+    ir.priceCol = 3;
+    ir.ipoShares = 30;
+
+    const ar = s.corporations.find((c) => c.sym === 'AR')!;
+    ar.floated = true;
+    ar.president = 'p2';
+    ar.parPrice = 100;
+    ar.priceRow = 0;
+    ar.priceCol = 3;
+    ar.ipoShares = 40; // 100% - p2 20% - p1 40% = 40% left in IPO
+    ar.poolShares = 0;
+    ar.cash = 300; // "lots of money" -> worth stealing
+    ar.trains = ['3'];
+
+    s.players[0].cash = 1000;
+    s.players[0].shares = { IR: 20, AR: 40 };
+    s.players[1].shares = { AR: 20 };
+
+    const a = botAction(s, 'easy');
+    expect(a).toEqual({ type: 'buy', player: 'p1', corp: 'AR', from: 'ipo' });
+    const next = apply(s, a!);
+    expect(next.corporations.find((c) => c.sym === 'AR')!.president).toBe('p1'); // seized
   });
+});
+
+describe('strategic bot 1889 full playthrough', () => {
+  // The strategic bot must never propose an illegal action across an entire game.
+  for (const level of ['testing', 'easy'] as const) {
+    it(`(${level}) drives a 4-player 1889 game to completion without an illegal move`, () => {
+      let s: GameState = initialState([
+        { id: 'p1', name: 'A' },
+        { id: 'p2', name: 'B' },
+        { id: 'p3', name: 'C' },
+        { id: 'p4', name: 'D' }
+      ] as any);
+      let floated = false;
+      let operated = false;
+      let steps = 0;
+      while (steps < 4000 && !s.finished) {
+        const action = botAction(s, level);
+        if (!action) break;
+        s = apply(s, action); // throws if the bot ever proposes an illegal action
+        if (s.round === 'operating') operated = true;
+        if (s.corporations.some((c) => c.floated)) floated = true;
+        steps += 1;
+      }
+      expect(floated).toBe(true); // a corporation gets founded and floated
+      expect(operated).toBe(true); // the game reaches operating rounds
+      expect(s.round).not.toBe('auction'); // it progresses past the opening auction
+    });
+  }
 });

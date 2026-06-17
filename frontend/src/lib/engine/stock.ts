@@ -96,6 +96,22 @@ function topOtherPct(s: GameState, id: string, sym: string): number {
 }
 
 /**
+ * A buyer who now strictly out-holds the president takes the president's
+ * certificate (standard 18xx; mirrors RoLA's `maybeTakePresidency`). Shares are
+ * fungible percentages in this model, so the 20% president cert does not need to
+ * physically swap - reassigning the presidency is the whole effect. The new
+ * president always holds > the old (>= 30%), so the 20% cert is always covered.
+ */
+export function maybeTakePresidency(s: GameState, c: CorporationState, buyerId: string): void {
+  if (!c.president || c.president === buyerId) return;
+  const pres = player(s, c.president);
+  if (holds(player(s, buyerId), c.sym) > holds(pres, c.sym)) {
+    c.president = buyerId;
+    s.log.push(`${pname(s, buyerId)} out-holds ${pname(s, pres.id)} and takes the ${c.sym} presidency`);
+  }
+}
+
+/**
  * Can `id` sell at least one share of `sym`? Per 1889/18xx:
  * - the corporation must have a share price (have operated/floated context),
  * - the player must hold at least 10%,
@@ -219,6 +235,8 @@ function doBuy(s: GameState, id: string, sym: string, from: 'ipo' | 'pool'): voi
   s.bank += cost;
   s.log.push(`${pname(s, id)} buys 10% of ${sym} from ${from} for ${cost}`);
   if (from === 'ipo') maybeFloat(s, c);
+  // Standard 18xx: a buyer who now out-holds the president seizes the presidency.
+  maybeTakePresidency(s, c, id);
 
   // One buy per turn, but the turn stays open (the player may still sell, or
   // end their turn by passing).

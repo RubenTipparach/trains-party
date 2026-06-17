@@ -312,4 +312,6 @@ export type GameAction =
 export class GameError extends Error {}
 
 export const MIN_BID_INCREMENT = 5;
-export const RULES_VERSION = '1889-0.5';
+// 0.6: 1889 transfers the president's certificate to a buyer who out-holds the
+// sitting president (standard 18xx), matching RoLA. Pinned per game for replay.
+export const RULES_VERSION = '1889-0.6';

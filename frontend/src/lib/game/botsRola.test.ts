@@ -46,7 +46,7 @@ describe('RoLA bot merger behaviour', () => {
     const b = s.corporations.find((c) => c.sym === other)!;
     b.tokenHexes = [a.tokenHexes[0]];
 
-    const action = botAction(s, 'normal');
+    const action = botAction(s, 'testing');
     expect(action?.type).toBe('propose_merge');
     s = apply(s, action!);
     // self-controlled proposal resolves immediately into a floated major
@@ -67,7 +67,7 @@ describe('RoLA bot merger behaviour', () => {
     s.players[1].shares = { EA: 40 };
     s.merger!.vote = { from: 'AG', to: 'EA', major: 'Con', ballots: { p1: 'for' }, voters: ['p2'] };
 
-    expect(botAction(s, 'normal')).toEqual({ type: 'cast_merge_vote', player: 'p2', vote: 'against' });
+    expect(botAction(s, 'testing')).toEqual({ type: 'cast_merge_vote', player: 'p2', vote: 'against' });
   });
 
   it('declines a cross-player proposal targeting a bot-controlled minor', () => {
@@ -79,30 +79,33 @@ describe('RoLA bot merger behaviour', () => {
     ea.tokenHexes = [ag.tokenHexes[0]];
     s.merger!.pending = { from: 'AG', to: 'EA', major: 'Con' };
 
-    const action = botAction(s, 'normal');
+    const action = botAction(s, 'testing');
     expect(action).toEqual({ type: 'decline_merge', player: 'p2' });
   });
 });
 
 describe('RoLA bot launch auction', () => {
-  it('opens the auction at the minimum on easy and higher on normal', () => {
+  it('opens a launch auction with a legal opening bid (every level)', () => {
     const s = initialState(seats, 'rola');
-    expect(botAction(s, 'easy')).toEqual({ type: 'initiate_auction', player: 'p1', bid: 120 });
-    const normal = botAction(s, 'normal');
-    expect(normal?.type).toBe('initiate_auction');
-    if (normal?.type === 'initiate_auction') {
-      expect(normal.bid).toBeGreaterThan(120); // capitalizes harder
-      expect(normal.bid % 5).toBe(0);
-      expect(normal.bid).toBeLessThanOrEqual(300); // never over its cash
+    const p1cash = s.players[0].cash;
+    for (const lvl of ['testing', 'easy', 'normal'] as const) {
+      const a = botAction(s, lvl);
+      expect(a?.type).toBe('initiate_auction');
+      if (a?.type === 'initiate_auction') {
+        expect(a.bid).toBeGreaterThanOrEqual(120); // at least the minimum launch bid
+        expect(a.bid % 5).toBe(0); // legal increment
+        expect(a.bid).toBeLessThanOrEqual(p1cash); // never over its cash
+      }
     }
   });
 
-  it('raises a contested bid up to its ceiling, then drops out', () => {
+  it('raises a contested bid by the minimum increment while affordable', () => {
     let s = initialState(seats, 'rola');
     s = apply(s, { type: 'initiate_auction', player: 'p1', bid: 120 });
-    // p2's turn: Normal raises (ceiling 135 >= 125); Easy drops out (ceiling 120 < 125).
-    expect(botAction(s, 'normal')).toEqual({ type: 'launch_bid', player: 'p2', bid: 125 });
-    expect(botAction(s, 'easy')).toEqual({ type: 'pass', player: 'p2' });
+    // p2's turn: the bot raises (ceiling 135 >= the 125 min raise). Strategic levels
+    // reuse the testing RoLA logic, so all three behave the same here.
+    expect(botAction(s, 'testing')).toEqual({ type: 'launch_bid', player: 'p2', bid: 125 });
+    expect(botAction(s, 'easy')).toEqual({ type: 'launch_bid', player: 'p2', bid: 125 });
   });
 
   it('launches an available minor after winning the auction', () => {
@@ -110,7 +113,7 @@ describe('RoLA bot launch auction', () => {
     s = apply(s, { type: 'initiate_auction', player: 'p1', bid: 120 });
     s = apply(s, { type: 'pass', player: 'p2' });
     s = apply(s, { type: 'pass', player: 'p3' }); // p1 wins
-    const a = botAction(s, 'normal');
+    const a = botAction(s, 'testing');
     expect(a?.type).toBe('launch');
     if (a?.type === 'launch') {
       s = apply(s, a);
@@ -120,30 +123,34 @@ describe('RoLA bot launch auction', () => {
 });
 
 describe('RoLA bot playthrough', () => {
-  it('bots launch minors and drive multiple stock/operating cycles without error', () => {
-    let s = initialState(
-      [{ id: 'p1', name: 'A' }, { id: 'p2', name: 'B' }, { id: 'p3', name: 'C' }],
-      'rola'
-    );
-    let launches = 0;
-    let operated = false;
-    let steps = 0;
+  // The strategic ('easy') bot reuses the proven testing logic for RoLA, so both
+  // levels must drive the game without ever proposing an illegal action.
+  for (const level of ['testing', 'easy'] as const) {
+    it(`(${level}) bots launch minors and drive multiple stock/operating cycles without error`, () => {
+      let s = initialState(
+        [{ id: 'p1', name: 'A' }, { id: 'p2', name: 'B' }, { id: 'p3', name: 'C' }],
+        'rola'
+      );
+      let launches = 0;
+      let operated = false;
+      let steps = 0;
 
-    while (steps < 800 && !s.finished) {
-      const action = botAction(s, 'normal');
-      if (!action) break;
-      s = apply(s, action); // throws if the bot ever proposes an illegal action
-      if (action.type === 'launch') launches += 1;
-      if (s.round === 'operating') operated = true;
-      steps += 1;
-    }
+      while (steps < 800 && !s.finished) {
+        const action = botAction(s, level);
+        if (!action) break;
+        s = apply(s, action); // throws if the bot ever proposes an illegal action
+        if (action.type === 'launch') launches += 1;
+        if (s.round === 'operating') operated = true;
+        steps += 1;
+      }
 
-    expect(launches).toBeGreaterThan(0); // bots actually launch minors
-    expect(operated).toBe(true); // the game reaches operating rounds
-    expect(s.srCount).toBeGreaterThan(1); // and cycles back into later stock rounds
-    expect(s.corporations.some((c) => c.kind === 'minor' && c.floated)).toBe(true);
-    // a launched minor has placed its home token by operating
-    const live = s.corporations.find((c) => c.floated);
-    expect(live!.tokenHexes.length).toBeGreaterThan(0);
-  });
+      expect(launches).toBeGreaterThan(0); // bots actually launch minors
+      expect(operated).toBe(true); // the game reaches operating rounds
+      expect(s.srCount).toBeGreaterThan(1); // and cycles back into later stock rounds
+      expect(s.corporations.some((c) => c.kind === 'minor' && c.floated)).toBe(true);
+      // a launched minor has placed its home token by operating
+      const live = s.corporations.find((c) => c.floated);
+      expect(live!.tokenHexes.length).toBeGreaterThan(0);
+    });
+  }
 });
