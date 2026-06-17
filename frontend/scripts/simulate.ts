@@ -143,7 +143,8 @@ for (const title of titles) {
     ? [Number(playersArg)]
     : title === '1889'
       ? [2, 3, 4, 5, 6]
-      : [3, 4, 5];
+      : [3, 4]; // RoLA Easy runs strategic operating on a big map (slower); keep the
+  // default light. Pass --players / --games to widen.
   // 1889 is fully deterministic (seed is ignored), so one game per config tells the
   // whole story. RoLA varies by seed, so sample several.
   const seedCount = title === 'rola' ? gamesArg : 1;

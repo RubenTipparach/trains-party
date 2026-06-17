@@ -99,3 +99,44 @@ describe('SU "0 legal lays" root-cause: RoLA water rule', () => {
     expect(lays.length).toBeGreaterThan(0);
   });
 });
+
+describe('bridge lays carry the hex build cost (legalLays matches applyLayTile)', () => {
+  // Regression: legalLays priced bridge tiles at 0, but applyLayTile charges the
+  // water hex's build cost - so a broke Bridging company was offered a "free"
+  // bridge that then threw on apply, stalling bots. The reported cost must match.
+  function bridgeScene(): GameState {
+    let s = launchViaAuction(initialState(seats, 'rola'), 'p1', 'BR', 160); // Bridging
+    s = apply(s, { type: 'pass', player: 'p2' });
+    s = apply(s, { type: 'pass', player: 'p3' });
+    s = apply(s, { type: 'pass', player: 'p1' });
+    const map: Record<string, HexDef> = {};
+    for (const c of ['D2', 'D4', 'D6', 'D8', 'C5', 'C7', 'E5', 'E7']) map[c] = plainHex(c);
+    map['D4'] = whiteCityHex('D4');
+    map['D6'] = { ...waterHex('D6'), upgradeCost: 40 }; // water with a real build cost
+    s.map = map;
+    const br = s.corporations.find((c) => c.sym === 'BR')!;
+    br.tokenHexes = ['D4'];
+    s.tiles['D4'] = { id: '6', rotation: 0 }; // track out edge 0 toward D6
+    s.phase = '2';
+    s.or = { order: ['BR'], index: 0, step: 'track', orNumber: 1, orsThisSet: 1, yellowLaid: 0 };
+    return s;
+  }
+
+  it('reports the build cost (not 0) and charges exactly that', () => {
+    const s = bridgeScene();
+    const br = s.corporations.find((c) => c.sym === 'BR')!;
+    const lays = legalLays(s, br).filter((l) => l.hex === 'D6');
+    expect(lays.length).toBeGreaterThan(0); // Bridging can bridge the water hex
+    expect(lays.every((l) => l.cost === 40)).toBe(true); // priced at the hex build cost
+
+    const lay = lays[0];
+    const act = { type: 'lay_tile' as const, player: 'p1', corp: 'BR', hex: lay.hex, tile: lay.tile, rotation: lay.rotation };
+    // Too poor: the lay the list reports as cost 40 genuinely costs 40 to apply.
+    br.cash = 39;
+    expect(() => apply(s, act)).toThrow();
+    // Exactly affordable: it applies and the treasury drops by the reported cost.
+    br.cash = 40;
+    const next = apply(s, act);
+    expect(next.corporations.find((c) => c.sym === 'BR')!.cash).toBe(0);
+  });
+});

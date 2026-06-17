@@ -26,6 +26,7 @@ import {
   maxBidFor,
   stockLegalActions,
   rolaStockLegalActions,
+  maxRolaSell,
   operatingView,
   trackLays,
   tokenPlays,
@@ -584,6 +585,9 @@ function strategicTrack(s: GameState, sym: string, c: CorporationState): GameAct
   scored.sort(
     (a, b) => b.potential - a.potential || b.centres - a.centres || a.cost - b.cost || b.home - a.home
   );
+  // potential === -1 means the lay failed to apply (e.g. an unaffordable build the
+  // legal list mispriced); since -1 sorts last, an all--1 top means none apply.
+  if (scored[0].potential === -1) return null;
   const best = scored[0].l;
   return { type: 'lay_tile', player: me, corp: sym, hex: best.hex, tile: best.tile, rotation: best.rotation };
 }
@@ -636,13 +640,89 @@ function botOperatingEasy(s: GameState): GameAction | null {
   const v = operatingView(s);
   if (!v || !v.president) return null;
   const c = corpOf(s, v.corp);
+  // RoLA: issue a treasury share to help fund a first train the company cannot
+  // afford (reuse the testing rule); this must come before laying track. No-op for
+  // 1889 (canIssue is always false there).
+  if (v.canIssue && c.trains.length === 0 && v.canBuyTrain) {
+    const def = configFor(s.title).trains.find((t) => t.name === v.canBuyTrain);
+    if (def && c.cash < def.price) return { type: 'issue', player: v.president, corp: v.corp };
+  }
   if (v.step === 'track') return strategicTrack(s, v.corp, c); // null only when no lays -> testing passes
   if (v.step === 'token') return strategicToken(s, v.corp, c);
   if (v.step === 'trains') return strategicTrains(s, v, c); // null -> testing (mandatory/none)
   return null; // leadoff / run / emergency -> testing
 }
 
-/** The strategic-bot policy (1889); delegates RoLA, mergers, and edge cases. */
+// --- Strategic RoLA stock round ----------------------------------------------
+
+/** How much to commit to launching a minor: a chunk of cash above the minimum,
+ *  capped, in legal increments, never over cash. A bigger bid buys a higher par
+ *  price and a fuller treasury (the whole bid funds the minor). */
+function rolaLaunchBid(s: GameState, me: string, minBid: number): number {
+  const cash = cashOf(s, me);
+  const reach = Math.min(250, Math.floor((cash * 0.45) / 5) * 5);
+  return Math.min(Math.floor(cash / 5) * 5, Math.max(minBid, reach));
+}
+
+/** RoLA sell: shed an unsafe 2+ holding (by share unit) to the pool, except in a
+ *  company we mean to steal. Mirrors the 1889 risk-shedding rule. */
+function pickRolaSell(s: GameState, me: string, sl: { sell: string[] }): { corp: string; count: number } | null {
+  if (s.srCount <= 1) return null;
+  for (const sym of sl.sell) {
+    const c = corpOf(s, sym);
+    if (c.president === me) continue;
+    if (c.floated && holdsOf(s, c.president, sym) < 50 && worthStealing(s, c)) continue; // steal target
+    const unit = c.shareUnit ?? 10;
+    const held = holdsOf(s, me, sym);
+    if (held >= 2 * unit && !isSafeHold(s, c)) {
+      const n = Math.min(Math.floor((held - unit) / unit), maxRolaSell(s, me, sym));
+      if (n >= 1) return { corp: sym, count: n };
+    }
+  }
+  return null;
+}
+
+/**
+ * RoLA stock round: drive the launch auction (open one to get a base, raise a
+ * contested bid to a ceiling, launch when won), then - like 1889 - steal a
+ * beatable valuable company, shed risky holdings, or pick up an appreciating
+ * share. Launches up to two minors so the merger round has something to merge.
+ */
+function botRolaStockEasy(s: GameState): GameAction | null {
+  const sl = rolaStockLegalActions(s);
+  const me = sl.player;
+
+  if (sl.auction) {
+    if (sl.auction.iWon) return botLaunchPick(s, me, sl.available);
+    if (sl.auction.myTurn) {
+      const ceiling = rolaLaunchBid(s, me, sl.minBid);
+      if (sl.auction.minRaise <= ceiling) return { type: 'launch_bid', player: me, bid: sl.auction.minRaise };
+      return { type: 'pass', player: me };
+    }
+    return null; // gated by activePlayer
+  }
+
+  // Launch a minor when we run fewer than two and can afford it (a second minor
+  // gives the merger round a pairing to fold into a major). The second launch
+  // waits for a comfortable cash buffer so we do not overextend.
+  const mine = s.corporations.filter((c) => c.president === me && c.floated && !c.dissolved);
+  if (mine.length < 2 && sl.canInitiate && (mine.length === 0 || cashOf(s, me) >= 2 * sl.minBid)) {
+    return { type: 'initiate_auction', player: me, bid: rolaLaunchBid(s, me, sl.minBid) };
+  }
+
+  const st = s.stock!;
+  if (!st.bought) {
+    const sell = pickRolaSell(s, me, sl);
+    if (sell) return { type: 'sell', player: me, corp: sell.corp, count: sell.count };
+    const steal = pickStealBuy(s, me, sl);
+    if (steal) return steal;
+    const spec = pickAppreciateBuy(s, me, sl, cashOf(s, me));
+    if (spec) return spec;
+  }
+  return { type: 'pass', player: me };
+}
+
+/** The strategic-bot policy; delegates the merger round and forced cases. */
 function botActionEasy(s: GameState): GameAction | null {
   if (s.finished) return null;
   if (s.round === 'mapbuild') return pickBuildPlacement(s);
@@ -653,10 +733,9 @@ function botActionEasy(s: GameState): GameAction | null {
     return botAuctionEasy(s);
   }
   if (s.round === 'stock' && s.stock) {
-    return isRola ? botActionTesting(s) : botStockEasy(s);
+    return isRola ? botRolaStockEasy(s) : botStockEasy(s);
   }
   if (s.round === 'operating' && s.or) {
-    if (isRola) return botActionTesting(s);
     return botOperatingEasy(s) ?? botActionTesting(s);
   }
   return null;

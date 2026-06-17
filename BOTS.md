@@ -19,9 +19,9 @@ the same action log as a human move, games stay deterministic and replayable.
   stored games and the server's default seats keep working. Not surfaced in the UI
   yet.
 
-The strategic layer focuses on **1889**. For **RoLA** and the **merger round**, the
-Easy bot reuses the proven Testing logic, so it still drives those games legally.
-Improving RoLA strategy is a follow-up.
+The Easy bot now plays **both 1889 and RoLA** strategically; only the **merger
+round** reuses the Testing logic (a bot merges two minors it controls, declines
+others, and votes against hostile bids). See the RoLA section below.
 
 ## Strategy basis
 
@@ -93,6 +93,27 @@ On its turn the bot sells (if warranted) before its one purchase, then ends the 
   Mandatory, emergency, and first-train purchases reuse the robust Testing logic
   (which also buys the cheapest *buyable* train, including a discard in the pool).
 
+## Easy bot decision procedure (RoLA)
+
+RoLA differs from 1889 (a launch auction instead of a private auction, a linear
+price ladder, share issue/redeem, and a merger round), so the stock round has its
+own logic; the operating round reuses the shared strategic track/token/train code.
+
+- **Launch auction** - open one to get a base of operations, and again for a
+  second minor (so the merger round has a pairing to fold into a major) when cash
+  allows. Bid up to ~45% of cash (a bigger bid buys a higher par and a fuller
+  treasury); raise a contested bid to that ceiling, then drop out; launch the
+  first available minor when won.
+- **Shares** - steal a beatable, valuable minor/major by out-buying a weak
+  president (RoLA transfers the presidency to whoever out-holds), shed risky 2+
+  holdings, and pick up an appreciating share with spare cash.
+- **Operating** - same as 1889: grow network potential with track, buy trains only
+  when they raise revenue, place a token only when it helps. RoLA extras are
+  honoured: issue a treasury share to fund a first train, take the leadoff train,
+  and lay a second yellow when allowed.
+- **Merger round** - merges two minors the bot controls into a major (no permission
+  needed), declines other players' proposals, and votes shares against hostile bids.
+
 ## Simulator
 
 `frontend/scripts/simulate.ts` runs whole games driven entirely by bots and reports
@@ -110,16 +131,18 @@ The engine and bots are deterministic, so a 1889 game is identical for a given
 (players, level); RoLA derives its map/minor order from a seed, so seeds vary games.
 Rough current shape: 1889 Easy reaches phase 4-5 in ~8-10 stock rounds at 3-6
 players (2-player still grinds at phase 2 - see below); Testing stays at phase 2.
+RoLA Easy launches several minors, merges them into majors, and runs the fixed ~6
+cycles; its strategic operating runs route simulations on the larger procedural map,
+so RoLA Easy games are a few seconds each (fine live; the default matrix keeps RoLA
+to 3-4 players to stay quick).
 
 ## Limitations / next
 
-- **RoLA strategy**: the Easy bot delegates RoLA (and mergers) to the Testing logic.
-- **Founds a single corporation**: the bot never starts a second corporation, so
-  2-player 1889 games (one corp each) tend to grind at phase 2. Multi-corp play is
-  a follow-up.
-- **Known RoLA engine stall** (pre-existing, ~10% of seeds): a floated minor can end
-  up in the operating order with no president, which no bot can act for. Tracked
-  separately from the bot work.
+- **1889 founds a single corporation**: the bot never starts a second corporation,
+  so 2-player 1889 games (one corp each) tend to grind at phase 2. Multi-corp play
+  is a follow-up. (RoLA does launch multiple minors.)
+- **RoLA merger choices are simple**: it always merges a controlled pair and never
+  weighs *which* pairing or major is best.
 - **Dividend policy** is basic (pay when earning); no withhold-to-save planning yet.
 - **Trashing is bounded** to risk-shedding and locked-in strong rivals, rather than
   blanket dumping (which is usually self-defeating); this is a deliberate first-draft

@@ -302,7 +302,10 @@ export function legalLays(s: GameState, corp: CorporationState): TileLay[] {
           const key = `${hex}:${tile}:${tileEdges.slice().sort((a, b) => a - b).join('')}`;
           if (seen.has(key)) continue;
           seen.add(key);
-          out.push({ hex, tile, rotation: r, cost: 0, upgrade: false });
+          // A bridge still pays the hex's build cost (applyLayTile charges it); the
+          // reported cost must match so callers (UI, bots) never offer one the
+          // company cannot actually afford.
+          out.push({ hex, tile, rotation: r, cost: buildCost(s, corp, hex), upgrade: false });
         }
       }
       continue;
