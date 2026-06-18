@@ -133,6 +133,7 @@ describe('RoLA bot playthrough', () => {
       );
       let launches = 0;
       let operated = false;
+      let minorFloatedWithToken = false;
       let steps = 0;
 
       while (steps < 800 && !s.finished) {
@@ -141,16 +142,18 @@ describe('RoLA bot playthrough', () => {
         s = apply(s, action); // throws if the bot ever proposes an illegal action
         if (action.type === 'launch') launches += 1;
         if (s.round === 'operating') operated = true;
+        // Sample across the run: by the END minors may have merged into majors or
+        // dissolved, so capture the moment a floated minor has placed its home token.
+        if (s.corporations.some((c) => c.kind === 'minor' && c.floated && c.tokenHexes.length > 0)) {
+          minorFloatedWithToken = true;
+        }
         steps += 1;
       }
 
       expect(launches).toBeGreaterThan(0); // bots actually launch minors
       expect(operated).toBe(true); // the game reaches operating rounds
       expect(s.srCount).toBeGreaterThan(1); // and cycles back into later stock rounds
-      expect(s.corporations.some((c) => c.kind === 'minor' && c.floated)).toBe(true);
-      // a launched minor has placed its home token by operating
-      const live = s.corporations.find((c) => c.floated);
-      expect(live!.tokenHexes.length).toBeGreaterThan(0);
+      expect(minorFloatedWithToken).toBe(true); // a launched minor floated and tokened its home
     });
   }
 });

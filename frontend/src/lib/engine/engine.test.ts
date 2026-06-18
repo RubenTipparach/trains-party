@@ -107,6 +107,18 @@ describe('waterfall auction - all pass reduces the cheapest', () => {
     expect(owner(s, 'TR')).not.toBeNull();
     expect(cash(s, owner(s, 'TR')!)).toBe(420); // bought for 0
   });
+
+  it('after the cheapest is sold, a unanimous pass pays private revenue and does NOT end the round', () => {
+    let s = apply(initialState(seats3), { type: 'bid', player: 'p1', company: 'TR', price: 20 }); // buy the anchor
+    const trRev = s.companies.find((c) => c.sym === 'TR')!.revenue;
+    expect(s.round).toBe('auction');
+    // The anchor is gone, so an all-pass cannot drop a price: it pays out instead.
+    s = apply(s, { type: 'pass', player: 'p2' });
+    s = apply(s, { type: 'pass', player: 'p3' });
+    s = apply(s, { type: 'pass', player: 'p1' });
+    expect(s.round).toBe('auction'); // round continues until every private sells
+    expect(cash(s, 'p1')).toBe(420 - 20 + trRev); // TR paid its revenue to p1
+  });
 });
 
 describe('waterfall auction - placement bids and sub-auction', () => {

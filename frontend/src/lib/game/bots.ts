@@ -41,6 +41,7 @@ import {
   currentPrice,
   maxSellCount,
   routeRevenue,
+  playerValue,
   apply,
   TILES,
   type CorporationState,
@@ -52,13 +53,11 @@ import { PAR_PRICES } from '$lib/data/g1889';
 export type BotLevel = 'testing' | 'easy' | 'normal';
 
 // --- Testing-bot profile (the original heuristics, single fixed setting) -----
-const TESTING_RESERVE = 325; // keep ~5x the minimum par to be able to float a corp
 const TESTING_OVERPAY = 25; // tolerance over a private's face value in a sub-auction
 const TESTING_LAUNCH = { frac: 0.45, cap: 200 }; // RoLA launch aggressiveness
 
 // --- Strategic ("easy") bot tuning -------------------------------------------
 const PRIVATE_OVERBID = 1.4; // never bid above 140% of a private's face value
-const EASY_RESERVE = 325; // keep enough to float a corporation
 const DR_RESERVE = 260; // Dougo lowers IR's float cost, so dip the reserve for it
 const STEAL_TREASURY = 100; // a corporation this cash-rich is worth stealing
 const SPEC_CASH_FLOOR = 200; // only speculate on shares with comfortable spare cash
@@ -98,11 +97,11 @@ function botAuctionTesting(s: GameState): GameAction | null {
     return { type: 'pass', player: me };
   }
 
+  // Buy the cheapest private whenever affordable: a unanimous pass no longer ends
+  // the 1889 auction, so a bot that only passes would stall it - keep it moving.
   const cheapest = av.companies[0];
   const cash = cashOf(s, me);
-  const onlyOneLeft = av.companies.length === 1;
-  const fitsReserve = cheapest.minBid <= cash - TESTING_RESERVE;
-  if ((fitsReserve || (onlyOneLeft && cheapest.minBid <= cash)) && cheapest.minBid <= cash) {
+  if (cheapest.minBid <= cash) {
     return { type: 'bid', player: me, company: cheapest.sym, price: cheapest.minBid };
   }
   return { type: 'pass', player: me };
@@ -376,12 +375,11 @@ function botAuctionEasy(s: GameState): GameAction {
     }
   }
 
-  // Otherwise be the disciplined buyer: take the cheapest at face within the float
-  // reserve, or the last company outright to keep the auction moving.
+  // Otherwise buy the cheapest at face whenever affordable. Every 1889 private is
+  // worth owning, and since a unanimous pass no longer ends the round, an eager
+  // buyer keeps the auction moving instead of stalling it on the float reserve.
   const cheapest = av.companies[0];
-  const onlyOneLeft = av.companies.length === 1;
-  const fitsReserve = cheapest.minBid <= cash - EASY_RESERVE;
-  if ((fitsReserve || (onlyOneLeft && cheapest.minBid <= cash)) && cheapest.minBid <= cash) {
+  if (cheapest.minBid <= cash) {
     return { type: 'bid', player: av.active, company: cheapest.sym, price: cheapest.minBid };
   }
   return { type: 'pass', player: av.active };
@@ -644,6 +642,46 @@ function rustsRivals(s: GameState, c: CorporationState, train: string): boolean 
   return rivalHit > 0;
 }
 
+/** A permanent train never rusts (nothing lists it as the train it rusts on). */
+function isPermanentTrain(s: GameState, name: string): boolean {
+  const def = configFor(s.title).trains.find((t) => t.name === name);
+  return !!def && !def.rustsOn;
+}
+
+/** Does this corporation already own a train that will never rust? */
+function hasPermanentTrain(s: GameState, c: CorporationState): boolean {
+  return c.trains.some((t) => isPermanentTrain(s, t));
+}
+
+/** Printed price of the cheapest permanent train in this game (1889's 5-train). */
+function cheapestPermanentPrice(s: GameState): number {
+  const perms = configFor(s.title).trains.filter((t) => !t.rustsOn);
+  return perms.length ? Math.min(...perms.map((t) => t.price)) : Infinity;
+}
+
+/** Is this player trailing the field (below the average value of players still in)? */
+function isBehind(s: GameState, me: string): boolean {
+  const live = s.players.filter((p) => !p.out);
+  if (live.length <= 1) return false;
+  const avg = live.reduce((sum, p) => sum + playerValue(s, p.id), 0) / live.length;
+  return playerValue(s, me) < avg;
+}
+
+/**
+ * Dividend decision. A corporation that is trailing AND owns no permanent train
+ * hoards its earnings (withholds) until its treasury can afford one, so a coming
+ * rust does not wipe out its only trains. Otherwise it pays out when it earns (the
+ * share price climbs); a 0-revenue run always withholds.
+ */
+function strategicRun(s: GameState, v: NonNullable<ReturnType<typeof operatingView>>, c: CorporationState): GameAction {
+  const me = c.president!;
+  let dividend: 'pay' | 'withhold' = v.revenue > 0 ? 'pay' : 'withhold';
+  if (v.revenue > 0 && !hasPermanentTrain(s, c) && c.cash < cheapestPermanentPrice(s) && isBehind(s, me)) {
+    dividend = 'withhold'; // bank the cash toward a permanent train instead of paying out
+  }
+  return { type: 'run', player: me, corp: v.corp, revenue: v.revenue, dividend };
+}
+
 /**
  * Train buying. Buy the next train when it either earns more (more profitable routes
  * than trains) OR rusts a rival's trains - the train rush is how you advance phases
@@ -656,6 +694,12 @@ function strategicTrains(s: GameState, v: NonNullable<ReturnType<typeof operatin
   if (!v.canBuyTrain) return null; // at the train limit (no plain buy offered)
   const cheap = cheapestBuyableTrain(s);
   if (!cheap || c.cash < cheap.price) return null; // can't afford an optional buy
+  // Secure against a coming rust: with no permanent train, grab the buyable train
+  // when it is itself permanent (e.g. the cheaper trains are gone), even if it does
+  // not immediately add revenue - a permanent train can never rust away.
+  if (!hasPermanentTrain(s, c) && isPermanentTrain(s, cheap.name)) {
+    return { type: 'buy_train', player: c.president!, corp: v.corp, train: cheap.name };
+  }
   const earns = extraTrainHelps(s, c, cheap.name);
   const rusts = rustsRivals(s, c, cheap.name) && c.cash - cheap.price >= RUST_CUSHION;
   if (earns || rusts) {
@@ -702,9 +746,11 @@ function botOperatingEasy(s: GameState): GameAction | null {
   }
   if (v.step === 'track') return strategicTrack(s, v.corp, c); // null only when no lays -> testing passes
   if (v.step === 'token') return strategicToken(s, v.corp, c);
-  // Buy trains (earn / rust) first, then bank the president's privates into the corp.
+  // Dividend: a trailing, permanent-train-less corp hoards toward a permanent train.
+  if (v.step === 'run') return strategicRun(s, v, c);
+  // Buy trains (secure / earn / rust) first, then bank the president's privates.
   if (v.step === 'trains') return strategicTrains(s, v, c) ?? pickBuyCompany(s, c, v); // null -> testing
-  return null; // leadoff / run / emergency -> testing
+  return null; // leadoff / emergency -> testing
 }
 
 // --- Strategic RoLA stock round ----------------------------------------------

@@ -192,8 +192,15 @@ function buildCostDiscount(s: GameState, corp: CorporationState, hex: string): n
   return disc;
 }
 
-/** Net build cost of laying on `hex` for `corp` (terrain cost minus owned discounts). */
+/**
+ * Net build cost of laying on `hex` for `corp` (terrain cost minus owned discounts).
+ * The terrain cost (a mountain's ¥80, a river/bridge crossing) is paid ONCE, on the
+ * first tile laid on the blank hex. Upgrading an existing tile re-uses the crossing
+ * already built, so it costs nothing - matching the 1889 rules (the cost label also
+ * disappears from the hex once a tile sits on it).
+ */
 function buildCost(s: GameState, corp: CorporationState, hex: string): number {
+  if (s.tiles[hex]) return 0; // already laid: terrain was paid on the first lay
   const base = hexesFor(s)[hex]?.upgradeCost ?? 0;
   return Math.max(0, base - buildCostDiscount(s, corp, hex));
 }

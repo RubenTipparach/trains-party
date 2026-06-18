@@ -129,6 +129,19 @@ function payPrivateIncome(s: GameState): void {
       s.log.push(`${c.sym} collects ${income} in private income`);
     }
   }
+  checkBankBreak(s); // private payouts can break the bank too
+}
+
+/**
+ * Flag the bank as broken once a payout has overdrawn it. The game does NOT end
+ * immediately: play continues to the END of the current operating-round SET (e.g.
+ * 8.1, 8.2, 8.3 all complete), then finishOperatingSet ends it. Idempotent.
+ */
+function checkBankBreak(s: GameState): void {
+  if (s.bank < 0 && !s.endTriggered) {
+    s.endTriggered = true;
+    s.log.push('The bank has broken. The game will end after this set of operating rounds.');
+  }
 }
 
 function finishOperatingSet(s: GameState): void {
@@ -297,11 +310,8 @@ function doRun(s: GameState, c: CorporationState, revenue: number, mode: 'pay' |
     s.log.push(`${c.sym} runs for ${revenue} and withholds`);
   }
   // End-game trigger: when the bank breaks (runs out of money), the current OR
-  // set is completed and then the game ends.
-  if (s.bank < 0 && !s.endTriggered) {
-    s.endTriggered = true;
-    s.log.push('The bank has broken. The game will end after this set of operating rounds.');
-  }
+  // set is completed and then the game ends (see finishOperatingSet).
+  checkBankBreak(s);
   // RoLA: withholding can move the price onto 0 and dissolve the company. A
   // dissolved company has no president or buy step, so end its turn immediately.
   if (c.dissolved) {
