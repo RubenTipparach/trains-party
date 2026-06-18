@@ -65,6 +65,23 @@ function fail(reply: FastifyReply, e: unknown): void {
   }
 }
 
+/** Map rooms to views, skipping any whose state cannot be derived (e.g. an older
+ *  game whose action log no longer replays cleanly) so one bad room never 500s a
+ *  whole list. Optionally drops finished rooms. */
+function safeRoomViews(rows: RoomRow[], liveOnly = false) {
+  const out = [];
+  for (const r of rows) {
+    try {
+      const v = roomView(r);
+      if (liveOnly && v.finished) continue;
+      out.push(v);
+    } catch {
+      /* skip a room that cannot be derived */
+    }
+  }
+  return out;
+}
+
 export function registerRooms(app: FastifyInstance): void {
   // --- create -------------------------------------------------------------
   app.post('/rooms', async (req, reply) => {
@@ -119,7 +136,7 @@ export function registerRooms(app: FastifyInstance): void {
     const rooms = db
       .prepare("SELECT * FROM rooms WHERE status = 'lobby' ORDER BY created_at DESC LIMIT 50")
       .all() as RoomRow[];
-    return rooms.map((r) => roomView(r));
+    return safeRoomViews(rooms);
   });
 
   // --- my games (any I hold a seat in, OR created - e.g. an all-bot watch room,
@@ -404,7 +421,7 @@ export function registerRooms(app: FastifyInstance): void {
     const rooms = db
       .prepare("SELECT * FROM rooms WHERE status = 'active' ORDER BY updated_at DESC LIMIT 50")
       .all() as RoomRow[];
-    return rooms.map((r) => roomView(r)).filter((v) => !v.finished);
+    return safeRoomViews(rooms, true);
   });
 
   // --- start --------------------------------------------------------------
