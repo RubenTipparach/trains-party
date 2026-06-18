@@ -126,6 +126,22 @@
     } catch (e) { err = (e as Error).message; busy = false; }
   }
 
+  // Spin up an all-bot table and drop the user straight in as a spectator. The
+  // bots play at a watchable pace (the room page's tick loop drives them, with a
+  // creator-only slider + Instant toggle); a guest is signed in on the fly if the
+  // visitor has not signed in yet. Four "easy" (strategic) bots, 1889 by default.
+  async function watchBots(title = '1889') {
+    busy = true; err = null;
+    try {
+      if (!auth.signedIn) await auth.signInAnon('Spectator');
+      const seats = Array.from({ length: 4 }, (_, i) => ({ id: `p${i + 1}`, name: `Bot ${i + 1}`, bot: true, level: 'easy' }));
+      const room = await api.createRoom({ title, mapMode: 'auto', seats, botPaceMs: 3000 });
+      await api.startRoom(room.code);
+      modalOpen = false;
+      goto(`${base}/${room.title}/room/${room.code}`);
+    } catch (e) { err = (e as Error).message; busy = false; }
+  }
+
   // Join an open table, then land in its waiting room.
   async function joinRoom(r: api.RoomView) {
     const open = r.seats.find((s) => !s.taken);
@@ -192,6 +208,10 @@
         <button class="play" disabled={busy}>Play as guest</button>
       </form>
       <p class="hint">Guests can create and join games and chat. Discord adds turn notifications and invites by DM.</p>
+      {#if auth.enabled?.anon}
+        <div class="or"><span>or just watch</span></div>
+        <button class="ghost watchbtn" disabled={busy} onclick={() => watchBots()}>▶ Watch four bots play</button>
+      {/if}
       {#if err}<p class="err">{err}</p>{/if}
     </section>
   {:else if online && auth.signedIn}
@@ -220,6 +240,7 @@
     <div class="lobby" in:fade={{ duration: 300 }}>
       <div class="topbar">
         <button class="play newbtn" onclick={() => { err = null; modalOpen = true; }}>+ New game</button>
+        <button class="ghost watchbtn" disabled={busy} onclick={() => watchBots(newTitle)} title="Spin up an all-bot table and watch it play">▶ Watch bots</button>
         <form class="joinform" onsubmit={(e) => { e.preventDefault(); joinByCode(); }}>
           <input placeholder="invite code" bind:value={inviteCode} maxlength="12" />
           <button class="ghost">Join</button>
@@ -358,6 +379,7 @@
     padding: 0.4rem 0.9rem; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center;
   }
   .ghost.sm { padding: 0.35rem 0.8rem; font-size: 0.8rem; }
+  .watchbtn { justify-content: center; }
   .discord { border: 0; background: #5865f2; color: #fff; border-radius: 999px; padding: 0.6rem 1.3rem; font-weight: 700; cursor: pointer; font-size: 1rem; align-self: flex-start; }
   /* login */
   .login { max-width: 420px; margin: 0 auto; border: 1px solid var(--line); background: var(--bg-soft); border-radius: 16px; padding: 1.6rem 1.4rem; display: flex; flex-direction: column; gap: 0.9rem; }

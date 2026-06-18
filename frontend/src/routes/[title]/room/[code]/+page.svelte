@@ -74,6 +74,22 @@
     return () => clearInterval(t);
   });
 
+  // Watch driver: in a server room, a paced bot game only advances when a client
+  // asks the server to step it. While a bot is on the clock we tick; the server
+  // gates each tick by the room's pace (so ticking faster than the pace just
+  // no-ops until a move is due) and broadcasts moves to every watcher. A human
+  // seat or a finished game needs no ticking, so the guard turns the loop off.
+  $effect(() => {
+    if (!game.serverMode || game.code !== code || game.state.finished) return;
+    const a = game.active;
+    if (!a || !game.isBot(a)) return;
+    // Poll a touch faster than the pace so a due move lands promptly; clamp so
+    // instaplay (pace 0) still ticks at a sane cadence and a slow pace is snappy.
+    const every = game.watchPaceMs > 0 ? Math.max(400, Math.min(game.watchPaceMs, 1500)) : 800;
+    const t = setInterval(() => game.tickWatch(), every);
+    return () => clearInterval(t);
+  });
+
   // Active title's branding (header, footer, theme) - the board is title-agnostic.
   const meta = $derived(GAMES.find((g) => g.id === game.title) ?? GAMES[0]);
   const isRola = $derived(game.title === 'rola');
@@ -85,6 +101,13 @@
   const opv = $derived(game.state.round === 'operating' ? operatingView(game.state) : null);
 
   let isMobile = $state(false);
+
+  // Watch-pace slider position (creator only). Remembers the last paced speed so
+  // toggling Instant off resumes at it; seeds from the room and tracks live edits.
+  let paceSlider = $state(3000);
+  $effect(() => {
+    if (game.watchPaceMs > 0) paceSlider = game.watchPaceMs;
+  });
 
   // Mobile op-sheet height (% of viewport). Players drag the handle to set the
   // map/sheet split to taste; persisted so it sticks across rounds and reloads.
@@ -355,6 +378,32 @@
     </span>
     {#if anim.pacing}
       <button class="skip" onclick={() => anim.skip()}>Skip ⏭ <kbd>Space</kbd></button>
+    {/if}
+    {#if game.serverMode && game.isWatchCreator}
+      <!-- watch pacing: creator-only. Slider sets seconds between bot moves;
+           Instant races the game to its final result in one server tick. -->
+      <span class="watch" role="group" aria-label="Watch speed">
+        <span class="wl">Speed</span>
+        <input
+          class="wrange"
+          type="range"
+          min="1000"
+          max="5000"
+          step="500"
+          value={game.watchPaceMs > 0 ? game.watchPaceMs : paceSlider}
+          disabled={game.watchPaceMs === 0}
+          oninput={(e) => game.setWatchPace(+e.currentTarget.value)}
+          title="Seconds between bot moves"
+          aria-label="Seconds between bot moves"
+        />
+        <span class="wv">{game.watchPaceMs > 0 ? `${(game.watchPaceMs / 1000).toFixed(1)}s` : 'instant'}</span>
+        <button
+          class="wb"
+          class:on={game.watchPaceMs === 0}
+          onclick={() => game.setWatchPace(game.watchPaceMs === 0 ? paceSlider : 0)}
+          title="Play instantly to the final result"
+        >Instant</button>
+      </span>
     {/if}
   {/snippet}
 
@@ -982,6 +1031,55 @@
     background: rgba(0, 0, 0, 0.18);
     border-radius: 4px;
     padding: 0 0.25rem;
+  }
+
+  /* watch-pace controls (creator only): a compact cluster inside the status pill */
+  .watch {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding-left: 0.5rem;
+    margin-left: 0.15rem;
+    border-left: 1px solid var(--line);
+  }
+  .wl {
+    font-size: 0.66rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+  }
+  .wrange {
+    width: 84px;
+    accent-color: var(--rail);
+    cursor: pointer;
+  }
+  .wrange:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .wv {
+    font: 700 0.7rem ui-monospace, monospace;
+    color: var(--ink);
+    min-width: 3.1em;
+    text-align: right;
+  }
+  .wb {
+    padding: 0.18rem 0.5rem;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: transparent;
+    color: var(--muted);
+    font: 700 0.68rem ui-sans-serif, sans-serif;
+    cursor: pointer;
+  }
+  .wb:hover {
+    color: var(--ink);
+    border-color: var(--rail-deep);
+  }
+  .wb.on {
+    background: var(--rail);
+    border-color: var(--rail-deep);
+    color: #1b1b1b;
   }
 
   /* ---- the open panel, fused to the dock ---- */

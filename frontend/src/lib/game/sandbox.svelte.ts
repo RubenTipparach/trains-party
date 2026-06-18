@@ -86,6 +86,11 @@ class Sandbox {
   myDiscordId = $state<string | null>(null);
   /** Per-seat occupancy from the server room (who holds each seat / is a bot). */
   private seatMeta = $state<{ id: string; discordId: string | null; bot: boolean }[]>([]);
+  /** Watch rooms: ms the server paces bot moves at (0 = instaplay). */
+  watchPaceMs = $state(0);
+  /** The room creator (only they may change the watch pace). */
+  private creatorDiscordId = $state<string | null>(null);
+  private ticking = false;
   /** True while a move is in flight to the server. */
   serverBusy = $state(false);
 
@@ -339,6 +344,8 @@ class Sandbox {
     this.localRoutes = room.options.localRoutes;
     this.seats = room.seats.map((s) => ({ id: s.seatId, name: s.name, bot: s.bot, level: (s.level as BotLevel) ?? 'normal' }));
     this.seatMeta = room.seats.map((s) => ({ id: s.seatId, discordId: s.discordId, bot: s.bot }));
+    this.watchPaceMs = room.botPaceMs ?? 0;
+    this.creatorDiscordId = room.creatorDiscordId;
     this.actions = actions;
     this.redoStack = [];
     this.cursor = actions.length;
@@ -444,6 +451,39 @@ class Sandbox {
    *  it, and two concurrent fetches with the same `since` would append the same
    *  delta twice and corrupt the log. So only one runs at a time; a request that
    *  arrives mid-fetch sets a flag to run once more after (no missed update). */
+  /** Only the room's creator may retune the watch pace. */
+  get isWatchCreator(): boolean {
+    return !!this.myDiscordId && this.creatorDiscordId === this.myDiscordId;
+  }
+
+  /** Watch driver: ask the server to advance one paced bot move, then pull it in.
+   *  The server gates by elapsed time, so calling this faster than the pace is
+   *  harmless (it just no-ops until a move is due). Serialized to avoid overlap. */
+  async tickWatch() {
+    if (!this.serverMode || !this.code || this.ticking) return;
+    this.ticking = true;
+    try {
+      const r = await api.tickRoom(this.code);
+      if (r.advanced) await this.syncFromServer();
+    } catch {
+      /* transient: the next tick retries */
+    } finally {
+      this.ticking = false;
+    }
+  }
+
+  /** Change the watch pace live (creator only). 0 = instaplay to the end. */
+  async setWatchPace(ms: number) {
+    if (!this.serverMode || !this.code) return;
+    this.watchPaceMs = ms; // optimistic; the server clamps
+    try {
+      const room = await api.setPace(this.code, ms);
+      this.watchPaceMs = room.botPaceMs ?? ms;
+    } catch {
+      /* ignore; keep the optimistic value */
+    }
+  }
+
   async syncFromServer() {
     if (!this.serverMode || !this.code) return;
     if (this.syncing) {
