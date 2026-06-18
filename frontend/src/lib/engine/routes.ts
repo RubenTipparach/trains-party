@@ -378,6 +378,67 @@ export function routeRevenue(s: GameState, corp: CorporationState): number {
 }
 
 /**
+ * Total revenue of every distinct revenue centre `corp` can reach from its station
+ * tokens through its track network, ignoring train length. A cheap connectivity
+ * measure ("how much city revenue is my network wired to") the bot uses to value
+ * laying track that CONNECTS new cities, rather than only what one short train can
+ * run right now. A foreign-blocked city counts as reachable (a valid endpoint) but
+ * is not traced through. Linear in the number of track segments (no path search).
+ */
+export function connectedRevenue(s: GameState, corp: CorporationState): number {
+  const hexes = hexesFor(s);
+  const starts = corp.tokenHexes.filter((h) => hasCentre(s, h));
+  if (!starts.length) return 0;
+  const reached = new Set<string>();
+  const usedSeg = new Set<string>();
+  const usedLink = new Set<string>();
+
+  function reach(hex: string): void {
+    if (hasCentre(s, hex)) reached.add(hex);
+    // A city blocked by other corporations' tokens is an endpoint, not a through-route.
+    if (blocksThrough(s, corp, hex)) return;
+    for (const seg of hexSegments(s, hex)) {
+      if (seg.a !== 'c' && seg.b !== 'c') continue; // leave the centre
+      const edge = (seg.a === 'c' ? seg.b : seg.a) as number;
+      const sid = segId(hex, seg);
+      if (usedSeg.has(sid)) continue;
+      usedSeg.add(sid);
+      const nb = neighbor(hexes, hex, edge);
+      if (!nb) continue;
+      const lid = linkId(hexes, hex, edge);
+      if (usedLink.has(lid)) continue;
+      usedLink.add(lid);
+      enter(nb, opposite(edge));
+    }
+  }
+  function enter(hex: string, edge: number): void {
+    for (const seg of hexSegments(s, hex)) {
+      if (seg.a !== edge && seg.b !== edge) continue;
+      const other = (seg.a === edge ? seg.b : seg.a) as End;
+      const sid = segId(hex, seg);
+      if (usedSeg.has(sid)) continue;
+      usedSeg.add(sid);
+      if (other === 'c') {
+        reach(hex);
+      } else {
+        const e2 = other as number;
+        const nb = neighbor(hexes, hex, e2);
+        if (!nb) continue;
+        const lid = linkId(hexes, hex, e2);
+        if (usedLink.has(lid)) continue;
+        usedLink.add(lid);
+        enter(nb, opposite(e2));
+      }
+    }
+  }
+
+  for (const start of starts) reach(start);
+  let total = 0;
+  for (const h of reached) total += centreRevenue(s, h, false, corp);
+  return total;
+}
+
+/**
  * How many revenue centres one of `corp`'s trains may visit this OR, including
  * the RoLA Express boost (+1 stop while the company owns a single train). This is
  * the authoritative reach the UI must use when resolving hand-picked routes, so a

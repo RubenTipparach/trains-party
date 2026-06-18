@@ -88,9 +88,13 @@ On its turn the bot sells (if warranted) before its one purchase, then ends the 
 3. Otherwise **pass**. A full lap of passes ends the round.
 
 ### Operating round (`round === 'operating'`)
-- **Track**: lay the tile that most increases route revenue (simulated), tie-broken
-  toward new revenue centres (cities/towns), then cheaper cost, then the home hex
-  (network growth). (Realizes "lay track to maximize profit / toward more revenue.")
+- **Track**: lay the tile that wires the network to the most **city/town revenue**
+  (`connectedRevenue` - a cheap connectivity flood from the corp's tokens, any
+  distance), tie-broken by near-term route potential (two bounded probe trains), then
+  new revenue centres on the tile, then cheaper cost, then the home hex. Scoring by
+  connectivity (not just what one short train can run now) stops a bot from fattening
+  its home tile when running a line out to a neighbouring city would earn far more -
+  important on RoLA's spread map, where trains reach much farther than a probe.
 - **Token**: place the optional station token only when it increases route revenue;
   otherwise save it.
 - **Run**: paying out is preferred - it climbs the share price, which is most of a

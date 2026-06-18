@@ -41,6 +41,7 @@ import {
   currentPrice,
   maxSellCount,
   routeRevenue,
+  connectedRevenue,
   playerValue,
   apply,
   TILES,
@@ -666,21 +667,46 @@ function layPotential(s: GameState, sym: string, action: GameAction, probe: stri
   }
 }
 
-/** Lay the tile that grows the most profitable network: by network potential first
- *  (laying toward more reachable revenue), then new revenue centres (cities/towns),
- *  then cheaper cost, then the home hex. */
+/**
+ * Total revenue of every centre this corp's network is wired to after `action`,
+ * regardless of train reach (a cheap connectivity flood, no route DFS). This is the
+ * primary track-lay signal: it rewards laying track that CONNECTS to another city far
+ * more than re-upgrading a tile the network already touches. Trains on big maps (RoLA)
+ * reach much farther than a bounded probe, so a probe alone made bots short-sighted -
+ * they would fatten their home tile instead of running a line out to a neighbouring
+ * city. Returns -1 if the lay is illegal (so it sorts last). */
+function connPotential(s: GameState, sym: string, action: GameAction): number {
+  try {
+    const ns = apply(s, action);
+    return connectedRevenue(ns, corpOf(ns, sym));
+  } catch {
+    return -1;
+  }
+}
+
+/** Lay the tile that wires the network to the most city/town revenue (connectivity
+ *  first), breaking ties by near-term route potential, then new revenue centres on the
+ *  tile itself, then cheaper cost, then the home hex. */
 function strategicTrack(s: GameState, sym: string, c: CorporationState): GameAction | null {
   const lays = trackLays(s).filter((l) => l.cost <= c.cash);
   if (!lays.length) return null;
   const me = c.president!;
   const probe = probeTrain(s);
 
-  type Scored = { l: (typeof lays)[number]; potential: number; centres: number; cost: number; home: number };
+  type Scored = {
+    l: (typeof lays)[number];
+    connected: number;
+    potential: number;
+    centres: number;
+    cost: number;
+    home: number;
+  };
   const scored: Scored[] = lays.map((l) => {
     const act: GameAction = { type: 'lay_tile', player: me, corp: sym, hex: l.hex, tile: l.tile, rotation: l.rotation };
     const def = TILES[l.tile];
     return {
       l,
+      connected: connPotential(s, sym, act),
       potential: layPotential(s, sym, act, probe),
       centres: (def?.cities ?? 0) + (def?.towns ?? 0),
       cost: l.cost,
@@ -688,11 +714,16 @@ function strategicTrack(s: GameState, sym: string, c: CorporationState): GameAct
     };
   });
   scored.sort(
-    (a, b) => b.potential - a.potential || b.centres - a.centres || a.cost - b.cost || b.home - a.home
+    (a, b) =>
+      b.connected - a.connected ||
+      b.potential - a.potential ||
+      b.centres - a.centres ||
+      a.cost - b.cost ||
+      b.home - a.home
   );
-  // potential === -1 means the lay failed to apply (e.g. an unaffordable build the
-  // legal list mispriced); since -1 sorts last, an all--1 top means none apply.
-  if (scored[0].potential === -1) return null;
+  // connected === -1 means the lay failed to apply (e.g. an unaffordable build the
+  // legal list mispriced); since -1 sorts last, a negative top means none apply.
+  if (scored[0].connected < 0) return null;
   const best = scored[0].l;
   return { type: 'lay_tile', player: me, corp: sym, hex: best.hex, tile: best.tile, rotation: best.rotation };
 }
