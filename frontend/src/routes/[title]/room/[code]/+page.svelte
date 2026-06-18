@@ -91,12 +91,13 @@
   });
 
   // Speed board animations up as the watch pace gets faster so a train run / tile
-  // drop comfortably finishes before the next move lands (reset to normal when not
-  // watching). Instant (pace 0) uses the fastest setting.
+  // drop comfortably finishes before the next move lands. Only a PACED watch room
+  // (pace > 0) is sped up; a normal game (pace 0, humans playing) and instaplay
+  // both keep normal-speed animations. Resets to normal when leaving the room.
   $effect(() => {
-    const watching = game.serverMode && game.code === code;
     const p = game.watchPaceMs;
-    anim.setSpeed(watching ? (p <= 0 ? 8 : 2000 / p) : 1);
+    const paced = game.serverMode && game.code === code && p > 0;
+    anim.setSpeed(paced ? Math.max(1, Math.min(8, 2000 / p)) : 1);
     return () => anim.setSpeed(1);
   });
 
