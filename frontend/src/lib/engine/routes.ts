@@ -18,7 +18,7 @@
 
 import { configFor, rolaAbility } from './registry';
 import { hexesFor } from './board';
-import { neighbor } from './track';
+import { neighbor, network, blockedHexes } from './track';
 import { TILES, rotatePaths, type TileEnd } from './tiles';
 import { GameError, type CorporationState, type GameState } from './types';
 import type { HexDef, TrainDef } from '$lib/data/types';
@@ -435,6 +435,71 @@ export function connectedRevenue(s: GameState, corp: CorporationState): number {
   for (const start of starts) reach(start);
   let total = 0;
   for (const h of reached) total += centreRevenue(s, h, false, corp);
+  return total;
+}
+
+/**
+ * A forward-looking companion to `connectedRevenue`: the value of revenue centres the
+ * network is BUILDING TOWARD but has not connected yet, discounted by how many more
+ * tile lays it would take to reach each one (`value / (lays + 1)`).
+ *
+ * Without this the bot is greedy and short-sighted: it grabs the nearest cheap
+ * connection (a 10-town, or a dead-end stub) because an unconnected city contributes
+ * nothing to `connectedRevenue` until the line actually arrives - so it never invests
+ * track toward a far high-value city (a 40-city it could later token). Reachability is
+ * traced from the network's OPEN track ends, so a tile aimed at a city scores higher
+ * than a dead-end on the same hex (their open ends point different ways). A bounded hex
+ * flood keeps it cheap (the map is small, and we stop after `maxLays`).
+ */
+export function approachRevenue(s: GameState, corp: CorporationState, maxLays = 4): number {
+  const hexes = hexesFor(s);
+  if (!corp.tokenHexes.some((h) => hasCentre(s, h))) return 0;
+  const net = network(s, corp);
+  const blocked = blockedHexes(s);
+  const waterRule = !!configFor(s.title).waterBlocksTrack;
+  const bridging = !!rolaAbility(s.title, corp, 'bridge_tiles');
+  const isWater = (h: string) => (hexes[h]?.terrain ?? []).includes('water') && !hexes[h]?.cities?.length;
+  // A hex we could lay track on next (empty/off-network land, not privately blocked).
+  const buildable = (h: string): boolean => {
+    if (!hexes[h] || net.has(h) || blocked.has(h)) return false;
+    if (waterRule && isWater(h) && !bridging && !s.tiles[h]) return false;
+    return true;
+  };
+
+  // Seed the flood at the empty neighbours an OPEN network track end points into.
+  const dist = new Map<string, number>();
+  const queue: string[] = [];
+  for (const h of net) {
+    if (blocksThrough(s, corp, h)) continue; // cannot extend past a foreign-blocked city
+    for (const seg of hexSegments(s, h)) {
+      for (const end of [seg.a, seg.b]) {
+        if (end === 'c') continue;
+        const nb = neighbor(hexes, h, end as number);
+        if (nb && buildable(nb) && !dist.has(nb)) {
+          dist.set(nb, 1);
+          queue.push(nb);
+        }
+      }
+    }
+  }
+  // Flood outward through buildable hexes; each ring is one more lay away.
+  for (let i = 0; i < queue.length; i++) {
+    const h = queue[i];
+    const d = dist.get(h)!;
+    if (d >= maxLays) continue;
+    for (let e = 0; e < 6; e++) {
+      const nb = neighbor(hexes, h, e);
+      if (nb && buildable(nb) && !dist.has(nb)) {
+        dist.set(nb, d + 1);
+        queue.push(nb);
+      }
+    }
+  }
+
+  let total = 0;
+  for (const [h, d] of dist) {
+    if (hasCentre(s, h)) total += centreRevenue(s, h, false, corp) / (d + 1);
+  }
   return total;
 }
 

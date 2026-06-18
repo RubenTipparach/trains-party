@@ -42,6 +42,7 @@ import {
   maxSellCount,
   routeRevenue,
   connectedRevenue,
+  approachRevenue,
   playerValue,
   apply,
   TILES,
@@ -670,20 +671,22 @@ function layPotential(s: GameState, sym: string, action: GameAction, probe: stri
 }
 
 /**
- * Total revenue of every centre this corp's network is wired to after laying `l`,
- * regardless of train reach (a cheap connectivity flood, no route DFS). This is the
- * primary track-lay signal: it rewards laying track that CONNECTS to another city far
- * more than re-upgrading a tile the network already touches. Trains on big maps (RoLA)
- * reach much farther than a bounded probe, so a probe alone made bots short-sighted -
- * they would fatten their home tile instead of running a line out to a neighbouring
- * city.
+ * The track-lay value of the network after laying `l`: revenue already CONNECTED
+ * (`connectedRevenue`) plus revenue the network is now building TOWARD but has not
+ * reached yet (`approachRevenue`, discounted by lay-distance).
+ *
+ * Connectivity alone rewards completing a connection but is greedy and short-sighted:
+ * it grabs the nearest cheap centre (a 10-town, or a dead-end stub) and never invests
+ * track toward a far high-value city, because an unconnected city scores 0 until the
+ * line arrives. Adding the discounted approach value makes the bot aim a tile at the
+ * nearest worthwhile city (so it can later reach and token it) instead of stubbing out.
  *
  * Computed by a SCOPED board mutation rather than a full `apply`/`structuredClone`: a
- * track lay only changes the one tile entry, and the corp's station tokens - the only
- * other input to the flood - do not change during the track step. So we set the tile,
- * read the connectivity, and restore. This is what keeps scoring every candidate lay
- * cheap (no per-candidate clone of the whole game state). */
-function connAfterLay(
+ * track lay only changes the one tile entry, and the corp's station tokens - the other
+ * input to both floods - do not change during the track step. So we set the tile, read
+ * the value, and restore. This keeps scoring every candidate lay cheap (no per-candidate
+ * clone of the whole game state, no route DFS). */
+function layValue(
   s: GameState,
   corp: CorporationState,
   l: { hex: string; tile: string; rotation: number }
@@ -691,22 +694,22 @@ function connAfterLay(
   const prev = s.tiles[l.hex];
   s.tiles[l.hex] = { id: l.tile, rotation: l.rotation };
   try {
-    return connectedRevenue(s, corp);
+    return connectedRevenue(s, corp) + approachRevenue(s, corp);
   } finally {
     if (prev) s.tiles[l.hex] = prev;
     else delete s.tiles[l.hex];
   }
 }
 
-/** Lay the tile that wires the network to the most city/town revenue (connectivity
- *  first), breaking ties by near-term route potential, then new revenue centres on the
- *  tile itself, then cheaper cost, then the home hex.
+/** Lay the tile that most grows the network's value - revenue already connected plus
+ *  (discounted) revenue it is building toward (`layValue`) - breaking exact ties by
+ *  near-term route potential, then new revenue centres on the tile, then cheaper cost,
+ *  then the home hex.
  *
- *  Connectivity (`connectedRevenue`) is a cheap flood from the corp's tokens, so it is
- *  scored for every candidate. The route-potential tiebreak is a real route DFS, so it
- *  runs ONLY across the few lays tied for the best connectivity - never once per
- *  candidate - which keeps the track step from doing an exhaustive route search on every
- *  legal tile/rotation. */
+ *  `layValue` is a pair of cheap floods (no route DFS), scored for every candidate. The
+ *  route-potential tiebreak IS a route DFS, so it runs only across the few lays tied for
+ *  the best value (and capped), never once per candidate - which keeps the track step
+ *  from doing an exhaustive route search on every legal tile/rotation. */
 function strategicTrack(s: GameState, sym: string, c: CorporationState): GameAction | null {
   const lays = trackLays(s).filter((l) => l.cost <= c.cash);
   if (!lays.length) return null;
@@ -715,7 +718,7 @@ function strategicTrack(s: GameState, sym: string, c: CorporationState): GameAct
   type Scored = {
     l: (typeof lays)[number];
     act: GameAction;
-    connected: number;
+    value: number;
     centres: number;
     cost: number;
     home: number;
@@ -726,23 +729,23 @@ function strategicTrack(s: GameState, sym: string, c: CorporationState): GameAct
     return {
       l,
       act,
-      connected: connAfterLay(s, c, l),
+      value: layValue(s, c, l),
       centres: (def?.cities ?? 0) + (def?.towns ?? 0),
       cost: l.cost,
       home: l.hex === c.coordinates ? 1 : 0
     };
   });
   scored.sort(
-    (a, b) => b.connected - a.connected || b.centres - a.centres || a.cost - b.cost || b.home - a.home
+    (a, b) => b.value - a.value || b.centres - a.centres || a.cost - b.cost || b.home - a.home
   );
 
-  // Break ties at the top connectivity tier by near-term route potential. The route
-  // DFS is the expensive part, so cap how many tied lays we probe: on a dense network
-  // many "filler" lays leave connectivity unchanged and tie here, and probing all of
-  // them is the exhaustive search we want to avoid. The tied set is already ordered by
-  // cheaper cost / home, so the cap keeps the most natural extensions.
+  // Break exact ties at the top by near-term route potential. The route DFS is the
+  // expensive part, so cap how many tied lays we probe: a few "filler" lays may still
+  // tie on value, and probing all of them is the exhaustive search we want to avoid.
+  // The tied set is already ordered by cheaper cost / home, so the cap keeps the most
+  // natural extensions.
   const top = scored[0];
-  const tied = scored.filter((x) => x.connected === top.connected && x.centres === top.centres);
+  const tied = scored.filter((x) => x.value === top.value && x.centres === top.centres);
   let best = tied[0];
   if (tied.length > 1) {
     const probe = probeTrain(s);

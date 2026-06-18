@@ -88,17 +88,22 @@ On its turn the bot sells (if warranted) before its one purchase, then ends the 
 3. Otherwise **pass**. A full lap of passes ends the round.
 
 ### Operating round (`round === 'operating'`)
-- **Track**: lay the tile that wires the network to the most **city/town revenue**
-  (`connectedRevenue` - a cheap connectivity flood from the corp's tokens, any
-  distance), tie-broken by near-term route potential (two bounded probe trains), then
-  new revenue centres on the tile, then cheaper cost, then the home hex. Scoring by
-  connectivity (not just what one short train can run now) stops a bot from fattening
-  its home tile when running a line out to a neighbouring city would earn far more -
-  important on RoLA's spread map, where trains reach much farther than a probe.
-  Kept cheap so the track step never does an exhaustive search: connectivity is scored
-  by a **scoped board mutation** (set the one tile, read, restore) instead of cloning
-  the whole game state per candidate, and the route-DFS tiebreak runs on at most a
-  handful of the lays tied for best connectivity, never once per candidate.
+- **Track**: lay the tile with the highest `layValue` = **connected revenue**
+  (`connectedRevenue` - a flood of the city/town revenue the network already reaches,
+  any distance) **plus revenue it is building toward** (`approachRevenue` - unconnected
+  centres reachable from the network's open track ends, discounted by `value/(lays+1)`).
+  Exact ties break by near-term route potential (a bounded probe), then tile centres,
+  cost, home hex.
+  - Connected revenue alone is greedy: it grabs the nearest cheap centre (a 10-town, a
+    dead-end stub) because an unconnected city scores nothing until the line arrives, so
+    the bot never invests track toward a far high-value city. The approach term makes it
+    aim a tile at the nearest worthwhile city (to later reach and **token** it) instead
+    of stubbing out, while the `/(lays+1)` discount keeps actually connecting a centre
+    worth more than merely heading at it.
+  - Kept cheap so the track step never does an exhaustive search: both floods are scored
+    by a **scoped board mutation** (set the one tile, read, restore) instead of cloning
+    the whole game state per candidate, and the route-DFS tiebreak runs on at most a
+    handful of the lays tied for best value, never once per candidate.
 - **Token**: place the optional station token only when it increases route revenue;
   otherwise save it.
 - **Run**: paying out is preferred - it climbs the share price, which is most of a
