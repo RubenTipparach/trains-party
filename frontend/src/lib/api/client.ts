@@ -158,6 +158,9 @@ export const seatBot = (code: string, seatId: string) =>
 export const openSeat = (code: string, seatId: string) =>
   call<RoomView>('POST', `/rooms/${code}/seats/${seatId}/open`);
 export const startRoom = (code: string) => call<StateResp>('POST', `/rooms/${code}/start`);
+/** Host closes a still-gathering (lobby) room; cascades remove its seats/chat. */
+export const closeRoom = (code: string) =>
+  call<{ ok: boolean; closed: boolean }>('DELETE', `/rooms/${code}`);
 /** Watch: advance one paced bot move (public; the server enforces the pace). */
 export const tickRoom = (code: string) =>
   call<StateResp & { advanced: boolean }>('POST', `/rooms/${code}/tick`);

@@ -259,6 +259,23 @@ export function registerRooms(app: FastifyInstance): void {
     return roomView(getRoom(room.code)!);
   });
 
+  // --- close a waiting room (host leaves) ---------------------------------
+  // While a room is still gathering (lobby), the host leaving closes it: there is no
+  // game data yet and only the creator can start, so an abandoned waiting room is just
+  // clutter in the lobby. The cascade (ON DELETE CASCADE) clears its seats/chat/invites;
+  // other seated players see their next poll 404 and fall back to the lobby. Active or
+  // finished games are NOT deletable here - they have a log worth keeping.
+  app.delete('/rooms/:code', async (req, reply) => {
+    const me = requireAuth(req, reply);
+    if (!me) return;
+    const room = getRoom((req.params as { code: string }).code);
+    if (!room) return reply.code(404).send({ error: 'not_found' });
+    if (room.creator_discord_id !== me) return reply.code(403).send({ error: 'not_host' });
+    if (room.status !== 'lobby') return reply.code(409).send({ error: 'not_lobby' });
+    db.prepare('DELETE FROM rooms WHERE code = ?').run(room.code);
+    return { ok: true, closed: true };
+  });
+
   // --- submit an action ---------------------------------------------------
   app.post('/rooms/:code/actions', async (req, reply) => {
     const me = requireAuth(req, reply);
