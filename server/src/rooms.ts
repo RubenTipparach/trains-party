@@ -122,13 +122,18 @@ export function registerRooms(app: FastifyInstance): void {
     return rooms.map((r) => roomView(r));
   });
 
-  // --- my games (any status I hold a seat in) -----------------------------
+  // --- my games (any I hold a seat in, OR created - e.g. an all-bot watch room,
+  // where the creator holds no seat but should still see/review it) ------------
   app.get('/me/rooms', async (req, reply) => {
     const me = requireAuth(req, reply);
     if (!me) return;
     const codes = db
-      .prepare('SELECT DISTINCT room_code FROM room_seats WHERE discord_id = ?')
-      .all(me) as { room_code: string }[];
+      .prepare(
+        `SELECT code AS room_code FROM rooms WHERE creator_discord_id = ?
+         UNION
+         SELECT room_code FROM room_seats WHERE discord_id = ?`
+      )
+      .all(me, me) as { room_code: string }[];
     const out = [];
     for (const { room_code } of codes) {
       const room = getRoom(room_code);
