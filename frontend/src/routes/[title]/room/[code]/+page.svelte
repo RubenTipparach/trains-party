@@ -635,8 +635,8 @@
                         <span class="pecash">{currency}{pl.cash}</span>
                       </div>
                       <div class="pemetrics">
-                        <span>Value {currency}{playerValue(game.state, pl.id)}</span>
-                        <span>Liquidity {currency}{playerLiquidity(game.state, pl.id)}</span>
+                        <span class="pemetric"><b>{currency}{playerValue(game.state, pl.id)}</b><small>value</small></span>
+                        <span class="pemetric"><b>{currency}{playerLiquidity(game.state, pl.id)}</b><small>liquidity</small></span>
                       </div>
                       <div class="peholds">
                         {#each game.state.corporations.filter((c) => (pl.shares[c.sym] ?? 0) > 0) as c (c.sym)}
@@ -1442,10 +1442,24 @@
   .pemetrics {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.15rem 0.9rem;
-    font-size: 0.74rem;
+    gap: 0.2rem 1.4rem;
+    margin-bottom: 0.5rem;
+  }
+  .pemetric {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.1;
+  }
+  .pemetric b {
+    font-size: 1.15rem;
+    font-weight: 800;
+    color: var(--ink);
+  }
+  .pemetric small {
+    font-size: 0.62rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
     color: var(--muted);
-    margin-bottom: 0.45rem;
   }
   .peholds {
     display: flex;
