@@ -170,6 +170,7 @@ function maybeFloat(s: GameState, c: CorporationState): void {
   if (soldFromIpo >= 50) {
     c.floated = true;
     c.cash = 10 * (c.parPrice ?? 0); // full capitalization
+    s.bank -= c.cash; // the capital is paid out of the bank (1889 full cap), not minted
     // The home token is placed when the corporation first operates
     // (HOME_TOKEN_TIMING :operating_round), not at float - see operating.ts.
     s.log.push(`${c.sym} floats; treasury ${c.cash}`);
