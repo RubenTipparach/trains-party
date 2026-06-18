@@ -702,6 +702,10 @@ function strategicTrack(s: GameState, sym: string, c: CorporationState): GameAct
 function strategicToken(s: GameState, sym: string, c: CorporationState): GameAction {
   const tokens = tokenPlays(s);
   const me = c.president!;
+  // A diesel runs every reachable stop, so scoring each token placement means a
+  // full diesel-route simulation per option (very expensive on a built network).
+  // Such a corp is already maxed, so just keep the token rather than evaluate it.
+  if (corpOwnsDiesel(s, c)) return { type: 'pass', player: me };
   if (tokens.length && c.trains.length > 0) {
     const base = routeRevenue(s, c);
     let best: string | null = null;
@@ -752,41 +756,74 @@ function hasPermanentTrain(s: GameState, c: CorporationState): boolean {
   return c.trains.some((t) => isPermanentTrain(s, t));
 }
 
-/** Printed price of the cheapest permanent train in this game (1889's 5-train). */
-function cheapestPermanentPrice(s: GameState): number {
-  const perms = configFor(s.title).trains.filter((t) => !t.rustsOn);
-  return perms.length ? Math.min(...perms.map((t) => t.price)) : Infinity;
+/** How many of a corporation's trains never rust (permanent: 1889's 5/6/D). */
+function permCount(s: GameState, c: CorporationState): number {
+  return c.trains.filter((t) => isPermanentTrain(s, t)).length;
 }
 
-/** Is this player trailing the field (below the average value of players still in)? */
-function isBehind(s: GameState, me: string): boolean {
-  const live = s.players.filter((p) => !p.out);
-  if (live.length <= 1) return false;
-  const avg = live.reduce((sum, p) => sum + playerValue(s, p.id), 0) / live.length;
-  return playerValue(s, me) < avg;
+/** Does the corporation already own the unlimited diesel (1889 'D')? */
+function corpOwnsDiesel(s: GameState, c: CorporationState): boolean {
+  const d = configFor(s.title).trains.find((t) => t.availableOn);
+  return !!d && c.trains.includes(d.name);
 }
 
 /**
- * Dividend decision. A corporation that is trailing AND owns no permanent train
- * hoards its earnings (withholds) until its treasury can afford one, so a coming
- * rust does not wipe out its only trains. Otherwise it pays out when it earns (the
- * share price climbs); a 0-revenue run always withholds.
+ * Cheapest way to acquire the diesel right now: its printed price, or the best
+ * trade-in (a trade-in keeps the train count flat, so it works even at the limit).
+ * Null when the diesel is not yet buyable (its phase has not been reached).
+ */
+function dieselAcquisition(
+  v: NonNullable<ReturnType<typeof operatingView>>
+): { train: string; tradeIn?: string; price: number } | null {
+  if (!v.dieselAvailable || !v.dieselName) return null;
+  let best: { train: string; tradeIn?: string; price: number } = { train: v.dieselName, price: v.dieselPrice };
+  for (const ti of v.dieselTradeIns) if (ti.price < best.price) best = { train: v.dieselName, tradeIn: ti.train, price: ti.price };
+  return best;
+}
+
+/**
+ * Price of the next permanent train this corporation would buy (the diesel if it is
+ * available, else the cheapest buyable permanent), or null when it already owns two
+ * permanent trains or none is buyable yet (it must advance a phase first).
+ */
+function nextPermPrice(s: GameState, v: NonNullable<ReturnType<typeof operatingView>>, c: CorporationState): number | null {
+  if (permCount(s, c) >= 2) return null;
+  const d = dieselAcquisition(v);
+  if (d && !corpOwnsDiesel(s, c)) return d.price; // buyable even at the limit (via trade-in)
+  if (v.canBuyTrain) {
+    const cheap = cheapestBuyableTrain(s);
+    if (cheap && isPermanentTrain(s, cheap.name)) return cheap.price;
+  }
+  return null;
+}
+
+/**
+ * Dividend decision. Paying out is preferred - it climbs the share price, which is
+ * most of a player's value. But the bot chases TWO permanent trains (ideally the
+ * diesel), and a treasury only grows by withholding, so when a short burst of
+ * withholds (about one operating set) would secure the next permanent train, it banks
+ * the cash instead. A 0-revenue run always withholds.
  */
 function strategicRun(s: GameState, v: NonNullable<ReturnType<typeof operatingView>>, c: CorporationState): GameAction {
   const me = c.president!;
   let dividend: 'pay' | 'withhold' = v.revenue > 0 ? 'pay' : 'withhold';
-  if (v.revenue > 0 && !hasPermanentTrain(s, c) && c.cash < cheapestPermanentPrice(s) && isBehind(s, me)) {
-    dividend = 'withhold'; // bank the cash toward a permanent train instead of paying out
+  if (v.revenue > 0) {
+    const price = nextPermPrice(s, v, c);
+    // Withhold only when the perm is close: buyable, unaffordable now, but within a
+    // few withholds. Otherwise keep paying (a far-off train is not worth a long slump).
+    if (price !== null && price > c.cash && price - c.cash <= 3 * v.revenue) dividend = 'withhold';
   }
   return { type: 'run', player: me, corp: v.corp, revenue: v.revenue, dividend };
 }
 
 /**
- * Train buying. Buy the next train when it either earns more (more profitable routes
- * than trains) OR rusts a rival's trains - the train rush is how you advance phases
- * and inflict financial damage, which a bot playing to win wants. A pure rusting buy
- * keeps a treasury cushion so it doesn't cripple itself. Mandatory / emergency /
- * first-train cases are left to the (robust) testing logic.
+ * Train buying, aiming for TWO permanent trains as fast as possible:
+ *  1. grab the diesel (never rusts, runs every stop) the moment it is affordable -
+ *     directly or via the cheapest trade-in; cheapestBuyableTrain hides it while
+ *     cheaper trains remain, so it is handled explicitly here and works at the limit;
+ *  2. buy any buyable permanent train while the corp owns fewer than two;
+ *  3. otherwise the earn / rust rush (a hard bot accepts a thinner cushion to rust).
+ * Mandatory / emergency / first-train cases are left to the (robust) testing logic.
  */
 function strategicTrains(
   s: GameState,
@@ -794,22 +831,32 @@ function strategicTrains(
   c: CorporationState,
   aggressive = false
 ): GameAction | null {
+  const pres = c.president!;
+  // 1. Grab the diesel as soon as it is affordable (while still under two perms).
+  const diesel = dieselAcquisition(v);
+  if (diesel && !corpOwnsDiesel(s, c) && permCount(s, c) < 2 && c.cash >= diesel.price) {
+    const buy: Extract<GameAction, { type: 'buy_train' }> = { type: 'buy_train', player: pres, corp: v.corp, train: diesel.train };
+    if (diesel.tradeIn) buy.tradeIn = diesel.tradeIn;
+    return buy;
+  }
   if (v.emergency || v.mustBuy || c.trains.length === 0) return null; // forced cases -> testing
-  if (!v.canBuyTrain) return null; // at the train limit (no plain buy offered)
+  if (!v.canBuyTrain) return null; // at the train limit and no diesel buy available
   const cheap = cheapestBuyableTrain(s);
   if (!cheap || c.cash < cheap.price) return null; // can't afford an optional buy
-  // Secure against a coming rust: with no permanent train, grab the buyable train
-  // when it is itself permanent (e.g. the cheaper trains are gone), even if it does
-  // not immediately add revenue - a permanent train can never rust away.
-  if (!hasPermanentTrain(s, c) && isPermanentTrain(s, cheap.name)) {
-    return { type: 'buy_train', player: c.president!, corp: v.corp, train: cheap.name };
+  // 2. Pursue a second permanent train (below the limit here).
+  if (permCount(s, c) < 2 && isPermanentTrain(s, cheap.name)) {
+    return { type: 'buy_train', player: pres, corp: v.corp, train: cheap.name };
   }
+  // A corp that owns the diesel or already has two permanent trains is maxed - skip
+  // the optional earn/rust evaluation (which would run an expensive diesel-route
+  // simulation) and buy nothing more this turn.
+  if (corpOwnsDiesel(s, c) || permCount(s, c) >= 2) return null;
+  // 3. Earn / rust rush.
   const earns = extraTrainHelps(s, c, cheap.name);
-  // A hard bot accepts a thinner cushion to land a rust on rivals (more damage).
-  const cushion = aggressive ? Math.floor(RUST_CUSHION / 2) : RUST_CUSHION;
+  const cushion = aggressive ? Math.floor(RUST_CUSHION / 2) : RUST_CUSHION; // hard rusts on a thinner cushion
   const rusts = rustsRivals(s, c, cheap.name) && c.cash - cheap.price >= cushion;
   if (earns || rusts) {
-    return { type: 'buy_train', player: c.president!, corp: v.corp, train: cheap.name };
+    return { type: 'buy_train', player: pres, corp: v.corp, train: cheap.name };
   }
   return null;
 }

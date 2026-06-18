@@ -93,17 +93,31 @@ On its turn the bot sells (if warranted) before its one purchase, then ends the 
   (network growth). (Realizes "lay track to maximize profit / toward more revenue.")
 - **Token**: place the optional station token only when it increases route revenue;
   otherwise save it.
-- **Run**: pay the dividend when the corporation earns (raises the price and pays the
-  president). A **trailing** corporation (its president is below the average player
-  value) with **no permanent train** withholds instead, banking cash toward a
-  permanent train so a coming rust cannot wipe out its only trains. A zero-revenue
-  run always withholds.
-- **Trains**: **secure a permanent train** first - with no permanent train, buy the
-  buyable train when it is itself permanent (a permanent train never rusts). Else buy
-  an optional train when it raises revenue (more profitable routes than trains) **or**
-  it rusts a rival's trains (keeping a cash cushion). Then bank the president's
-  privates into the corporation (up to 2x face, before the 5-train closes them).
-  Mandatory / emergency / first-train purchases reuse the robust Testing logic.
+- **Run**: paying out is preferred - it climbs the share price, which is most of a
+  player's value. But the bot chases **two permanent trains** (ideally the diesel),
+  and a treasury only grows by withholding, so when a short burst of withholds (about
+  one operating set, capped at ~3) would secure the next permanent train, it banks
+  the cash instead. A zero-revenue run always withholds.
+- **Trains** - the goal is **two permanent trains as fast as possible** (1889's 5/6/D
+  never rust):
+  1. **Grab the diesel** (the D, runs every stop, never rusts) the moment it is
+     affordable - directly or via the cheapest trade-in (which works even at the train
+     limit). `cheapestBuyableTrain` hides the diesel while cheaper trains remain, so
+     it is handled explicitly - otherwise the bot would sit on a 5-train forever.
+  2. Buy any buyable **permanent** train while it owns fewer than two.
+  3. Otherwise the **earn / rust** rush (a Hard bot accepts a thinner cushion to
+     rust). A corp that owns the diesel or already has two perms buys nothing more
+     and skips the (expensive) route evaluation.
+
+  Then it banks the president's privates into the corporation (up to 2x face, before
+  the 5-train closes them). Mandatory / emergency / first-train purchases reuse the
+  robust Testing logic.
+
+> **Route-search budget:** the diesel's unlimited reach makes the best-route search
+> exponential on a built-up network, so `routes.ts` caps node visits per search
+> (`ROUTE_NODE_BUDGET`). It is deterministic (games still replay identically) and high
+> enough that ordinary routes are exact - it only ever approximates a pathological
+> diesel network.
 
 ## Easy bot decision procedure (RoLA)
 

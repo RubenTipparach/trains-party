@@ -25,6 +25,9 @@ import type { HexDef, TrainDef } from '$lib/data/types';
 
 const opposite = (e: number) => (e + 3) % 6;
 
+/** Max node visits per single-source route search (a diesel-explosion safety cap). */
+const ROUTE_NODE_BUDGET = 12000;
+
 /** Local-routes rule on for this game (per-game flag, else the title default). */
 function localRoutesOn(s: GameState): boolean {
   return s.localRoutes ?? configFor(s.title).localRoutes ?? false;
@@ -176,6 +179,13 @@ function bestRouteFrom(
 ): { route: Route; segs: Set<string>; links: Set<string> } | null {
   const hexes = hexesFor(s);
   let best: { route: Route; segs: Set<string>; links: Set<string> } | null = null;
+  // Deterministic exploration budget: the diesel's effectively-unlimited reach makes
+  // the simple-path search exponential on a built-up network. Cap the number of node
+  // visits so a single route search stays bounded (keeping the best route found so
+  // far). Set high enough that ordinary routes are explored exhaustively (exact); it
+  // only ever bites a pathological diesel network, and it is deterministic so games
+  // still replay identically.
+  let budget = ROUTE_NODE_BUDGET;
 
   // Walk state: we are AT a centre in `hex`; choose an outgoing tile segment
   // (centre->edge), cross to the neighbour, continue. `stops` are centres so far.
@@ -186,6 +196,7 @@ function bestRouteFrom(
     segs: Set<string>,
     links: Set<string>
   ) {
+    if (--budget < 0) return; // exploration budget exhausted (diesel safety)
     // A valid train route connects at least two revenue centres. Since the walk
     // is anchored at a tokened city (start), every route includes a token.
     if (stops.length >= 2 && (!best || revenue > best.route.revenue)) {
@@ -224,6 +235,7 @@ function bestRouteFrom(
     segs: Set<string>,
     links: Set<string>
   ) {
+    if (--budget < 0) return; // exploration budget exhausted (diesel safety)
     for (const seg of hexSegments(s, hex)) {
       const ends = [seg.a, seg.b];
       if (!ends.includes(enterEdge)) continue;
