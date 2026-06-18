@@ -18,10 +18,18 @@ import {
   deriveState,
   appendAction,
   runBots,
+  stepBotsPaced,
   roomView,
   activePlayer,
   type RoomRow
 } from './engine';
+
+/** Clamp a requested watch pace to a sane range (0 = instaplay, else 0.5-15s). */
+function clampPace(ms: unknown): number {
+  const n = Math.floor(Number(ms));
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.max(500, Math.min(15000, n));
+}
 import { dispatchNotifications, roomLink } from './notify';
 import { bus } from './ws';
 
@@ -71,13 +79,14 @@ export function registerRooms(app: FastifyInstance): void {
       const hostileMergers = body.hostileMergers ? 1 : 0;
       const localRoutes = body.localRoutes === false ? 0 : 1;
       const seatsIn = Array.isArray(body.seats) && body.seats.length ? (body.seats as SeatInput[]) : DEFAULT_SEATS;
+      const botPaceMs = clampPace(body.botPaceMs); // 0 = instaplay; >0 = watchable pace
       const code = newCode();
 
       db.prepare(
         `INSERT INTO rooms (code, title, rules_version, seed, map_mode, hostile_mergers, local_routes,
-           status, creator_discord_id, max_players, seq, created_at, updated_at)
-         VALUES (?,?,?,?,?,?,?, 'lobby', ?, ?, 0, ?, ?)`
-      ).run(code, title, rulesVersion, seed, mapMode, hostileMergers, localRoutes, me, seatsIn.length, now(), now());
+           status, creator_discord_id, max_players, seq, bot_pace_ms, created_at, updated_at)
+         VALUES (?,?,?,?,?,?,?, 'lobby', ?, ?, 0, ?, ?, ?)`
+      ).run(code, title, rulesVersion, seed, mapMode, hostileMergers, localRoutes, me, seatsIn.length, botPaceMs, now(), now());
 
       let creatorClaimed = false;
       const ins = db.prepare(
@@ -256,6 +265,38 @@ export function registerRooms(app: FastifyInstance): void {
     }
   });
 
+  // --- watch: advance one paced bot move (public; spectators drive this) --
+  // The pace is enforced server-side (one move only once bot_pace_ms has elapsed
+  // since the last), so polling faster never speeds the game up. Pace 0 instaplays.
+  app.post('/rooms/:code/tick', async (req, reply) => {
+    const room = getRoom((req.params as { code: string }).code);
+    if (!room) return reply.code(404).send({ error: 'not_found' });
+    if (room.status !== 'active') return { code: room.code, seq: room.seq, advanced: false };
+    try {
+      const before = deriveState(room);
+      const { state, advanced } = stepBotsPaced(room);
+      if (advanced) {
+        dispatchNotifications(room, before, state);
+        bus.broadcast(room.code, room.seq);
+      }
+      return { code: room.code, seq: room.seq, state, room: roomView(room, state), advanced };
+    } catch (e) {
+      return fail(reply, e);
+    }
+  });
+
+  // --- watch: set the bot pace live (creator only) ------------------------
+  app.post('/rooms/:code/pace', async (req, reply) => {
+    const me = requireAuth(req, reply);
+    if (!me) return;
+    const room = getRoom((req.params as { code: string }).code);
+    if (!room) return reply.code(404).send({ error: 'not_found' });
+    if (room.creator_discord_id !== me) return reply.code(403).send({ error: 'not_host' });
+    const ms = clampPace((req.body as { ms?: number })?.ms);
+    db.prepare('UPDATE rooms SET bot_pace_ms = ? WHERE code = ?').run(ms, room.code);
+    return roomView(getRoom(room.code)!);
+  });
+
   // --- seats --------------------------------------------------------------
   app.post('/rooms/:code/seats/:seatId/claim', async (req, reply) => {
     const me = requireAuth(req, reply);
@@ -393,7 +434,9 @@ export function registerRooms(app: FastifyInstance): void {
 
       db.prepare("UPDATE rooms SET status = 'active', updated_at = ? WHERE code = ?").run(now(), room.code);
       room.status = 'active';
-      const after = runBots(room);
+      // A paced (watch) room lets its spectator's tick loop unfold the bots one move
+      // at a time; an unpaced room instaplays the opening bot moves as before.
+      const after = room.bot_pace_ms > 0 ? deriveState(room) : runBots(room);
       dispatchNotifications(room, before, after);
       bus.broadcast(room.code, room.seq); // realtime: opening bot moves land on the board live
       return { code: room.code, seq: room.seq, state: after, room: roomView(room, after) };
