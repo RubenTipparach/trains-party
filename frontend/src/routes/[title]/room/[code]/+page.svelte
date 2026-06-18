@@ -83,11 +83,21 @@
     if (!game.serverMode || game.code !== code || game.state.finished) return;
     const a = game.active;
     if (!a || !game.isBot(a)) return;
-    // Poll a touch faster than the pace so a due move lands promptly; clamp so
-    // instaplay (pace 0) still ticks at a sane cadence and a slow pace is snappy.
-    const every = game.watchPaceMs > 0 ? Math.max(400, Math.min(game.watchPaceMs, 1500)) : 800;
+    // Poll at about half the pace (so a due move lands within ~one pace of when it
+    // should), floored/capped to keep it snappy at 0.25s and not wasteful at 5s.
+    const every = game.watchPaceMs > 0 ? Math.max(120, Math.min(Math.round(game.watchPaceMs / 2), 1000)) : 500;
     const t = setInterval(() => game.tickWatch(), every);
     return () => clearInterval(t);
+  });
+
+  // Speed board animations up as the watch pace gets faster so a train run / tile
+  // drop comfortably finishes before the next move lands (reset to normal when not
+  // watching). Instant (pace 0) uses the fastest setting.
+  $effect(() => {
+    const watching = game.serverMode && game.code === code;
+    const p = game.watchPaceMs;
+    anim.setSpeed(watching ? (p <= 0 ? 8 : 2000 / p) : 1);
+    return () => anim.setSpeed(1);
   });
 
   // Active title's branding (header, footer, theme) - the board is title-agnostic.
@@ -102,12 +112,19 @@
 
   let isMobile = $state(false);
 
-  // Watch-pace slider position (creator only). Remembers the last paced speed so
-  // toggling Instant off resumes at it; seeds from the room and tracks live edits.
+  // Watch-speed slider (creator only): 0.25s (fast) .. 5s (slow). REVERSED so the
+  // right end is fastest - the slider shows position = (MIN+MAX) - pace, and a drag
+  // maps back the same way. paceSlider remembers the last paced speed so toggling
+  // Instant off resumes at it; it seeds from the room and tracks live edits.
+  const PACE_MIN = 250;
+  const PACE_MAX = 5000;
+  const PACE_SUM = PACE_MIN + PACE_MAX;
   let paceSlider = $state(3000);
   $effect(() => {
     if (game.watchPaceMs > 0) paceSlider = game.watchPaceMs;
   });
+  const effPace = $derived(game.watchPaceMs > 0 ? game.watchPaceMs : paceSlider);
+  const paceLabel = $derived(`${+(effPace / 1000).toFixed(2)}s`);
 
   // Mobile op-sheet height (% of viewport). Players drag the handle to set the
   // map/sheet split to taste; persisted so it sticks across rounds and reloads.
@@ -387,16 +404,16 @@
         <input
           class="wrange"
           type="range"
-          min="1000"
-          max="5000"
-          step="500"
-          value={game.watchPaceMs > 0 ? game.watchPaceMs : paceSlider}
+          min={PACE_MIN}
+          max={PACE_MAX}
+          step="250"
+          value={PACE_SUM - effPace}
           disabled={game.watchPaceMs === 0}
-          oninput={(e) => game.setWatchPace(+e.currentTarget.value)}
-          title="Seconds between bot moves"
-          aria-label="Seconds between bot moves"
+          oninput={(e) => game.setWatchPace(PACE_SUM - +e.currentTarget.value)}
+          title="Drag right to speed the bots up"
+          aria-label="Bot speed"
         />
-        <span class="wv">{game.watchPaceMs > 0 ? `${(game.watchPaceMs / 1000).toFixed(1)}s` : 'instant'}</span>
+        <span class="wv">{game.watchPaceMs > 0 ? paceLabel : 'instant'}</span>
         <button
           class="wb"
           class:on={game.watchPaceMs === 0}

@@ -10,6 +10,7 @@
   let shown = $state(0);
   let prev: number | null = null;
   let delta = $state<number | null>(null);
+  let deltaMs = $state(1100);
   let key = $state(0);
 
   $effect(() => {
@@ -25,11 +26,12 @@
       shown = v;
       if (anim.on && d !== 0) {
         delta = d;
+        deltaMs = anim.scale(1100); // shorten with the watch speed so it keeps up
         key += 1;
         const k = key;
         setTimeout(() => {
           if (key === k) delta = null;
-        }, 1100);
+        }, deltaMs);
       } else {
         delta = null;
       }
@@ -41,7 +43,7 @@
   {CURRENCY}{shown}
   {#if delta !== null}
     {#key key}
-      <span class="delta" class:up={delta > 0} class:down={delta < 0}>
+      <span class="delta" class:up={delta > 0} class:down={delta < 0} style="--floatdur:{deltaMs}ms">
         {delta > 0 ? '+' : '−'}{CURRENCY}{Math.abs(delta)}
       </span>
     {/key}
@@ -62,7 +64,7 @@
     font-weight: 700;
     white-space: nowrap;
     pointer-events: none;
-    animation: floatup 1.1s ease-out forwards;
+    animation: floatup var(--floatdur, 1.1s) ease-out forwards;
   }
   .delta.up {
     color: #5fd39b;

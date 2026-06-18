@@ -24,11 +24,11 @@ import {
   type RoomRow
 } from './engine';
 
-/** Clamp a requested watch pace to a sane range (0 = instaplay, else 0.5-15s). */
+/** Clamp a requested watch pace to a sane range (0 = instaplay, else 0.25-15s). */
 function clampPace(ms: unknown): number {
   const n = Math.floor(Number(ms));
   if (!Number.isFinite(n) || n <= 0) return 0;
-  return Math.max(500, Math.min(15000, n));
+  return Math.max(250, Math.min(15000, n));
 }
 import { dispatchNotifications, roomLink } from './notify';
 import { bus } from './ws';

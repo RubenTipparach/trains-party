@@ -8,6 +8,7 @@
   import { listSessions, deleteSession, migrateLegacySaves, type SessionMeta } from '$lib/game/sessions';
   import { auth } from '$lib/game/auth.svelte';
   import { linkify } from '$lib/util/linkify';
+  import { configFor } from '$lib/engine';
   import * as api from '$lib/api/client';
 
   // --- local (sandbox) games ---------------------------------------------
@@ -35,6 +36,20 @@
   let newTitle = $state('1889');
   let newPlayers = $state(2);
   const playable = GAMES.filter((g) => g.status === 'playable');
+
+  // Watch-a-bot-game modal: the same modal, in "watch" mode (all-bot table).
+  let watchMode = $state(false);
+  let watchBotCount = $state(4);
+  let watchLevel = $state<'easy' | 'testing'>('easy');
+  let watchPace = $state(3000);
+  // Valid table sizes for the chosen title (derived from its starting-cash table).
+  const watchCounts = $derived(
+    Object.keys(configFor(newTitle).startingCash).map(Number).sort((a, b) => a - b)
+  );
+  $effect(() => {
+    const max = Math.max(...watchCounts);
+    if (watchBotCount > max) watchBotCount = max;
+  });
 
   const myActive = $derived(myRooms.filter((r) => r.status === 'active' && !r.finished));
   const myFinished = $derived(myRooms.filter((r) => r.finished));
@@ -126,16 +141,29 @@
     } catch (e) { err = (e as Error).message; busy = false; }
   }
 
-  // Spin up an all-bot table and drop the user straight in as a spectator. The
-  // bots play at a watchable pace (the room page's tick loop drives them, with a
-  // creator-only slider + Instant toggle); a guest is signed in on the fly if the
-  // visitor has not signed in yet. Four "easy" (strategic) bots, 1889 by default.
-  async function watchBots(title = '1889') {
+  // Open the create modal in "watch" mode (all-bot table). Signs in a guest first
+  // if the visitor has not signed in yet, so the lobby (which hosts the modal)
+  // renders. The same modal then offers game / bot-count / skill / speed options.
+  async function watchEntry() {
+    if (!auth.signedIn) {
+      busy = true; err = null;
+      try { await auth.signInAnon(guestName.trim() || 'Spectator'); }
+      catch (e) { err = (e as Error).message; busy = false; return; }
+      busy = false;
+    }
+    err = null; watchMode = true; modalOpen = true;
+  }
+
+  // Spin up the configured all-bot table and drop the user in as a spectator. The
+  // bots play at the chosen pace (the room page's tick loop drives them, with a
+  // creator-only slider + Instant toggle).
+  async function startWatch() {
     busy = true; err = null;
     try {
-      if (!auth.signedIn) await auth.signInAnon('Spectator');
-      const seats = Array.from({ length: 4 }, (_, i) => ({ id: `p${i + 1}`, name: `Bot ${i + 1}`, bot: true, level: 'easy' }));
-      const room = await api.createRoom({ title, mapMode: 'auto', seats, botPaceMs: 3000 });
+      if (!auth.signedIn) await auth.signInAnon(guestName.trim() || 'Spectator');
+      const n = watchBotCount;
+      const seats = Array.from({ length: n }, (_, i) => ({ id: `p${i + 1}`, name: `Bot ${i + 1}`, bot: true, level: watchLevel }));
+      const room = await api.createRoom({ title: newTitle, mapMode: 'auto', seats, botPaceMs: watchPace });
       await api.startRoom(room.code);
       modalOpen = false;
       goto(`${base}/${room.title}/room/${room.code}`);
@@ -210,7 +238,7 @@
       <p class="hint">Guests can create and join games and chat. Discord adds turn notifications and invites by DM.</p>
       {#if auth.enabled?.anon}
         <div class="or"><span>or just watch</span></div>
-        <button class="ghost watchbtn" disabled={busy} onclick={() => watchBots()}>▶ Watch four bots play</button>
+        <button class="ghost watchbtn" disabled={busy} onclick={watchEntry}>▶ Watch bots play</button>
       {/if}
       {#if err}<p class="err">{err}</p>{/if}
     </section>
@@ -239,8 +267,8 @@
 
     <div class="lobby" in:fade={{ duration: 300 }}>
       <div class="topbar">
-        <button class="play newbtn" onclick={() => { err = null; modalOpen = true; }}>+ New game</button>
-        <button class="ghost watchbtn" disabled={busy} onclick={() => watchBots(newTitle)} title="Spin up an all-bot table and watch it play">▶ Watch bots</button>
+        <button class="play newbtn" onclick={() => { err = null; watchMode = false; modalOpen = true; }}>+ New game</button>
+        <button class="ghost watchbtn" disabled={busy} onclick={watchEntry} title="Spin up an all-bot table and watch it play">▶ Watch bots</button>
         <form class="joinform" onsubmit={(e) => { e.preventDefault(); joinByCode(); }}>
           <input placeholder="invite code" bind:value={inviteCode} maxlength="12" />
           <button class="ghost">Join</button>
@@ -318,14 +346,14 @@
 
     </div>
 
-    <!-- New game modal: pick a title (big buttons) + players, then create -->
+    <!-- New game / Watch modal: pick a title (big buttons) + options, then go -->
     {#if modalOpen}
       <div class="backdrop">
         <button class="bdrop-close" aria-label="Close" onclick={() => (modalOpen = false)}></button>
         <div class="modal" role="dialog" aria-modal="true" tabindex="-1">
           <button class="modalx" aria-label="Close" onclick={() => (modalOpen = false)}>×</button>
-          <h2 class="mtitle">New game</h2>
-          <p class="msub">Choose a game</p>
+          <h2 class="mtitle">{watchMode ? 'Watch bots' : 'New game'}</h2>
+          <p class="msub">{watchMode ? 'An all-bot table you can sit back and watch' : 'Choose a game'}</p>
           <div class="gamegrid">
             {#each playable as g (g.id)}
               <button class="gamebtn" class:sel={newTitle === g.id} style="--accent:{g.accent}" onclick={() => (newTitle = g.id)}>
@@ -334,14 +362,39 @@
               </button>
             {/each}
           </div>
-          <div class="mrow">
-            <label>Players
-              <select bind:value={newPlayers}>
-                {#each [2, 3, 4] as n}<option value={n}>{n}</option>{/each}
-              </select>
-            </label>
-            <button class="play" disabled={busy} onclick={createOnline}>Create game</button>
-          </div>
+          {#if watchMode}
+            <div class="mrow watchrow">
+              <label>Bots
+                <select bind:value={watchBotCount}>
+                  {#each watchCounts as n}<option value={n}>{n}</option>{/each}
+                </select>
+              </label>
+              <label>Skill
+                <select bind:value={watchLevel}>
+                  <option value="easy">Strategic</option>
+                  <option value="testing">Basic</option>
+                </select>
+              </label>
+              <label>Speed
+                <select bind:value={watchPace}>
+                  <option value={250}>0.25s · fast</option>
+                  <option value={1000}>1s</option>
+                  <option value={3000}>3s</option>
+                  <option value={5000}>5s · slow</option>
+                </select>
+              </label>
+              <button class="play" disabled={busy} onclick={startWatch}>Watch</button>
+            </div>
+          {:else}
+            <div class="mrow">
+              <label>Players
+                <select bind:value={newPlayers}>
+                  {#each [2, 3, 4] as n}<option value={n}>{n}</option>{/each}
+                </select>
+              </label>
+              <button class="play" disabled={busy} onclick={createOnline}>Create game</button>
+            </div>
+          {/if}
           {#if err}<p class="err">{err}</p>{/if}
         </div>
       </div>
@@ -452,6 +505,9 @@
   .gbtitle { font-weight: 800; font-size: 1.05rem; color: var(--accent); }
   .gbsub { font-size: 0.78rem; color: var(--muted); }
   .mrow { display: flex; align-items: end; justify-content: space-between; gap: 0.8rem; margin-top: 1.1rem; }
+  .mrow.watchrow { flex-wrap: wrap; }
+  .mrow.watchrow label { flex: 1 1 auto; min-width: 5.5rem; }
+  .mrow.watchrow .play { flex: 1 1 100%; margin-top: 0.2rem; }
   .mrow label { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.78rem; color: var(--muted); }
   .foot { margin-top: 1.8rem; color: var(--muted); font-size: 0.85rem; display: flex; gap: 0.6rem; justify-content: center; align-items: center; }
   .dot { opacity: 0.4; }
