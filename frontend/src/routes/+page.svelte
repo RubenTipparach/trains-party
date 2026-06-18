@@ -38,9 +38,8 @@
   let newPlayers = $state(2);
   const playable = GAMES.filter((g) => g.status === 'playable');
 
-  // Watch-a-bot-game modal: the same modal, in "watch" mode (all-bot table).
+  // Watch-a-bot-game modal: the same modal, in "watch" mode (all-bot, local).
   let watchMode = $state(false);
-  let watchLocal = $state(true); // default: run the bots in this browser (no server)
   let watchBotCount = $state(4);
   let watchLevel = $state<'easy' | 'testing' | 'hard'>('hard');
   let watchPace = $state(3000);
@@ -156,27 +155,20 @@
     err = null; watchMode = true; modalOpen = true;
   }
 
-  // Spin up the configured all-bot table and drop the user in as a spectator. Local
-  // (default): the bots play in this browser and the game is saved to local storage
-  // (resume from "Your games" after a refresh; pause from the watch controls). Server:
-  // the game runs on the server so multiple people can watch the same table.
+  // Spin up the configured all-bot table and drop the user in as a spectator. The
+  // bots think LOCALLY (in this browser) - running the bot logic on the server is
+  // far too heavy for an all-bot game. The game is saved to local storage, so it
+  // shows under "Your games", resumes after a refresh, and can be paused from the
+  // board; it is not deleted when it finishes.
   async function startWatch() {
     busy = true; err = null;
     try {
       const n = watchBotCount;
       const seats = Array.from({ length: n }, (_, i) => ({ id: `p${i + 1}`, name: `Bot ${i + 1}`, bot: true, level: watchLevel }));
-      if (watchLocal) {
-        const code = game.newGame(seats as SeatConfig[], newTitle);
-        game.setWatchPace(watchPace); // local pace (drives + persists the watch speed)
-        modalOpen = false;
-        goto(`${base}/${newTitle}/room/${code}`);
-        return;
-      }
-      if (!auth.signedIn) await auth.signInAnon(guestName.trim() || 'Spectator');
-      const room = await api.createRoom({ title: newTitle, mapMode: 'auto', seats, botPaceMs: watchPace });
-      await api.startRoom(room.code);
+      const code = game.newGame(seats as SeatConfig[], newTitle);
+      game.setWatchPace(watchPace); // local pace (drives + persists the watch speed)
       modalOpen = false;
-      goto(`${base}/${room.title}/room/${room.code}`);
+      goto(`${base}/${newTitle}/room/${code}`);
     } catch (e) { err = (e as Error).message; busy = false; }
   }
 
@@ -374,12 +366,6 @@
           </div>
           {#if watchMode}
             <div class="mrow watchrow">
-              <label>Run
-                <select bind:value={watchLocal}>
-                  <option value={true}>In this browser</option>
-                  <option value={false}>On the server</option>
-                </select>
-              </label>
               <label>Bots
                 <select bind:value={watchBotCount}>
                   {#each watchCounts as n}<option value={n}>{n}</option>{/each}
@@ -403,9 +389,7 @@
               <button class="play" disabled={busy} onclick={startWatch}>Watch</button>
             </div>
             <p class="msub" style="margin:0.45rem 0 0">
-              {watchLocal
-                ? 'Plays in this tab. Saved to "Your games" - resume after a refresh, or pause from the board.'
-                : 'Plays on the server and keeps going even if you close the page; review it later from "Your games".'}
+              Plays in this browser. Saved to "Your games" - resume after a refresh, or pause from the board.
             </p>
           {:else}
             <div class="mrow">

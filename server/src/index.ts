@@ -8,7 +8,6 @@ import { registerAuth } from './oauth';
 import { registerRooms } from './rooms';
 import { registerAdmin } from './admin';
 import { registerWs } from './ws';
-import { startWatchLoop } from './watch';
 
 /**
  * Trains Party API.
@@ -53,9 +52,6 @@ await registerWs(app); // realtime room pings (best-effort; REST stays authorita
 registerAuth(app);
 registerRooms(app);
 registerAdmin(app);
-
-// All-bot watch rooms play on autonomously (server-side), even with no page open.
-startWatchLoop();
 
 app
   .listen({ port: CFG.port, host: CFG.host })
