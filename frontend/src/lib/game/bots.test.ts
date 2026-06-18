@@ -110,7 +110,7 @@ describe('strategic bot steals a beatable, cash-rich company', () => {
 
 describe('strategic bot 1889 full playthrough', () => {
   // The strategic bot must never propose an illegal action across an entire game.
-  for (const level of ['testing', 'easy'] as const) {
+  for (const level of ['testing', 'easy', 'hard'] as const) {
     it(`(${level}) drives a 4-player 1889 game to completion without an illegal move`, () => {
       let s: GameState = initialState([
         { id: 'p1', name: 'A' },
@@ -132,6 +132,7 @@ describe('strategic bot 1889 full playthrough', () => {
       expect(floated).toBe(true); // a corporation gets founded and floated
       expect(operated).toBe(true); // the game reaches operating rounds
       expect(s.round).not.toBe('auction'); // it progresses past the opening auction
+      expect(s.finished).toBe(true); // and the game reaches a conclusion
     });
   }
 });

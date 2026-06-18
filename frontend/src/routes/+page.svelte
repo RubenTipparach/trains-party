@@ -40,7 +40,7 @@
   // Watch-a-bot-game modal: the same modal, in "watch" mode (all-bot table).
   let watchMode = $state(false);
   let watchBotCount = $state(4);
-  let watchLevel = $state<'easy' | 'testing'>('easy');
+  let watchLevel = $state<'easy' | 'testing' | 'hard'>('hard');
   let watchPace = $state(3000);
   // Valid table sizes for the chosen title (derived from its starting-cash table).
   const watchCounts = $derived(
@@ -371,6 +371,7 @@
               </label>
               <label>Skill
                 <select bind:value={watchLevel}>
+                  <option value="hard">Hard</option>
                   <option value="easy">Strategic</option>
                   <option value="testing">Basic</option>
                 </select>

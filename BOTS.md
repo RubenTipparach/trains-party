@@ -12,12 +12,18 @@ the same action log as a human move, games stay deterministic and replayable.
 - **Testing** (`'testing'`) - the original keep-the-game-moving heuristics. They
   make legal, unsurprising moves so a game always advances; they are *not* trying to
   win. Use them to fill empty seats or to exercise the engine quickly.
-- **Easy** (`'easy'`) - the first draft of a strategically-thinking bot (1889). It
-  follows the heuristics below. This is the default for new single-player games.
-- **Normal** (`'normal'`) - reserved for a future, stronger tier. It currently
-  **aliases Easy** (the strongest bot available) and is kept as a valid level so
-  stored games and the server's default seats keep working. Not surfaced in the UI
-  yet.
+- **Easy** (`'easy'`) - a strategically-thinking bot (1889 + RoLA). It follows the
+  heuristics below: founds and floats multiple corporations, steals, times the train
+  rush, banks toward a permanent train when trailing, and buys privates into its
+  corporations. The default for new single-player games.
+- **Normal** (`'normal'`) - reserved for a tier between Easy and Hard. It currently
+  **aliases Easy** and is kept as a valid level so stored games and the server's
+  default seats keep working. Not surfaced in the UI.
+- **Hard** (`'hard'`) - Easy plus signature 1830 tactics: **dumping** a doomed
+  presidency onto a rival, **ganging up on the leader** (spite-selling the
+  front-runner's strong corporations), and a **sharper train rush** (a thinner cash
+  cushion to land a rust). See the Hard section below. Selectable on the new-game
+  pages and in Watch mode.
 
 The Easy bot now plays **both 1889 and RoLA** strategically; only the **merger
 round** reuses the Testing logic (a bot merges two minors it controls, declines
@@ -51,9 +57,10 @@ a player **cannot re-buy a corporation they sold this round** (the dump/steal ta
   drop out. (Realizes "bid up privates, but never overpay above 140%.")
 - **Chase Dougo Railway**: on a normal turn, bid DR up to 140% of face (dipping the
   reserve, since its free IR share pays for itself), unless already the high bidder.
-- **Otherwise**: buy the cheapest company at face if it fits the ~¥325 float reserve,
-  or take the last one outright to keep the auction moving. The engine's all-pass
-  price reduction guarantees the auction terminates regardless.
+- **Otherwise**: buy the cheapest company at face whenever affordable. Every 1889
+  private is worth owning, and since a unanimous pass no longer ends the round (once
+  the cheapest is sold, an all-pass pays each private its revenue and play continues),
+  an eager buyer keeps the auction moving instead of stalling it.
 
 ### Stock round (`round === 'stock'`)
 On its turn the bot sells (if warranted) before its one purchase, then ends the turn.
@@ -87,11 +94,16 @@ On its turn the bot sells (if warranted) before its one purchase, then ends the 
 - **Token**: place the optional station token only when it increases route revenue;
   otherwise save it.
 - **Run**: pay the dividend when the corporation earns (raises the price and pays the
-  president); withhold only when it earns nothing.
-- **Trains**: buy an optional train only when an extra train would actually raise
-  revenue - i.e. there are more profitable routes than trains to run them (simulated).
-  Mandatory, emergency, and first-train purchases reuse the robust Testing logic
-  (which also buys the cheapest *buyable* train, including a discard in the pool).
+  president). A **trailing** corporation (its president is below the average player
+  value) with **no permanent train** withholds instead, banking cash toward a
+  permanent train so a coming rust cannot wipe out its only trains. A zero-revenue
+  run always withholds.
+- **Trains**: **secure a permanent train** first - with no permanent train, buy the
+  buyable train when it is itself permanent (a permanent train never rusts). Else buy
+  an optional train when it raises revenue (more profitable routes than trains) **or**
+  it rusts a rival's trains (keeping a cash cushion). Then bank the president's
+  privates into the corporation (up to 2x face, before the 5-train closes them).
+  Mandatory / emergency / first-train purchases reuse the robust Testing logic.
 
 ## Easy bot decision procedure (RoLA)
 
@@ -113,6 +125,30 @@ own logic; the operating round reuses the shared strategic track/token/train cod
   and lay a second yellow when allowed.
 - **Merger round** - merges two minors the bot controls into a major (no permission
   needed), declines other players' proposals, and votes shares against hostile bids.
+
+## Hard bot decision procedure
+
+Hard reuses the entire Easy policy and layers on three tactics drawn from the 1830 /
+18xx strategy canon (the DOS *1830: Railroads & Robber Barons* AI is famous for the
+first and third, and for ganging up on the leader at higher difficulty):
+
+- **Dump a doomed presidency** (1889 stock round, before any other action): if the
+  bot presides over a *sinking ship* - no permanent train, a treasury that cannot
+  afford the next train, and about to be train-less (none, or all rust soon) - it
+  sells the maximum allowed, handing the presidency (and the forced train buy) to the
+  largest remaining holder. The engine requires a successor holding >=20%, so the
+  dump only fires when it can actually transfer the certificate.
+- **Gang up on the leader** (1889 stock round): otherwise, spite-sell a
+  non-controlling stake in the **front-runner's** strong (price >= ¥90),
+  locked-in (>=50%, so it cannot be stolen) corporation - banking cash and knocking
+  the leader's share price down.
+- **Sharper train rush** (1889 + RoLA operating): when buying a train purely to rust
+  rivals, accept **half** the normal cash cushion - more willing to take a hit to
+  inflict one.
+
+Everything else (auction, founding, stealing, track, tokens, the permanent-train
+logic, the merger round) is identical to Easy. RoLA Hard currently gets the sharper
+train rush but reuses Easy's stock round; a RoLA-flavoured dump is a follow-up.
 
 ## Simulator
 
@@ -145,17 +181,19 @@ to 3-4 players to stay quick).
 
 ## Limitations / next
 
-- **1889 founds a single corporation**: the bot never starts a second corporation,
-  so 2-player 1889 games (one corp each) tend to grind at phase 2. Multi-corp play
-  is a follow-up. (RoLA does launch multiple minors.)
+- **RoLA Hard reuses Easy's stock round**: the dump / leader-collusion tactics are
+  1889-only so far; RoLA Hard gets only the sharper train rush. A RoLA-flavoured dump
+  (minor presidency, issue/redeem) is a follow-up.
 - **RoLA merger choices are simple**: it always merges a controlled pair and never
   weighs *which* pairing or major is best.
-- **Dividend policy** is basic (pay when earning); no withhold-to-save planning yet.
-- **Trashing is bounded** to risk-shedding and locked-in strong rivals, rather than
-  blanket dumping (which is usually self-defeating); this is a deliberate first-draft
-  choice and can be dialed up.
-- **No asset shuffling yet**: the bot does not buy private companies into a
-  corporation or transfer trains between corporations it controls.
+- **Dividend policy** is still coarse: pay when earning, or withhold to bank toward a
+  permanent train when trailing. No price-zone planning (withholding to line up a
+  market jump) yet.
+- **No train shuffling**: the bot buys privates into a corporation, but never moves
+  trains between corporations it controls.
 - **No lookahead/search**: these are rule-of-thumb heuristics with one-ply revenue
-  simulation, not an optimizer. A future "Normal"/"Hard" tier can add shallow search
-  or tuned weights.
+  simulation, not an optimizer. A stronger "Normal" tier could add shallow search or
+  tuned weights between Easy and Hard.
+- **1889 is deterministic**, so a given (players, level) always plays the same game;
+  Hard diverges from Easy but is itself fixed. Seeded bot variation is a possible
+  future touch for more varied Watch games.

@@ -125,7 +125,7 @@ describe('RoLA bot launch auction', () => {
 describe('RoLA bot playthrough', () => {
   // The strategic ('easy') bot reuses the proven testing logic for RoLA, so both
   // levels must drive the game without ever proposing an illegal action.
-  for (const level of ['testing', 'easy'] as const) {
+  for (const level of ['testing', 'easy', 'hard'] as const) {
     it(`(${level}) bots launch minors and drive multiple stock/operating cycles without error`, () => {
       let s = initialState(
         [{ id: 'p1', name: 'A' }, { id: 'p2', name: 'B' }, { id: 'p3', name: 'C' }],

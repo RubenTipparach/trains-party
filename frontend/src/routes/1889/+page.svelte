@@ -107,7 +107,8 @@
               <button class:on={!bots[i]} onclick={() => (bots[i] = false)}>Human</button>
               <button class:on={bots[i]} onclick={() => (bots[i] = true)}>Bot</button>
             </div>
-            <select class="lvl" bind:value={levels[i]} disabled={!bots[i]} title="Easy: plays a strategy. Testing: makes simple legal moves to fill a seat.">
+            <select class="lvl" bind:value={levels[i]} disabled={!bots[i]} title="Hard: adds 1830 tactics (dumping, ganging up on the leader, a sharper train rush). Easy: plays a solid strategy. Testing: makes simple legal moves to fill a seat.">
+              <option value="hard">Hard</option>
               <option value="easy">Easy</option>
               <option value="testing">Testing</option>
             </select>

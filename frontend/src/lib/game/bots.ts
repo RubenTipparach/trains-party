@@ -50,7 +50,7 @@ import {
 } from '$lib/engine';
 import { PAR_PRICES } from '$lib/data/g1889';
 
-export type BotLevel = 'testing' | 'easy' | 'normal';
+export type BotLevel = 'testing' | 'easy' | 'normal' | 'hard';
 
 // --- Testing-bot profile (the original heuristics, single fixed setting) -----
 const TESTING_OVERPAY = 25; // tolerance over a private's face value in a sub-auction
@@ -523,6 +523,105 @@ function botStockEasy(s: GameState): GameAction {
   return { type: 'pass', player: me };
 }
 
+// =============================================================================
+//  "Hard" bot - the strategic bot plus signature 1830 tactics
+// =============================================================================
+
+/** The front-runner (highest-value rival) - the player a hard bot ganks. */
+function leaderId(s: GameState, exclude: string): string | null {
+  let best: string | null = null;
+  let bestV = -Infinity;
+  for (const p of s.players) {
+    if (p.out || p.id === exclude) continue;
+    const v = playerValue(s, p.id);
+    if (v > bestV) {
+      bestV = v;
+      best = p.id;
+    }
+  }
+  return best;
+}
+
+/** Largest holding of `sym` among players other than `me`. */
+function topOtherHold(s: GameState, me: string, sym: string): number {
+  let m = 0;
+  for (const p of s.players) if (p.id !== me) m = Math.max(m, holdsOf(s, p.id, sym));
+  return m;
+}
+
+/**
+ * A sinking ship: no permanent train, a treasury that cannot afford the next train,
+ * and about to be train-less (it has none, or all of its trains rust soon). Its
+ * president faces a forced train buy out of pocket - the classic thing to dump.
+ */
+function corpInTrainTrouble(s: GameState, c: CorporationState): boolean {
+  if (hasPermanentTrain(s, c)) return false;
+  const cheap = cheapestBuyableTrain(s);
+  if (!cheap || c.cash >= cheap.price) return false; // can still self-fund a train
+  const trainless = c.trains.length === 0;
+  const allRustSoon = c.trains.length > 0 && c.trains.every((t) => rustsSoon(s, t));
+  return trainless || allRustSoon;
+}
+
+/**
+ * The signature 1830 "dump": offload a doomed presidency onto a rival so THEY are
+ * stuck funding its forced train buy. Sell the most allowed, which hands the
+ * presidency to the largest remaining holder (the engine requires one holding >=20%).
+ */
+function pickDump(s: GameState, me: string, sl: { sell: string[] }): { corp: string; count: number } | null {
+  for (const sym of sl.sell) {
+    const c = corpOf(s, sym);
+    if (c.president !== me || !c.floated) continue;
+    if (!corpInTrainTrouble(s, c)) continue;
+    const top = topOtherHold(s, me, sym);
+    if (top < 20) continue; // no eligible successor: the dump cannot transfer the cert
+    const n = maxSellCount(s, me, sym);
+    if (n >= 1 && holdsOf(s, me, sym) - 10 * n < top) return { corp: sym, count: n };
+  }
+  return null;
+}
+
+/**
+ * Collude against the front-runner: dump a non-controlling stake in the leader's
+ * strong, locked-in (can't-be-stolen) corporation to knock its share price down.
+ */
+function pickLeaderSpiteSell(
+  s: GameState,
+  me: string,
+  sl: { sell: string[] },
+  leader: string
+): { corp: string; count: number } | null {
+  for (const sym of sl.sell) {
+    const c = corpOf(s, sym);
+    if (c.president !== leader) continue; // target the leader's corporations only
+    if (holdsOf(s, me, sym) < 10) continue;
+    if (holdsOf(s, leader, sym) < 50) continue; // not locked in -> a steal is better than spite
+    if (currentPrice(s, c) < STRONG_PRICE) continue; // only worth knocking a strong price down
+    const n = Math.min(Math.floor(holdsOf(s, me, sym) / 10), maxSellCount(s, me, sym));
+    if (n >= 1) return { corp: sym, count: n };
+  }
+  return null;
+}
+
+function botStockHard(s: GameState): GameAction {
+  const sl = stockLegalActions(s);
+  const me = sl.player;
+  const st = s.stock!;
+  if (!st.bought) {
+    // 1. Dump a doomed presidency onto a rival before its forced train buy.
+    const dump = pickDump(s, me, sl);
+    if (dump) return { type: 'sell', player: me, corp: dump.corp, count: dump.count };
+    // 2. Gang up on the leader: spite-sell their strong, unstealable corporation.
+    const leader = leaderId(s, me);
+    if (leader) {
+      const hit = pickLeaderSpiteSell(s, me, sl, leader);
+      if (hit) return { type: 'sell', player: me, corp: hit.corp, count: hit.count };
+    }
+  }
+  // 3. Everything else is the proven strategic policy (sell risk / steal / found / spec).
+  return botStockEasy(s);
+}
+
 // --- Strategic operating round (1889) ----------------------------------------
 
 /** Route revenue for the operating corp after applying `action` (or -1 if illegal). */
@@ -689,7 +788,12 @@ function strategicRun(s: GameState, v: NonNullable<ReturnType<typeof operatingVi
  * keeps a treasury cushion so it doesn't cripple itself. Mandatory / emergency /
  * first-train cases are left to the (robust) testing logic.
  */
-function strategicTrains(s: GameState, v: NonNullable<ReturnType<typeof operatingView>>, c: CorporationState): GameAction | null {
+function strategicTrains(
+  s: GameState,
+  v: NonNullable<ReturnType<typeof operatingView>>,
+  c: CorporationState,
+  aggressive = false
+): GameAction | null {
   if (v.emergency || v.mustBuy || c.trains.length === 0) return null; // forced cases -> testing
   if (!v.canBuyTrain) return null; // at the train limit (no plain buy offered)
   const cheap = cheapestBuyableTrain(s);
@@ -701,7 +805,9 @@ function strategicTrains(s: GameState, v: NonNullable<ReturnType<typeof operatin
     return { type: 'buy_train', player: c.president!, corp: v.corp, train: cheap.name };
   }
   const earns = extraTrainHelps(s, c, cheap.name);
-  const rusts = rustsRivals(s, c, cheap.name) && c.cash - cheap.price >= RUST_CUSHION;
+  // A hard bot accepts a thinner cushion to land a rust on rivals (more damage).
+  const cushion = aggressive ? Math.floor(RUST_CUSHION / 2) : RUST_CUSHION;
+  const rusts = rustsRivals(s, c, cheap.name) && c.cash - cheap.price >= cushion;
   if (earns || rusts) {
     return { type: 'buy_train', player: c.president!, corp: v.corp, train: cheap.name };
   }
@@ -733,7 +839,7 @@ function pickBuyCompany(s: GameState, c: CorporationState, v: NonNullable<Return
   return null;
 }
 
-function botOperatingEasy(s: GameState): GameAction | null {
+function botOperatingEasy(s: GameState, aggressive = false): GameAction | null {
   const v = operatingView(s);
   if (!v || !v.president) return null;
   const c = corpOf(s, v.corp);
@@ -749,7 +855,7 @@ function botOperatingEasy(s: GameState): GameAction | null {
   // Dividend: a trailing, permanent-train-less corp hoards toward a permanent train.
   if (v.step === 'run') return strategicRun(s, v, c);
   // Buy trains (secure / earn / rust) first, then bank the president's privates.
-  if (v.step === 'trains') return strategicTrains(s, v, c) ?? pickBuyCompany(s, c, v); // null -> testing
+  if (v.step === 'trains') return strategicTrains(s, v, c, aggressive) ?? pickBuyCompany(s, c, v); // null -> testing
   return null; // leadoff / emergency -> testing
 }
 
@@ -822,8 +928,13 @@ function botRolaStockEasy(s: GameState): GameAction | null {
   return { type: 'pass', player: me };
 }
 
-/** The strategic-bot policy; delegates the merger round and forced cases. */
-function botActionEasy(s: GameState): GameAction | null {
+/**
+ * The strategic-bot policy; delegates the merger round and forced cases. With
+ * `hard`, the 1889 stock round adds the dump / collusion tactics and the train
+ * rush accepts a thinner cushion. (RoLA's hard stock round currently reuses the
+ * strategic policy; its dump is a follow-up.)
+ */
+function botActionEasy(s: GameState, hard = false): GameAction | null {
   if (s.finished) return null;
   if (s.round === 'mapbuild') return pickBuildPlacement(s);
   if (s.round === 'merger') return botActionTesting(s);
@@ -833,17 +944,19 @@ function botActionEasy(s: GameState): GameAction | null {
     return botAuctionEasy(s);
   }
   if (s.round === 'stock' && s.stock) {
-    return isRola ? botRolaStockEasy(s) : botStockEasy(s);
+    if (isRola) return botRolaStockEasy(s);
+    return hard ? botStockHard(s) : botStockEasy(s);
   }
   if (s.round === 'operating' && s.or) {
-    return botOperatingEasy(s) ?? botActionTesting(s);
+    return botOperatingEasy(s, hard) ?? botActionTesting(s);
   }
   return null;
 }
 
 /** Choose a legal action for the active (bot) player, or null if none. */
 export function botAction(s: GameState, level: BotLevel): GameAction | null {
-  // 'normal' is reserved for a future stronger tier; for now it aliases 'easy'.
+  if (level === 'hard') return botActionEasy(s, true);
+  // 'normal' is reserved for a future tier between easy and hard; for now it aliases 'easy'.
   if (level === 'easy' || level === 'normal') return botActionEasy(s);
   return botActionTesting(s);
 }
