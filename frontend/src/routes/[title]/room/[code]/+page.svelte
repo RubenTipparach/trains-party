@@ -7,7 +7,7 @@
   import { fade, fly } from 'svelte/transition';
   import HexMap from '$lib/components/HexMap.svelte';
   import StockMarket from '$lib/components/StockMarket.svelte';
-  import CorporationCard from '$lib/components/CorporationCard.svelte';
+  import LiveCorpCard from '$lib/components/LiveCorpCard.svelte';
   import CompanyCard from '$lib/components/CompanyCard.svelte';
   import CompanyLogo from '$lib/components/CompanyLogo.svelte';
   import GamePanel from '$lib/components/GamePanel.svelte';
@@ -24,9 +24,9 @@
   import { BUILD_SHA } from '$lib/version';
 
   const SEAT = ['#f5c542', '#3fb6a8', '#e0655c', '#9b8cf0', '#7cc36b', '#e8923a'];
-  // The entities tab still lists 1889's privates/corporations directly (RoLA's
-  // minors/majors are a later pass); every other tab reads the active config.
-  import { CORPORATIONS, COMPANIES } from '$lib/data/g1889';
+  // The entities tab lists corporations live (LiveCorpCard, both titles); 1889's
+  // privates are still listed from static data.
+  import { COMPANIES } from '$lib/data/g1889';
   import type { TileColor } from '$lib/data/types';
   import { anim } from '$lib/game/anim.svelte';
   import { pingHex, flyToHex } from '$lib/game/locate.svelte';
@@ -80,7 +80,7 @@
   // no-ops until a move is due) and broadcasts moves to every watcher. A human
   // seat or a finished game needs no ticking, so the guard turns the loop off.
   $effect(() => {
-    if (!game.serverMode || game.code !== code || game.state.finished) return;
+    if (!game.serverMode || game.code !== code || game.state.finished || game.watchPaused) return;
     const a = game.active;
     if (!a || !game.isBot(a)) return;
     // Poll at about half the pace (so a due move lands within ~one pace of when it
@@ -91,13 +91,14 @@
   });
 
   // Speed board animations up as the watch pace gets faster so a train run / tile
-  // drop comfortably finishes before the next move lands. Only a PACED watch room
-  // (pace > 0) is sped up; a normal game (pace 0, humans playing) and instaplay
-  // both keep normal-speed animations. Resets to normal when leaving the room.
+  // drop comfortably finishes before the next move lands. Only an all-bot WATCH game
+  // (server or local) scales; a normal game (humans playing) keeps normal speed.
+  // Instant (pace 0) uses the fastest setting. Resets to normal when leaving.
   $effect(() => {
+    if (game.code !== code) return;
     const p = game.watchPaceMs;
-    const paced = game.serverMode && game.code === code && p > 0;
-    anim.setSpeed(paced ? Math.max(1, Math.min(8, 2000 / p)) : 1);
+    const speed = game.isWatch ? (p <= 0 ? 8 : Math.max(1, Math.min(8, 2000 / p))) : 1;
+    anim.setSpeed(speed);
     return () => anim.setSpeed(1);
   });
 
@@ -177,20 +178,32 @@
     };
   });
 
-  // Auto-play bot turns with a watchable pause between moves (skippable).
-  // Server games advance bots on the server, so skip local bot stepping there.
+  // Auto-play bot turns. Server games advance bots on the server (skip here).
+  // A LOCAL watch (all bots) is paced by the speed slider via a timer, so the pace
+  // holds even with animations off; 0 = as fast as possible. A normal solo game
+  // keeps the steady, skippable ~900ms pause between bot moves.
   $effect(() => {
     const a = game.active;
-    if (a && game.isBot(a) && !game.reviewing && !game.serverMode) {
+    if (!a || !game.isBot(a) || game.reviewing || game.serverMode) return;
+    if (game.isLocalWatch) {
+      if (game.watchPaused) return; // paused: hold here until resumed
       let cancelled = false;
-      (async () => {
-        await anim.wait(900);
+      const t = setTimeout(() => {
         if (!cancelled) game.botStep();
-      })();
+      }, Math.max(0, game.watchPaceMs));
       return () => {
         cancelled = true;
+        clearTimeout(t);
       };
     }
+    let cancelled = false;
+    (async () => {
+      await anim.wait(900);
+      if (!cancelled) game.botStep();
+    })();
+    return () => {
+      cancelled = true;
+    };
   });
 
   // When the game transitions INTO a stock round, surface the Game panel so the
@@ -397,10 +410,17 @@
     {#if anim.pacing}
       <button class="skip" onclick={() => anim.skip()}>Skip ⏭ <kbd>Space</kbd></button>
     {/if}
-    {#if game.serverMode && game.isWatchCreator}
-      <!-- watch pacing: creator-only. Slider sets seconds between bot moves;
-           Instant races the game to its final result in one server tick. -->
-      <span class="watch" role="group" aria-label="Watch speed">
+    {#if game.isWatch && (!game.serverMode || game.isWatchCreator)}
+      <!-- watch controls: pause/resume, speed (seconds between bot moves), and
+           Instant (race to the final result). A local watch runs in this browser;
+           a server watch is creator-only. -->
+      <span class="watch" role="group" aria-label="Watch controls">
+        <button
+          class="wb"
+          class:on={game.watchPaused}
+          onclick={() => game.toggleWatchPause()}
+          title={game.watchPaused ? 'Resume the bots' : 'Pause the bots'}
+        >{game.watchPaused ? '▶ Resume' : '⏸ Pause'}</button>
         <span class="wl">Speed</span>
         <input
           class="wrange"
@@ -652,6 +672,15 @@
                 </div>
               </section>
               {#if isRola}
+                {@const live = game.state.corporations.filter((c) => c.parPrice !== null || c.floated)}
+                {#if live.length}
+                  <section>
+                    <h3>Active companies <span class="count">{live.length}</span></h3>
+                    <div class="cards">
+                      {#each live as corp (corp.sym)}<LiveCorpCard {corp} />{/each}
+                    </div>
+                  </section>
+                {/if}
                 <section>
                   <h3>Minor companies <span class="count">{cfg.minors?.length ?? 0}</span></h3>
                   <div class="cards">
@@ -696,9 +725,9 @@
                 </section>
               {:else}
                 <section>
-                  <h3>Corporations <span class="count">{CORPORATIONS.length}</span></h3>
+                  <h3>Corporations <span class="count">{game.state.corporations.length}</span></h3>
                   <div class="cards">
-                    {#each CORPORATIONS as corp (corp.sym)}<CorporationCard {corp} />{/each}
+                    {#each game.state.corporations as corp (corp.sym)}<LiveCorpCard {corp} />{/each}
                   </div>
                 </section>
                 <section>
