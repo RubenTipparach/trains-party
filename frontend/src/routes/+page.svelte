@@ -402,6 +402,11 @@
               </label>
               <button class="play" disabled={busy} onclick={startWatch}>Watch</button>
             </div>
+            <p class="msub" style="margin:0.45rem 0 0">
+              {watchLocal
+                ? 'Plays in this tab. Saved to "Your games" - resume after a refresh, or pause from the board.'
+                : 'Plays on the server and keeps going even if you close the page; review it later from "Your games".'}
+            </p>
           {:else}
             <div class="mrow">
               <label>Players
