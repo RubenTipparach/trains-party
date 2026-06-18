@@ -194,12 +194,15 @@ function activeCount(s: GameState): number {
   return s.players.filter((p) => !p.out).length;
 }
 
-/** End the game: the highest-value player still in the game wins. */
+/** End the game: the highest-value player still in the game wins. If EVERYONE has
+ *  been eliminated (RoLA knockouts cascading to the last player), fall back to the
+ *  highest-value player overall so the game still ends cleanly with a winner. */
 function endGame(s: GameState): void {
   s.finished = true;
+  const eligible = s.players.filter((p) => !p.out);
+  const pool = eligible.length ? eligible : s.players; // all out -> highest value still wins
   let best: { id: string; value: number } | null = null;
-  for (const p of s.players) {
-    if (p.out) continue; // eliminated players cannot win
+  for (const p of pool) {
     const v = playerValue(s, p.id);
     if (!best || v > best.value) best = { id: p.id, value: v };
   }
