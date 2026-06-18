@@ -95,6 +95,10 @@ On its turn the bot sells (if warranted) before its one purchase, then ends the 
   connectivity (not just what one short train can run now) stops a bot from fattening
   its home tile when running a line out to a neighbouring city would earn far more -
   important on RoLA's spread map, where trains reach much farther than a probe.
+  Kept cheap so the track step never does an exhaustive search: connectivity is scored
+  by a **scoped board mutation** (set the one tile, read, restore) instead of cloning
+  the whole game state per candidate, and the route-DFS tiebreak runs on at most a
+  handful of the lays tied for best connectivity, never once per candidate.
 - **Token**: place the optional station token only when it increases route revenue;
   otherwise save it.
 - **Run**: paying out is preferred - it climbs the share price, which is most of a
