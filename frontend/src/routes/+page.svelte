@@ -9,6 +9,7 @@
   import { auth } from '$lib/game/auth.svelte';
   import { linkify } from '$lib/util/linkify';
   import { configFor } from '$lib/engine';
+  import { game, type SeatConfig } from '$lib/game/sandbox.svelte';
   import * as api from '$lib/api/client';
 
   // --- local (sandbox) games ---------------------------------------------
@@ -39,6 +40,7 @@
 
   // Watch-a-bot-game modal: the same modal, in "watch" mode (all-bot table).
   let watchMode = $state(false);
+  let watchLocal = $state(true); // default: run the bots in this browser (no server)
   let watchBotCount = $state(4);
   let watchLevel = $state<'easy' | 'testing' | 'hard'>('hard');
   let watchPace = $state(3000);
@@ -154,15 +156,23 @@
     err = null; watchMode = true; modalOpen = true;
   }
 
-  // Spin up the configured all-bot table and drop the user in as a spectator. The
-  // bots play at the chosen pace (the room page's tick loop drives them, with a
-  // creator-only slider + Instant toggle).
+  // Spin up the configured all-bot table and drop the user in as a spectator. Local
+  // (default): the bots play in this browser and the game is saved to local storage
+  // (resume from "Your games" after a refresh; pause from the watch controls). Server:
+  // the game runs on the server so multiple people can watch the same table.
   async function startWatch() {
     busy = true; err = null;
     try {
-      if (!auth.signedIn) await auth.signInAnon(guestName.trim() || 'Spectator');
       const n = watchBotCount;
       const seats = Array.from({ length: n }, (_, i) => ({ id: `p${i + 1}`, name: `Bot ${i + 1}`, bot: true, level: watchLevel }));
+      if (watchLocal) {
+        const code = game.newGame(seats as SeatConfig[], newTitle);
+        game.setWatchPace(watchPace); // local pace (drives + persists the watch speed)
+        modalOpen = false;
+        goto(`${base}/${newTitle}/room/${code}`);
+        return;
+      }
+      if (!auth.signedIn) await auth.signInAnon(guestName.trim() || 'Spectator');
       const room = await api.createRoom({ title: newTitle, mapMode: 'auto', seats, botPaceMs: watchPace });
       await api.startRoom(room.code);
       modalOpen = false;
@@ -364,6 +374,12 @@
           </div>
           {#if watchMode}
             <div class="mrow watchrow">
+              <label>Run
+                <select bind:value={watchLocal}>
+                  <option value={true}>In this browser</option>
+                  <option value={false}>On the server</option>
+                </select>
+              </label>
               <label>Bots
                 <select bind:value={watchBotCount}>
                   {#each watchCounts as n}<option value={n}>{n}</option>{/each}
