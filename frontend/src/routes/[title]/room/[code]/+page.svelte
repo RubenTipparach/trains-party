@@ -133,7 +133,6 @@
       /* ignore */
     }
   }
-  const boardLabel = $derived(boardMode === 'webgl' ? '◆ WebGL' : '▦ SVG');
   // The WebGL board now drives all board interaction natively (track/token/run +
   // RoLA map-build), so it no longer needs to hand any step back to the SVG board.
   const boardInteractive = false;
@@ -416,9 +415,6 @@
         runMode={game.canAct && opv?.step === 'run'}
       />
     {/if}
-    <button class="boardtoggle" onclick={cycleBoard} title="Board renderer (Canvas/WebGL are experimental, view-only)">
-      {boardLabel}
-    </button>
   </div>
 
   <!-- floating cycle/round tracker (RoLA): the board-style visual aid -->
@@ -567,6 +563,15 @@
                   </div>
                   <button class="mtoggle" class:on={anim.enabled} role="switch" aria-checked={anim.enabled} onclick={() => anim.toggle()}>
                     {anim.enabled ? 'On' : 'Off'}
+                  </button>
+                </div>
+                <div class="mrow">
+                  <div class="mtext">
+                    <span class="mname">Board renderer</span>
+                    <span class="mdesc">WebGL is faster and adds pan/zoom; SVG is the classic renderer.</span>
+                  </div>
+                  <button class="mtoggle" class:on={boardMode === 'webgl'} role="switch" aria-checked={boardMode === 'webgl'} onclick={cycleBoard}>
+                    {boardMode === 'webgl' ? 'WebGL' : 'SVG'}
                   </button>
                 </div>
                 <a class="mlobby" href="{base}/">Return to lobby</a>
@@ -837,23 +842,6 @@
     inset: 0;
     z-index: 0;
     transition: left 240ms ease, right 240ms ease, bottom 240ms ease;
-  }
-  .boardtoggle {
-    position: absolute;
-    left: 8px;
-    bottom: 8px;
-    z-index: 5;
-    font: 700 0.7rem ui-sans-serif, sans-serif;
-    padding: 0.25rem 0.6rem;
-    border-radius: 999px;
-    border: 1px solid var(--line);
-    background: var(--bg-soft);
-    color: var(--ink);
-    cursor: pointer;
-    opacity: 0.82;
-  }
-  .boardtoggle:hover {
-    opacity: 1;
   }
   .loadingroom {
     min-height: 60vh;
