@@ -94,6 +94,7 @@
   });
   const buildCells = $derived(buildSel ? placementCoords(buildSel.anchor, buildSel.rotation) : []);
   const buildLegal = $derived(buildSel ? isLegalPlacement(hexesFor(game.state), buildSel.anchor, buildSel.rotation) : false);
+  const buildLeft = $derived(building ? (game.state.mapBuild?.pool?.length ?? 0) : 0);
   function rotateBuild() {
     if (buildSel) buildSel = { ...buildSel, rotation: (buildSel.rotation + 1) % 6 };
   }
@@ -381,6 +382,9 @@
 </script>
 
 <div class="cwrap" bind:this={wrap}>
+  {#if canBuild && !buildSel}
+    <div class="buildhint">Tap a hex to place the next tile · {buildLeft} left</div>
+  {/if}
   {#if hover}
     <div class="htip" style="left:{hover.x}px; top:{hover.y}px">{hover.label}</div>
   {/if}
@@ -421,6 +425,20 @@
   }
   .cwrap :global(canvas) {
     display: block;
+  }
+  .buildhint {
+    position: absolute;
+    bottom: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    pointer-events: none;
+    background: rgba(12, 20, 26, 0.9);
+    color: #eef3f6;
+    border: 1px solid var(--line, #2c3a44);
+    border-radius: 999px;
+    padding: 0.35rem 0.8rem;
+    font: 700 0.78rem ui-sans-serif, sans-serif;
+    z-index: 6;
   }
   .htip {
     position: absolute;

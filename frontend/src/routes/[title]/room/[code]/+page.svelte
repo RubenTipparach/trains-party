@@ -350,7 +350,10 @@
   // During an operating/merger round the play screen IS the map plus the always-on
   // operation panel, so the Game (play) tab opens no independent overlay: selecting
   // it just shows the board. Other tabs still open over the map as usual.
-  const panelOpen = $derived(!!active && !(active === 'game' && opPanel));
+  // RoLA map-build is the same: the board IS the interaction (tap a grid hex to place
+  // a tri-hex), so the Game tab must not cover it either.
+  const building = $derived(game.state.round === 'mapbuild');
+  const panelOpen = $derived(!!active && !(active === 'game' && (opPanel || building)));
   // A full-screen modal covering the map pauses its renderer (mobile). During an
   // OR the Game tab shows the board (panelOpen is false there), so the map must
   // keep rendering and stay tappable - pause only when an overlay actually covers it.
