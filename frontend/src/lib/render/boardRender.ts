@@ -161,6 +161,24 @@ function drawWaves(ctx: CanvasRenderingContext2D, waves: WaveEdge[], t: number, 
   ctx.restore();
 }
 
+/** The hex coordinate at world point (wx, wy), or null if the point is off the board
+ *  (in the sea). Nearest hex centre within a hex radius - exact enough for hover/click
+ *  hit-testing on the tiled board. */
+export function hexAtWorld(state: GameState, title: string, wx: number, wy: number): string | null {
+  const map: Record<string, HexDef> = state.map ?? configFor(title).hexByCoord;
+  let best: string | null = null;
+  let bestD = Infinity;
+  for (const h of Object.values(map)) {
+    const c = hexCenter(h.coord);
+    const d = (c.x - wx) ** 2 + (c.y - wy) ** 2;
+    if (d < bestD) {
+      bestD = d;
+      best = h.coord;
+    }
+  }
+  return best && bestD <= HEX_SIZE * HEX_SIZE ? best : null;
+}
+
 /** The world -> screen fit drawBoard uses (contain, centred), so overlays (e.g. the
  *  WebGL wave layer) can map world coords to screen identically. */
 export function boardTransform(view: BoardView, cssW: number, cssH: number): { s: number; offX: number; offY: number } {
@@ -170,7 +188,7 @@ export function boardTransform(view: BoardView, cssW: number, cssH: number): { s
 
 
 const FILL: Record<TileColor, string> = {
-  white: '#e7dcbf',
+  white: '#cdcb92',
   yellow: '#f3cf3e',
   green: '#7cc36b',
   brown: '#c69b66',
@@ -214,6 +232,29 @@ function slotCenters(n: number): number[] {
   if (n === 2) return [-14, 14];
   if (n === 3) return [-18, 0, 18];
   return Array.from({ length: n }, (_, i) => (i - (n - 1) / 2) * 18);
+}
+
+/** Grass tufts on an inland plain-land hex (matches HexMap.grassTufts). */
+function grassTufts(coord: string): Array<{ x: number; y: number; s: number }> {
+  const r = rngFor(coord + 'g');
+  const out: Array<{ x: number; y: number; s: number }> = [];
+  for (let i = 0; i < 7; i++) {
+    const ang = r() * Math.PI * 2;
+    const dist = Math.sqrt(r()) * (APOTHEM - 8);
+    out.push({ x: Math.cos(ang) * dist, y: Math.sin(ang) * dist - 1, s: 2.6 + r() * 1.8 });
+  }
+  return out;
+}
+/** Sand speckle on a coastal plain-land hex (matches HexMap.sandDots). */
+function sandDots(coord: string): Array<{ x: number; y: number; r: number }> {
+  const r = rngFor(coord + 's');
+  const out: Array<{ x: number; y: number; r: number }> = [];
+  for (let i = 0; i < 9; i++) {
+    const ang = r() * Math.PI * 2;
+    const dist = Math.sqrt(r()) * (APOTHEM - 6);
+    out.push({ x: Math.cos(ang) * dist, y: Math.sin(ang) * dist, r: 0.7 + r() * 0.9 });
+  }
+  return out;
 }
 // A track end: a hex edge (0..5) or the centre. Base hex paths spell the centre
 // 'center'; laid-tile paths spell it 'c'. Treat both the same.
@@ -417,15 +458,40 @@ export function drawBoard(
     v.forEach((pt, i) => (i ? ctx.lineTo(pt.x, pt.y) : ctx.moveTo(pt.x, pt.y)));
     ctx.closePath();
     const centre = (h.cities?.length ?? 0) > 0 || (h.towns?.length ?? 0) > 0 || !!h.offboard;
-    const sandy =
-      !isWater && !laid && !centre && !(h.terrain ?? []).includes('mountain') && coast.coastalLand.has(h.coord);
+    const plainLand = !isWater && !laid && !centre && !(h.terrain ?? []).includes('mountain') && h.color === 'white';
+    const coastal = coast.coastalLand.has(h.coord);
     if (isWater && seaPat) ctx.fillStyle = seaPat;
-    else if (sandy) ctx.fillStyle = '#e3d6a4';
+    else if (plainLand && coastal) ctx.fillStyle = '#e3d6a4';
     else ctx.fillStyle = isWater ? SEA_BASE : fillOf(title, (laidDef?.color as TileColor) ?? h.color);
     ctx.fill();
     ctx.lineWidth = 1;
     ctx.strokeStyle = '#4a4332';
     ctx.stroke();
+
+    // Catan-style ground texture on plain land: grass tufts inland, sand speckle on
+    // the coast (matches the SVG board so the renderers read alike).
+    if (plainLand) {
+      if (coastal) {
+        ctx.fillStyle = '#cdba81';
+        for (const d of sandDots(h.coord)) {
+          ctx.beginPath();
+          ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      } else {
+        ctx.strokeStyle = '#9aa867';
+        ctx.lineWidth = 1.1;
+        ctx.lineCap = 'round';
+        for (const g of grassTufts(h.coord)) {
+          ctx.beginPath();
+          ctx.moveTo(g.x - g.s, g.y);
+          ctx.quadraticCurveTo(g.x - g.s + g.s * 0.5, g.y - g.s * 1.4, g.x, g.y);
+          ctx.moveTo(g.x - g.s * 0.3, g.y);
+          ctx.quadraticCurveTo(g.x - g.s * 0.3 + g.s * 0.4, g.y - g.s * 1.1, g.x + g.s * 0.5, g.y);
+          ctx.stroke();
+        }
+      }
+    }
 
     // mountains
     if ((h.terrain ?? []).includes('mountain')) {

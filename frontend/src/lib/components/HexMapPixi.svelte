@@ -8,11 +8,40 @@
   // imported so it never runs during static prerender.
   import { onMount } from 'svelte';
   import { game } from '$lib/game/sandbox.svelte';
-  import { drawBoard, boardBounds, computeCoast, boardTransform, waveParams } from '$lib/render/boardRender';
+  import { drawBoard, boardBounds, computeCoast, boardTransform, waveParams, hexAtWorld } from '$lib/render/boardRender';
+  import { hexesFor } from '$lib/engine';
   import { BoardCamera } from '$lib/render/camera';
 
   const cam = new BoardCamera();
   let wrap: HTMLDivElement;
+  let hover = $state<{ label: string; x: number; y: number } | null>(null);
+
+  /** Screen point (relative to the container) -> hex coordinate under it, or null. */
+  function hexAt(clientX: number, clientY: number): string | null {
+    const rect = wrap.getBoundingClientRect();
+    const cssW = rect.width, cssH = rect.height;
+    if (cssW < 2 || cssH < 2) return null;
+    const view = cam.viewFor(boardBounds(game.state, game.title), cssW, cssH);
+    const sc = cssW / view.w;
+    const wx = view.x + (clientX - rect.left) / sc;
+    const wy = view.y + (clientY - rect.top) / sc;
+    return hexAtWorld(game.state, game.title, wx, wy);
+  }
+  function onHover(e: PointerEvent) {
+    if (e.buttons !== 0) {
+      hover = null; // dragging (pan/pinch): no tooltip
+      return;
+    }
+    const coord = hexAt(e.clientX, e.clientY);
+    if (!coord) {
+      hover = null;
+      return;
+    }
+    const def = hexesFor(game.state)[coord];
+    const rect = wrap.getBoundingClientRect();
+    hover = { label: def?.name ? `${coord} · ${def.name}` : coord, x: e.clientX - rect.left, y: e.clientY - rect.top };
+  }
+  const clearHover = () => (hover = null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let PIXI: any = null, app: any = null, sprite: any = null, texture: any = null, waveG: any = null;
   let off: HTMLCanvasElement | null = null;
@@ -39,12 +68,6 @@
       if (sprite) sprite.texture = texture;
       else {
         sprite = new PIXI.Sprite(texture);
-        // The SVG board reads more vibrant thanks to its per-tile drop-shadows/contrast;
-        // the flat baked board has none, so lift saturation + contrast a touch to match.
-        const cm = new PIXI.ColorMatrixFilter();
-        cm.saturate(0.18, true);
-        cm.contrast(0.08, true);
-        sprite.filters = [cm];
         app.stage.addChildAt(sprite, 0);
       }
       app.renderer.resize(cssW, cssH);
@@ -144,6 +167,8 @@
         () => ({ w: wrap.clientWidth, h: wrap.clientHeight }),
         () => scheduleBake() // re-bake the board texture for the new view
       );
+      wrap.addEventListener('pointermove', onHover);
+      wrap.addEventListener('pointerleave', clearHover);
     })();
     return () => {
       destroyed = true;
@@ -151,12 +176,18 @@
       if (bakeReq) cancelAnimationFrame(bakeReq);
       ro?.disconnect();
       unbind?.();
+      wrap?.removeEventListener('pointermove', onHover);
+      wrap?.removeEventListener('pointerleave', clearHover);
       app?.destroy(true, { children: true });
     };
   });
 </script>
 
-<div class="cwrap" bind:this={wrap}></div>
+<div class="cwrap" bind:this={wrap}>
+  {#if hover}
+    <div class="htip" style="left:{hover.x}px; top:{hover.y}px">{hover.label}</div>
+  {/if}
+</div>
 
 <style>
   .cwrap {
@@ -164,6 +195,19 @@
     inset: 0;
     touch-action: none; /* we handle drag/pinch ourselves */
     cursor: grab;
+  }
+  .htip {
+    position: absolute;
+    transform: translate(-50%, calc(-100% - 10px));
+    pointer-events: none;
+    background: rgba(12, 20, 26, 0.92);
+    color: #eef3f6;
+    border: 1px solid var(--line, #2c3a44);
+    border-radius: 6px;
+    padding: 0.2rem 0.5rem;
+    font: 600 0.74rem ui-sans-serif, sans-serif;
+    white-space: nowrap;
+    z-index: 4;
   }
   .cwrap:active {
     cursor: grabbing;
