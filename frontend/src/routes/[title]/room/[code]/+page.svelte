@@ -6,7 +6,6 @@
   import { auth } from '$lib/game/auth.svelte';
   import { fade, fly } from 'svelte/transition';
   import HexMap from '$lib/components/HexMap.svelte';
-  import HexMapCanvas from '$lib/components/HexMapCanvas.svelte';
   import HexMapPixi from '$lib/components/HexMapPixi.svelte';
   import StockMarket from '$lib/components/StockMarket.svelte';
   import LiveCorpCard from '$lib/components/LiveCorpCard.svelte';
@@ -114,26 +113,27 @@
   // also carries the operating-round interactions (lay track / token / routes).
   const opv = $derived(game.state.round === 'operating' ? operatingView(game.state) : null);
 
-  // Experimental non-SVG board renderers (opt-in, persisted), cycled SVG -> Canvas
-  // -> WebGL. Both paint the board in one pass instead of re-diffing the SVG node
-  // tree - much lighter on fast bot/watch updates. View-only for now: interactive
+  // Experimental WebGL (PixiJS) board renderer (opt-in, persisted): it paints the
+  // board in one GPU pass instead of re-diffing the SVG node tree - much lighter on
+  // fast bot/watch updates - and supports pan/zoom. View-only for now: interactive
   // steps (track/token/run/map-build) fall back to the SVG board.
-  type BoardMode = 'svg' | 'canvas' | 'webgl';
+  type BoardMode = 'svg' | 'webgl';
   let boardMode = $state<BoardMode>('svg');
   $effect(() => {
     if (typeof localStorage === 'undefined') return;
     const v = localStorage.getItem('tp.board');
-    if (v === 'svg' || v === 'canvas' || v === 'webgl') boardMode = v;
+    if (v === 'webgl' || v === 'canvas') boardMode = 'webgl'; // 'canvas' renderer was removed
+    else boardMode = 'svg';
   });
   function cycleBoard() {
-    boardMode = boardMode === 'svg' ? 'canvas' : boardMode === 'canvas' ? 'webgl' : 'svg';
+    boardMode = boardMode === 'svg' ? 'webgl' : 'svg';
     try {
       localStorage.setItem('tp.board', boardMode);
     } catch {
       /* ignore */
     }
   }
-  const boardLabel = $derived(boardMode === 'svg' ? '▦ SVG' : boardMode === 'canvas' ? '◩ Canvas' : '◆ WebGL');
+  const boardLabel = $derived(boardMode === 'webgl' ? '◆ WebGL' : '▦ SVG');
   const boardInteractive = $derived(
     (game.canAct && (opv?.step === 'track' || opv?.step === 'token' || opv?.step === 'run')) ||
       game.state.round === 'mapbuild'
@@ -402,12 +402,8 @@
   <!-- the map: full-screen, always on, the board's background. On desktop the
        open panel pushes it over so the board re-centres in the visible space. -->
   <div class="maplayer" class:squeezed={panelOpen}>
-    {#if boardMode !== 'svg' && !boardInteractive}
-      {#if boardMode === 'webgl'}
-        <HexMapPixi />
-      {:else}
-        <HexMapCanvas />
-      {/if}
+    {#if boardMode === 'webgl' && !boardInteractive}
+      <HexMapPixi />
     {:else}
       <HexMap
         fill

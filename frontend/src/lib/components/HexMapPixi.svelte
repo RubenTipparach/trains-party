@@ -39,6 +39,12 @@
       if (sprite) sprite.texture = texture;
       else {
         sprite = new PIXI.Sprite(texture);
+        // The SVG board reads more vibrant thanks to its per-tile drop-shadows/contrast;
+        // the flat baked board has none, so lift saturation + contrast a touch to match.
+        const cm = new PIXI.ColorMatrixFilter();
+        cm.saturate(0.18, true);
+        cm.contrast(0.08, true);
+        sprite.filters = [cm];
         app.stage.addChildAt(sprite, 0);
       }
       app.renderer.resize(cssW, cssH);
