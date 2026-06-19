@@ -22,7 +22,9 @@
   let destroyed = false;
 
   function bake() {
-    if (!app || !PIXI || !wrap) return;
+    // app exists as soon as it is constructed, but app.renderer only after init()
+    // resolves; a bot move / resize can schedule a bake during that gap, so guard it.
+    if (!app || !app.renderer || !PIXI || !wrap) return;
     const dpr = window.devicePixelRatio || 1;
     const cssW = wrap.clientWidth;
     const cssH = wrap.clientHeight;
