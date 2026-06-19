@@ -47,11 +47,12 @@
     return s.round;
   }
 
-  type Point = { label: string; values: number[]; rev: Record<string, number> };
+  type Point = { label: string; values: number[]; rev: Record<string, number>; bank: number };
   const snap = (s: GameState): Point => ({
     label: roundLabel(s),
     values: s.players.map((p) => playerValue(s, p.id)),
-    rev: Object.fromEntries(s.corporations.map((c) => [c.sym, c.lastRun?.revenue ?? 0]))
+    rev: Object.fromEntries(s.corporations.map((c) => [c.sym, c.lastRun?.revenue ?? 0])),
+    bank: s.bank
   });
 
   // Replaying the log recomputes route revenue per run, which is costly on a diesel
@@ -118,41 +119,45 @@
   const CW = 320;
   const CH = 120;
   const PAD = 4;
+  type Series = { name: string; color: string; vals: number[] };
+
+  const xAt = (i: number, n: number) => (n <= 1 ? CW / 2 : PAD + (i / (n - 1)) * (CW - 2 * PAD));
+  const yAt = (v: number, max: number) => CH - PAD - (Math.max(0, v) / max) * (CH - 2 * PAD);
   function path(vals: number[], max: number): string {
     const n = vals.length;
     if (!n || max <= 0) return '';
-    return vals
-      .map((v, i) => {
-        const x = n === 1 ? CW / 2 : PAD + (i / (n - 1)) * (CW - 2 * PAD);
-        const y = CH - PAD - (v / max) * (CH - 2 * PAD);
-        return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
-      })
-      .join(' ');
+    return vals.map((v, i) => `${i === 0 ? 'M' : 'L'}${xAt(i, n).toFixed(1)},${yAt(v, max).toFixed(1)}`).join(' ');
   }
-  const valueLines = $derived.by(() => {
-    const max = Math.max(1, ...history.flatMap((p) => p.values));
-    return game.state.players.map((p, i) => ({
+
+  const labels = $derived(history.map((p) => p.label));
+  const valueSeries = $derived<Series[]>(
+    game.state.players.map((p, i) => ({
       name: p.name,
-      seat: seatColor(i),
-      d: path(history.map((pt) => pt.values[i] ?? 0), max),
-      max
-    }));
-  });
+      color: seatColor(i),
+      vals: history.map((pt) => pt.values[i] ?? 0)
+    }))
+  );
   // Corporation revenue over time: only corps that have ever run (a positive rev).
-  const revLines = $derived.by(() => {
-    const syms = game.state.corporations
+  const revSeries = $derived<Series[]>(
+    game.state.corporations
       .filter((c) => history.some((pt) => (pt.rev[c.sym] ?? 0) > 0))
-      .map((c) => c.sym);
-    const max = Math.max(1, ...history.flatMap((p) => Object.values(p.rev)));
-    return {
-      max,
-      lines: syms.map((sym) => ({
-        sym,
-        color: game.state.corporations.find((c) => c.sym === sym)?.color ?? '#888',
-        d: path(history.map((pt) => pt.rev[sym] ?? 0), max)
-      }))
-    };
-  });
+      .map((c) => ({ name: c.sym, color: c.color ?? '#888', vals: history.map((pt) => pt.rev[c.sym] ?? 0) }))
+  );
+  const bankSeries = $derived<Series[]>([
+    { name: 'Bank', color: '#d9b25b', vals: history.map((pt) => pt.bank) }
+  ]);
+  const bankFinite = $derived(game.state.bank >= 0);
+
+  // Hover: which chart and which round-index the pointer is over (for the tooltip).
+  let hover = $state<{ chart: string; i: number } | null>(null);
+  function onHover(e: PointerEvent, chart: string, n: number) {
+    const r = (e.currentTarget as SVGElement).getBoundingClientRect();
+    if (!r.width || n <= 0) return;
+    const frac = (e.clientX - r.left) / r.width;
+    hover = { chart, i: Math.max(0, Math.min(n - 1, Math.round(frac * (n - 1)))) };
+  }
+
+  const money = (n: number) => `${CURRENCY}${Math.round(n).toLocaleString()}`;
   const fmtDelta = (n: number) => (n > 0 ? `+${CURRENCY}${n}` : n < 0 ? `-${CURRENCY}${-n}` : '0');
 </script>
 
@@ -170,31 +175,57 @@
   {/each}
 </div>
 
-<!-- Charts: the value race + company incomes over time -->
-<div class="charts">
+<!-- The bank: a finite, shrinking pool; the game ends the OR set it breaks. -->
+<div class="bankbar">
+  <span class="blabel">Bank</span>
+  <span class="bval">{bankFinite ? `${CURRENCY}${game.state.bank.toLocaleString()}` : 'unlimited'}</span>
+</div>
+
+<!-- One line chart with a hover tooltip (round label + each series' value). -->
+{#snippet chart(title: string, series: Series[], fmt: (n: number) => string)}
+  {@const max = Math.max(1, ...series.flatMap((s) => s.vals))}
+  {@const n = labels.length}
   <div class="chart">
-    <div class="ctitle">Player value over time</div>
-    <svg viewBox="0 0 {CW} {CH}" preserveAspectRatio="none" role="img" aria-label="Player value over time">
-      <line class="axis" x1={PAD} y1={CH - PAD} x2={CW - PAD} y2={CH - PAD} />
-      {#each valueLines as l}<path class="line" d={l.d} style="stroke:{l.seat}" />{/each}
-    </svg>
+    <div class="ctitle">{title}</div>
+    <div class="cwrap">
+      <svg
+        viewBox="0 0 {CW} {CH}"
+        preserveAspectRatio="none"
+        role="img"
+        aria-label={title}
+        onpointermove={(e) => onHover(e, title, n)}
+        onpointerleave={() => (hover = null)}
+      >
+        <line class="axis" x1={PAD} y1={CH - PAD} x2={CW - PAD} y2={CH - PAD} />
+        {#each series as s}<path class="line" d={path(s.vals, max)} style="stroke:{s.color}" />{/each}
+        {#if hover && hover.chart === title}
+          {@const hx = xAt(hover.i, n)}
+          <line class="guide" x1={hx} y1={PAD} x2={hx} y2={CH - PAD} />
+          {#each series as s}
+            <circle cx={hx} cy={yAt(s.vals[hover.i] ?? 0, max)} r="2.6" style="fill:{s.color}" />
+          {/each}
+        {/if}
+      </svg>
+      {#if hover && hover.chart === title}
+        <div class="tip" class:right={hover.i > n / 2} style="left:{(xAt(hover.i, n) / CW) * 100}%">
+          <div class="tlabel">{labels[hover.i]}</div>
+          {#each [...series].sort((a, b) => (b.vals[hover!.i] ?? 0) - (a.vals[hover!.i] ?? 0)) as s}
+            <div class="trow"><i style="background:{s.color}"></i><span>{s.name}</span><b>{fmt(s.vals[hover.i] ?? 0)}</b></div>
+          {/each}
+        </div>
+      {/if}
+    </div>
     <div class="legend">
-      {#each valueLines as l}<span class="lg" style="--c:{l.seat}"><i></i>{l.name}</span>{/each}
+      {#each series as s}<span class="lg" style="--c:{s.color}"><i></i>{s.name}</span>{/each}
     </div>
   </div>
+{/snippet}
 
-  {#if revLines.lines.length}
-    <div class="chart">
-      <div class="ctitle">Company revenue (per run) over time</div>
-      <svg viewBox="0 0 {CW} {CH}" preserveAspectRatio="none" role="img" aria-label="Company revenue over time">
-        <line class="axis" x1={PAD} y1={CH - PAD} x2={CW - PAD} y2={CH - PAD} />
-        {#each revLines.lines as l}<path class="line" d={l.d} style="stroke:{l.color}" />{/each}
-      </svg>
-      <div class="legend">
-        {#each revLines.lines as l}<span class="lg" style="--c:{l.color}"><i></i>{l.sym}</span>{/each}
-      </div>
-    </div>
-  {/if}
+<!-- Charts: the value race, company incomes, and the bank, over time -->
+<div class="charts">
+  {@render chart('Player value over time', valueSeries, money)}
+  {#if revSeries.length}{@render chart('Company revenue (per run) over time', revSeries, money)}{/if}
+  {#if bankFinite}{@render chart('Bank over time', bankSeries, money)}{/if}
 </div>
 
 <div class="scroll">
@@ -380,12 +411,89 @@
     color: #ff8a7e;
   }
 
+  /* bank readout */
+  .bankbar {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.6rem;
+    margin: 0 0 1.3rem;
+    padding: 0.55rem 0.8rem;
+    border: 1px solid var(--line);
+    border-left: 4px solid #d9b25b;
+    border-radius: 9px;
+    background: var(--bg-soft);
+  }
+  .blabel {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    font-weight: 700;
+  }
+  .bval {
+    font-size: 1.2rem;
+    font-weight: 800;
+    color: #d9b25b;
+  }
+
   /* charts */
   .charts {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
     gap: 1rem;
     margin-bottom: 1.4rem;
+  }
+  .cwrap {
+    position: relative;
+  }
+  .chart .guide {
+    stroke: var(--muted);
+    stroke-width: 1;
+    stroke-dasharray: 3 3;
+    vector-effect: non-scaling-stroke;
+  }
+  .tip {
+    position: absolute;
+    top: 2px;
+    transform: translateX(-50%);
+    pointer-events: none;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    padding: 0.35rem 0.5rem;
+    font-size: 0.72rem;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+    z-index: 2;
+    min-width: 7.5em;
+    white-space: nowrap;
+  }
+  .tip.right {
+    transform: translateX(-100%);
+  }
+  .tlabel {
+    font-weight: 800;
+    color: var(--ink);
+    margin-bottom: 0.2rem;
+  }
+  .trow {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: var(--muted);
+  }
+  .trow i {
+    width: 9px;
+    height: 9px;
+    border-radius: 2px;
+    flex: none;
+  }
+  .trow span {
+    flex: 1;
+  }
+  .trow b {
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
   }
   .chart {
     border: 1px solid var(--line);
