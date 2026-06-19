@@ -6,6 +6,7 @@
   import { auth } from '$lib/game/auth.svelte';
   import { fade, fly } from 'svelte/transition';
   import HexMap from '$lib/components/HexMap.svelte';
+  import HexMapCanvas from '$lib/components/HexMapCanvas.svelte';
   import StockMarket from '$lib/components/StockMarket.svelte';
   import LiveCorpCard from '$lib/components/LiveCorpCard.svelte';
   import CompanyCard from '$lib/components/CompanyCard.svelte';
@@ -111,6 +112,26 @@
   // The map is the board's permanent background. The single background HexMap
   // also carries the operating-round interactions (lay track / token / routes).
   const opv = $derived(game.state.round === 'operating' ? operatingView(game.state) : null);
+
+  // Experimental canvas board renderer (opt-in, persisted). One imperative repaint
+  // instead of re-diffing the SVG node tree - much lighter on fast bot/watch updates.
+  // View-only for now: interactive steps (track/token/run/map-build) fall back to SVG.
+  let useCanvasBoard = $state(false);
+  $effect(() => {
+    if (typeof localStorage !== 'undefined') useCanvasBoard = localStorage.getItem('tp.board') === 'canvas';
+  });
+  function toggleBoard() {
+    useCanvasBoard = !useCanvasBoard;
+    try {
+      localStorage.setItem('tp.board', useCanvasBoard ? 'canvas' : 'svg');
+    } catch {
+      /* ignore */
+    }
+  }
+  const boardInteractive = $derived(
+    (game.canAct && (opv?.step === 'track' || opv?.step === 'token' || opv?.step === 'run')) ||
+      game.state.round === 'mapbuild'
+  );
 
   let isMobile = $state(false);
 
@@ -375,14 +396,21 @@
   <!-- the map: full-screen, always on, the board's background. On desktop the
        open panel pushes it over so the board re-centres in the visible space. -->
   <div class="maplayer" class:squeezed={panelOpen}>
-    <HexMap
-      fill
-      paused={mapPaused}
-      liftControls={isMobile && opPanel}
-      layMode={game.canAct && opv?.step === 'track'}
-      tokenMode={game.canAct && opv?.step === 'token'}
-      runMode={game.canAct && opv?.step === 'run'}
-    />
+    {#if useCanvasBoard && !boardInteractive}
+      <HexMapCanvas />
+    {:else}
+      <HexMap
+        fill
+        paused={mapPaused}
+        liftControls={isMobile && opPanel}
+        layMode={game.canAct && opv?.step === 'track'}
+        tokenMode={game.canAct && opv?.step === 'token'}
+        runMode={game.canAct && opv?.step === 'run'}
+      />
+    {/if}
+    <button class="boardtoggle" onclick={toggleBoard} title="Board renderer (canvas is experimental, view-only)">
+      {useCanvasBoard ? '◩ Canvas' : '▦ SVG'}
+    </button>
   </div>
 
   <!-- floating cycle/round tracker (RoLA): the board-style visual aid -->
@@ -801,6 +829,23 @@
     inset: 0;
     z-index: 0;
     transition: left 240ms ease, right 240ms ease, bottom 240ms ease;
+  }
+  .boardtoggle {
+    position: absolute;
+    left: 8px;
+    bottom: 8px;
+    z-index: 5;
+    font: 700 0.7rem ui-sans-serif, sans-serif;
+    padding: 0.25rem 0.6rem;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: var(--bg-soft);
+    color: var(--ink);
+    cursor: pointer;
+    opacity: 0.82;
+  }
+  .boardtoggle:hover {
+    opacity: 1;
   }
   .loadingroom {
     min-height: 60vh;
