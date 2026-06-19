@@ -9,7 +9,9 @@
   import { onMount } from 'svelte';
   import { game } from '$lib/game/sandbox.svelte';
   import { drawBoard, boardBounds, computeCoast, boardTransform, waveParams } from '$lib/render/boardRender';
+  import { BoardCamera } from '$lib/render/camera';
 
+  const cam = new BoardCamera();
   let wrap: HTMLDivElement;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let PIXI: any = null, app: any = null, sprite: any = null, texture: any = null, waveG: any = null;
@@ -48,7 +50,7 @@
       cssW,
       cssH,
       dpr,
-      view: boardBounds(game.state, game.title)
+      view: cam.viewFor(boardBounds(game.state, game.title), cssW, cssH)
     });
     texture.source.update();
     sprite.setSize(cssW, cssH);
@@ -77,7 +79,7 @@
     if (!app || !app.renderer || !waveG || !wrap || (typeof document !== 'undefined' && document.hidden)) return;
     const cssW = wrap.clientWidth, cssH = wrap.clientHeight;
     if (cssW < 2 || cssH < 2) return;
-    const view = boardBounds(game.state, game.title);
+    const view = cam.viewFor(boardBounds(game.state, game.title), cssW, cssH);
     const { s, offX, offY } = boardTransform(view, cssW, cssH);
     const coast = computeCoast(game.state, game.title);
     const t = performance.now() / 1000;
@@ -104,6 +106,7 @@
 
   onMount(() => {
     let ro: ResizeObserver | undefined;
+    let unbind: (() => void) | undefined;
     const canvas = document.createElement('canvas');
     (async () => {
       PIXI = await import('pixi.js');
@@ -129,12 +132,19 @@
       raf = requestAnimationFrame(frame);
       ro = new ResizeObserver(() => scheduleBake());
       ro.observe(wrap);
+      unbind = cam.bind(
+        wrap,
+        () => boardBounds(game.state, game.title),
+        () => ({ w: wrap.clientWidth, h: wrap.clientHeight }),
+        () => scheduleBake() // re-bake the board texture for the new view
+      );
     })();
     return () => {
       destroyed = true;
       if (raf) cancelAnimationFrame(raf);
       if (bakeReq) cancelAnimationFrame(bakeReq);
       ro?.disconnect();
+      unbind?.();
       app?.destroy(true, { children: true });
     };
   });
@@ -146,6 +156,11 @@
   .cwrap {
     position: absolute;
     inset: 0;
+    touch-action: none; /* we handle drag/pinch ourselves */
+    cursor: grab;
+  }
+  .cwrap:active {
+    cursor: grabbing;
   }
   .cwrap :global(canvas) {
     display: block;
