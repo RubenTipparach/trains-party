@@ -134,9 +134,9 @@
     }
   }
   const boardLabel = $derived(boardMode === 'webgl' ? '◆ WebGL' : '▦ SVG');
-  // Steps the WebGL board does NOT handle natively yet -> fall back to the SVG board.
-  // (Track/token/run are handled by the WebGL board; RoLA map-build is not yet.)
-  const boardInteractive = $derived(game.state.round === 'mapbuild');
+  // The WebGL board now drives all board interaction natively (track/token/run +
+  // RoLA map-build), so it no longer needs to hand any step back to the SVG board.
+  const boardInteractive = false;
 
   let isMobile = $state(false);
 

@@ -12,10 +12,18 @@
   import { onMount } from 'svelte';
   import { game } from '$lib/game/sandbox.svelte';
   import { drawBoard, boardBounds, computeCoast, boardTransform, waveParams, hexAtWorld } from '$lib/render/boardRender';
-  import { hexesFor, trackLays, tokenPlays, operatingView, TILES } from '$lib/engine';
+  import { hexesFor, trackLays, tokenPlays, operatingView, TILES, placementCoords, isLegalPlacement } from '$lib/engine';
   import { routing } from '$lib/game/routing.svelte';
-  import { hexCenter, hexVertices } from '$lib/hexgeo';
+  import { hexCenter, hexVertices, HEX_SIZE, APOTHEM } from '$lib/hexgeo';
   import { BoardCamera } from '$lib/render/camera';
+
+  /** Board bounds, widened during RoLA map-build so there is empty grid to place on. */
+  function currentBounds() {
+    const b = boardBounds(game.state, game.title);
+    if (game.state.round !== 'mapbuild') return b;
+    const m = HEX_SIZE * 6;
+    return { x: b.x - m, y: b.y - m, w: b.w + 2 * m, h: b.h + 2 * m };
+  }
 
   const cam = new BoardCamera();
   let wrap: HTMLDivElement;
@@ -77,6 +85,24 @@
     tokenSel = null;
   }
 
+  // --- RoLA map-build (place tri-hex tiles) ---
+  const building = $derived(game.state.round === 'mapbuild');
+  const canBuild = $derived(building && game.canAct);
+  let buildSel = $state<{ anchor: string; rotation: number } | null>(null);
+  $effect(() => {
+    if (buildSel && !canBuild) buildSel = null;
+  });
+  const buildCells = $derived(buildSel ? placementCoords(buildSel.anchor, buildSel.rotation) : []);
+  const buildLegal = $derived(buildSel ? isLegalPlacement(hexesFor(game.state), buildSel.anchor, buildSel.rotation) : false);
+  function rotateBuild() {
+    if (buildSel) buildSel = { ...buildSel, rotation: (buildSel.rotation + 1) % 6 };
+  }
+  function placeBuild() {
+    if (!buildSel || !buildLegal) return;
+    game.act({ type: 'place_tri', player: game.active!, anchor: buildSel.anchor, rotation: buildSel.rotation });
+    buildSel = null;
+  }
+
   // --- run step (route stop selection; pay/withhold lives in the operating panel) ---
   const runMode = $derived(game.canAct && opv?.step === 'run');
   const routeSegColors = $derived(runMode ? routing.segColors() : {});
@@ -92,6 +118,11 @@
   // Re-bake the board (route stripes live in the texture) whenever the routes change.
   $effect(() => {
     void routeSegColors;
+    scheduleBake();
+  });
+  // Re-bake whenever the game advances (a move, a tile laid, a token placed, ...).
+  $effect(() => {
+    void game.state.seq;
     scheduleBake();
   });
 
@@ -131,7 +162,7 @@
       cssW,
       cssH,
       dpr,
-      view: cam.viewFor(boardBounds(game.state, game.title), cssW, cssH),
+      view: cam.viewFor(currentBounds(), cssW, cssH),
       overlayTile: previewTile,
       routeSegColors
     });
@@ -168,7 +199,7 @@
     if (!app || !app.renderer || !waveG || !wrap || (typeof document !== 'undefined' && document.hidden)) return;
     const cssW = wrap.clientWidth, cssH = wrap.clientHeight;
     if (cssW < 2 || cssH < 2) return;
-    const view = cam.viewFor(boardBounds(game.state, game.title), cssW, cssH);
+    const view = cam.viewFor(currentBounds(), cssW, cssH);
     const { s, offX, offY } = boardTransform(view, cssW, cssH);
     // shore foam
     const coast = computeCoast(game.state, game.title);
@@ -212,6 +243,12 @@
           uiG.stroke({ width: 4, color: col, alpha: 0.95 });
         }
       }
+    } else if (building && buildSel) {
+      const col = buildLegal ? 0x5fd39b : 0xe0655c; // green legal / red illegal
+      for (const hx of buildCells) {
+        hexPath(uiG, hx, view, s, offX, offY);
+        uiG.stroke({ width: 4, color: col, alpha: 0.95 });
+      }
     }
     app.renderer.render(app.stage);
   }
@@ -221,9 +258,34 @@
     const rect = wrap.getBoundingClientRect();
     const cssW = rect.width, cssH = rect.height;
     if (cssW < 2 || cssH < 2) return null;
-    const view = cam.viewFor(boardBounds(game.state, game.title), cssW, cssH);
+    const view = cam.viewFor(currentBounds(), cssW, cssH);
     const sc = cssW / view.w;
     return hexAtWorld(game.state, game.title, view.x + (clientX - rect.left) / sc, view.y + (clientY - rect.top) / sc);
+  }
+  /** Nearest valid (even-parity) GRID hex to a screen point - for map-build, where the
+   *  target may be empty grid not yet on the map. Mirrors HexMap.hexAt. */
+  function hexAtGrid(clientX: number, clientY: number): string {
+    const rect = wrap.getBoundingClientRect();
+    const view = cam.viewFor(currentBounds(), rect.width, rect.height);
+    const sc = rect.width / view.w;
+    const x = view.x + (clientX - rect.left) / sc;
+    const y = view.y + (clientY - rect.top) / sc;
+    const colF = x / (1.5 * HEX_SIZE);
+    const rowF = y / APOTHEM + 1;
+    let best = '';
+    let bestD = Infinity;
+    for (let col = Math.floor(colF) - 1; col <= Math.ceil(colF) + 1; col++) {
+      if (col < 0) continue;
+      for (let row = Math.floor(rowF) - 2; row <= Math.ceil(rowF) + 2; row++) {
+        if (row < 1 || (col + row) % 2 !== 0) continue;
+        const d = (col * 1.5 * HEX_SIZE - x) ** 2 + ((row - 1) * APOTHEM - y) ** 2;
+        if (d < bestD) {
+          bestD = d;
+          best = String.fromCharCode(65 + col) + row;
+        }
+      }
+    }
+    return best;
   }
   function onHover(e: PointerEvent) {
     if (e.buttons !== 0) {
@@ -247,6 +309,11 @@
     downAt = null;
     if (!d) return;
     if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > 6 || performance.now() - d.t > 500) return; // a drag, not a tap
+    if (canBuild) {
+      const g = hexAtGrid(e.clientX, e.clientY);
+      if (g) buildSel = { anchor: g, rotation: buildSel?.rotation ?? 0 };
+      return;
+    }
     const coord = hexAt(e.clientX, e.clientY);
     if (!coord) return;
     if (layMode && legalHexes.has(coord)) take(coord);
@@ -289,7 +356,7 @@
       ro.observe(wrap);
       unbind = cam.bind(
         wrap,
-        () => boardBounds(game.state, game.title),
+        () => currentBounds(),
         () => ({ w: wrap.clientWidth, h: wrap.clientHeight }),
         () => scheduleBake()
       );
@@ -331,6 +398,13 @@
       <span class="lcost">token · {tokenSel}</span>
       <button class="lbtn ok" onclick={placeToken} title="Place token">✓ place token</button>
       <button class="lbtn cancel" onclick={() => (tokenSel = null)} title="Cancel">✕</button>
+    </div>
+  {:else if buildSel}
+    <div class="laybar">
+      <span class="lcost">tile · {buildSel.anchor}</span>
+      <button class="lbtn" onclick={rotateBuild} title="Rotate">⟳ rotate</button>
+      <button class="lbtn ok" onclick={placeBuild} disabled={!buildLegal} title="Place tile">✓ place</button>
+      <button class="lbtn cancel" onclick={() => (buildSel = null)} title="Cancel">✕</button>
     </div>
   {/if}
 </div>
@@ -393,6 +467,10 @@
     background: #2f7d57;
     border-color: #2f7d57;
     color: #fff;
+  }
+  .lbtn:disabled {
+    opacity: 0.45;
+    cursor: default;
   }
   .lbtn.cancel {
     padding: 0.3rem 0.6rem;
