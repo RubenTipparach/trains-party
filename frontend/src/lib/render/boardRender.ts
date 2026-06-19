@@ -19,6 +19,7 @@ import { HEX_SIZE, APOTHEM, hexCenter, hexVertices, edgeMidpoint } from '$lib/he
 import { TILES, rotatePaths, configFor } from '$lib/engine';
 import type { GameState } from '$lib/engine';
 import type { HexDef, TileColor } from '$lib/data/types';
+import { WATER_BASE, WATER_STATIC, WATER_FRAMES, TILE_W, TILE_H } from '$lib/config/waterArt';
 
 /** The world-space rectangle currently shown (maps onto the canvas, preserving aspect). */
 export interface BoardView {
@@ -28,8 +29,32 @@ export interface BoardView {
   h: number;
 }
 
-const SEA_BASE = '#74c1be'; // WATER_BASE
-const SEA_DEEP = '#2f6f96';
+const SEA_BASE = WATER_BASE; // teal shallow used for lake hexes
+const SEA_DEEP = '#1b6075'; // deep base behind the pixel-art sea (matches HexMap)
+
+// One pixel-art water tile (base + always-on deep shadows + a representative
+// highlight/foam frame), baked once to an offscreen canvas and tiled as a
+// repeating pattern for the sea. Mirrors HexMap's WATER_BASE/STATIC/FRAMES art.
+let seaTile: HTMLCanvasElement | null = null;
+function seaTileCanvas(): HTMLCanvasElement | null {
+  if (seaTile) return seaTile;
+  if (typeof document === 'undefined') return null;
+  const PXS = 3; // render the tile at 3x so it upscales crisply
+  const cv = document.createElement('canvas');
+  cv.width = TILE_W * PXS;
+  cv.height = TILE_H * PXS;
+  const c = cv.getContext('2d');
+  if (!c) return null;
+  c.scale(PXS, PXS);
+  c.fillStyle = WATER_BASE;
+  c.fillRect(0, 0, TILE_W, TILE_H);
+  for (const [x, y, w, h, col] of [...WATER_STATIC, ...WATER_FRAMES[2]]) {
+    c.fillStyle = col;
+    c.fillRect(x, y, w, h);
+  }
+  seaTile = cv;
+  return cv;
+}
 
 const FILL: Record<TileColor, string> = {
   white: '#e7dcbf',
@@ -208,8 +233,9 @@ export function drawBoard(
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, cssW, cssH);
+  ctx.imageSmoothingEnabled = false; // keep the pixel-art water crisp when upscaled
   ctx.fillStyle = SEA_DEEP;
-  ctx.fillRect(0, 0, cssW, cssH);
+  ctx.fillRect(0, 0, cssW, cssH); // also covers any letterbox bars
 
   const s = Math.min(cssW / view.w, cssH / view.h);
   const offX = (cssW - view.w * s) / 2;
@@ -217,6 +243,17 @@ export function drawBoard(
   ctx.translate(offX, offY);
   ctx.scale(s, s);
   ctx.translate(-view.x, -view.y);
+
+  // Pixel-art sea across the board area (world space, so it pans with the map).
+  const tile = seaTileCanvas();
+  const pat = tile && ctx.createPattern(tile, 'repeat');
+  if (pat && typeof DOMMatrix !== 'undefined') {
+    pat.setTransform(new DOMMatrix().translate(view.x, view.y).scale(TILE_W / tile!.width, TILE_H / tile!.height));
+    ctx.fillStyle = pat;
+  } else {
+    ctx.fillStyle = SEA_BASE;
+  }
+  ctx.fillRect(view.x, view.y, view.w, view.h);
 
   // tokens (live), keyed by hex
   const tokensByHex = new Map<string, { sym: string; color: string }[]>();
