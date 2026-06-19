@@ -1,29 +1,25 @@
 <script lang="ts">
-  // View-only WebGL board (PixiJS), stage 1 of the GPU renderer. The board is
-  // painted by the shared drawBoard() into an offscreen canvas and uploaded as a
-  // GPU texture that PixiJS composites; it is re-baked (one rAF) only when the game
-  // advances or the container resizes. This caches the (rarely-changing) board as a
-  // single texture - cheap to composite - and gives us a WebGL stage on which the
-  // animated layer (trains, route stripes, sliding tokens) becomes GPU sprites in a
-  // later stage. View-only: interactive steps fall back to the SVG board.
-  //
-  // PixiJS is loaded with a dynamic import so it never runs during static
-  // prerender (it touches browser-only globals).
+  // View-only WebGL board (PixiJS). The static board (sea glow, hexes, tiles, tokens)
+  // is painted by the shared drawBoard() into an offscreen canvas and uploaded as a
+  // GPU texture, re-baked only when the game advances or the container resizes. The
+  // animated shore waves are NOT baked - they are drawn as a GPU Graphics layer on top
+  // and redrawn every frame, so the heavy board texture is uploaded only on change.
+  // View-only: interactive steps fall back to the SVG board. PixiJS is dynamically
+  // imported so it never runs during static prerender.
   import { onMount } from 'svelte';
   import { game } from '$lib/game/sandbox.svelte';
-  import { drawBoard, boardBounds } from '$lib/render/boardRender';
+  import { drawBoard, boardBounds, computeCoast, boardTransform, waveParams } from '$lib/render/boardRender';
 
   let wrap: HTMLDivElement;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let PIXI: any = null, app: any = null, sprite: any = null, texture: any = null;
+  let PIXI: any = null, app: any = null, sprite: any = null, texture: any = null, waveG: any = null;
   let off: HTMLCanvasElement | null = null;
   let offCtx: CanvasRenderingContext2D | null = null;
+  let bakeReq = 0;
   let raf = 0;
   let destroyed = false;
 
   function bake() {
-    // app exists as soon as it is constructed, but app.renderer only after init()
-    // resolves; a bot move / resize can schedule a bake during that gap, so guard it.
     if (!app || !app.renderer || !PIXI || !wrap) return;
     const dpr = window.devicePixelRatio || 1;
     const cssW = wrap.clientWidth;
@@ -41,11 +37,12 @@
       if (sprite) sprite.texture = texture;
       else {
         sprite = new PIXI.Sprite(texture);
-        app.stage.addChild(sprite);
+        app.stage.addChildAt(sprite, 0);
       }
       app.renderer.resize(cssW, cssH);
     }
     if (!offCtx) return;
+    // No `time` -> the board texture omits the waves (the Graphics layer draws them).
     drawBoard(offCtx, game.state, {
       title: game.title,
       cssW,
@@ -53,21 +50,56 @@
       dpr,
       view: boardBounds(game.state, game.title)
     });
-    texture.source.update(); // re-upload the freshly painted board to the GPU
+    texture.source.update();
     sprite.setSize(cssW, cssH);
-    app.renderer.render(app.stage);
   }
-  function schedule() {
-    if (raf) return;
-    raf = requestAnimationFrame(() => {
-      raf = 0;
+  function scheduleBake() {
+    if (bakeReq) return;
+    bakeReq = requestAnimationFrame(() => {
+      bakeReq = 0;
       bake();
     });
   }
 
+  // Dashed foam segment (PixiJS has no native dash), built in screen coords.
+  function dash(g: any, x1: number, y1: number, x2: number, y2: number) {
+    const dx = x2 - x1, dy = y2 - y1, len = Math.hypot(dx, dy);
+    if (len < 0.001) return;
+    const ux = dx / len, uy = dy / len;
+    for (let d = 0; d < len; d += 14) {
+      const e = Math.min(d + 8, len);
+      g.moveTo(x1 + ux * d, y1 + uy * d).lineTo(x1 + ux * e, y1 + uy * e);
+    }
+  }
+
+  function frame() {
+    raf = requestAnimationFrame(frame);
+    if (!app || !app.renderer || !waveG || !wrap || (typeof document !== 'undefined' && document.hidden)) return;
+    const cssW = wrap.clientWidth, cssH = wrap.clientHeight;
+    if (cssW < 2 || cssH < 2) return;
+    const view = boardBounds(game.state, game.title);
+    const { s, offX, offY } = boardTransform(view, cssW, cssH);
+    const coast = computeCoast(game.state, game.title);
+    const t = performance.now() / 1000;
+    waveG.clear();
+    for (const w of coast.waves) {
+      for (const lead of [0, 0.5]) {
+        const { scale, alpha } = waveParams(w, t, lead);
+        if (alpha <= 0.01) continue;
+        const sx1 = offX + (w.ox + (w.x1 - w.ox) * scale - view.x) * s;
+        const sy1 = offY + (w.oy + (w.y1 - w.oy) * scale - view.y) * s;
+        const sx2 = offX + (w.ox + (w.x2 - w.ox) * scale - view.x) * s;
+        const sy2 = offY + (w.oy + (w.y2 - w.oy) * scale - view.y) * s;
+        dash(waveG, sx1, sy1, sx2, sy2);
+        waveG.stroke({ width: 2.3, color: 0xffffff, alpha, cap: 'round' });
+      }
+    }
+    app.renderer.render(app.stage);
+  }
+
   $effect(() => {
     void game.state.seq;
-    schedule();
+    scheduleBake();
   });
 
   onMount(() => {
@@ -81,7 +113,7 @@
         width: Math.max(1, wrap?.clientWidth ?? 1),
         height: Math.max(1, wrap?.clientHeight ?? 1),
         backgroundAlpha: 0,
-        antialias: false,
+        antialias: true,
         resolution: window.devicePixelRatio || 1,
         autoDensity: true
       });
@@ -89,15 +121,19 @@
         app.destroy(true);
         return;
       }
-      app.ticker.stop(); // we render on demand (on bake), not every frame
+      app.ticker.stop(); // we render on demand (bake + per-frame wave layer)
+      waveG = new PIXI.Graphics();
+      app.stage.addChild(waveG);
       wrap.appendChild(canvas);
       bake();
-      ro = new ResizeObserver(() => schedule());
+      raf = requestAnimationFrame(frame);
+      ro = new ResizeObserver(() => scheduleBake());
       ro.observe(wrap);
     })();
     return () => {
       destroyed = true;
       if (raf) cancelAnimationFrame(raf);
+      if (bakeReq) cancelAnimationFrame(bakeReq);
       ro?.disconnect();
       app?.destroy(true, { children: true });
     };

@@ -16,7 +16,7 @@
  * lay-fan / build-preview UI, pings, board rotation, and suburbs.
  */
 import { HEX_SIZE, APOTHEM, hexCenter, hexVertices, edgeMidpoint } from '$lib/hexgeo';
-import { TILES, rotatePaths, configFor } from '$lib/engine';
+import { TILES, rotatePaths, configFor, neighbor } from '$lib/engine';
 import type { GameState } from '$lib/engine';
 import type { HexDef, TileColor } from '$lib/data/types';
 import { WATER_BASE, WATER_STATIC, WATER_FRAMES, TILE_W, TILE_H } from '$lib/config/waterArt';
@@ -55,6 +55,119 @@ function seaTileCanvas(): HTMLCanvasElement | null {
   seaTile = cv;
   return cv;
 }
+
+const HALO_R = 1.7 * HEX_SIZE; // shallow teal reach from a coastal land hex centre
+
+/** Stable per-coordinate hash (matches HexMap.segRand) for wave phase/speed. */
+function segRand(x: number, y: number, salt: number): number {
+  let h = (Math.round(x) * 374761393 + Math.round(y) * 668265263 + salt * 974711) >>> 0;
+  h = (h ^ (h >> 13)) * 1274126177;
+  return ((h ^ (h >> 16)) >>> 0) / 4294967295;
+}
+
+export interface WaveEdge {
+  x1: number; y1: number; x2: number; y2: number; // shore edge (padded), world coords
+  ox: number; oy: number; // bordering ocean-hex centre (wave origin)
+  phase: number; speed: number;
+}
+export interface Coast {
+  halos: { cx: number; cy: number }[];
+  waves: WaveEdge[];
+  coastalLand: Set<string>;
+}
+
+// Coast (halos + shore-wave edges) only changes when the map/coastline changes, so
+// memoize on a cheap signature rather than recompute every animation frame.
+let coastMemo: { key: string; coast: Coast } | null = null;
+/** Sea-facing edges of the placed map: a teal halo per coastal hex centre, and a
+ *  wave edge (with the ocean-hex centre beyond it) per sea-facing edge. Mirrors the
+ *  SVG board's coast derivation so all renderers share one coastline. */
+export function computeCoast(state: GameState, title: string): Coast {
+  const map: Record<string, HexDef> = state.map ?? configFor(title).hexByCoord;
+  const key = `${title}|${Object.keys(map).length}`;
+  if (coastMemo && coastMemo.key === key) return coastMemo.coast;
+  const halos: { cx: number; cy: number }[] = [];
+  const waves: WaveEdge[] = [];
+  const coastalLand = new Set<string>();
+  for (const h of Object.values(map)) {
+    const { x: cx, y: cy } = hexCenter(h.coord);
+    const verts = hexVertices(cx, cy);
+    let coastal = false;
+    for (let e = 0; e < 6; e++) {
+      if (neighbor(map, h.coord, e)) continue; // a placed land neighbour: not sea-facing
+      coastal = true;
+      const v1 = verts[(e + 1) % 6];
+      const v2 = verts[(e + 2) % 6];
+      const em = edgeMidpoint(cx, cy, e);
+      const ox = 2 * em.x - cx; // ocean-hex centre beyond this edge
+      const oy = 2 * em.y - cy;
+      const mx = (v1.x + v2.x) / 2;
+      const my = (v1.y + v2.y) / 2;
+      const PADF = 0.14; // pull endpoints toward the midpoint so waves never touch at corners
+      waves.push({
+        x1: v1.x + (mx - v1.x) * PADF,
+        y1: v1.y + (my - v1.y) * PADF,
+        x2: v2.x + (mx - v2.x) * PADF,
+        y2: v2.y + (my - v2.y) * PADF,
+        ox,
+        oy,
+        phase: segRand(mx, my, 1),
+        speed: 6 + 4 * segRand(mx, my, 2)
+      });
+    }
+    if (coastal) {
+      halos.push({ cx, cy });
+      coastalLand.add(h.coord);
+    }
+  }
+  const coast: Coast = { halos, waves, coastalLand };
+  coastMemo = { key, coast };
+  return coast;
+}
+
+/** Scale (0.5 -> 1) and foam opacity for wave `w` at time `t` (seconds), offset by
+ *  `lead` (0 or 0.5 -> two waves per edge half a cycle apart). Shared by all renderers
+ *  so the surf is identical. */
+export function waveParams(w: WaveEdge, t: number, lead: number): { scale: number; alpha: number } {
+  const p = (((t / w.speed) + w.phase + lead) % 1 + 1) % 1;
+  const scale = 0.5 + 0.5 * p;
+  let alpha: number;
+  if (p < 0.3) alpha = (p / 0.3) * 0.55;
+  else if (p < 0.75) alpha = 0.55 + ((p - 0.3) / 0.45) * (0.5 - 0.55);
+  else alpha = 0.5 * (1 - (p - 0.75) / 0.25);
+  return { scale, alpha: Math.max(0, alpha) };
+}
+
+/** Draw the shore foam for the current time into a world-space context (board scale
+ *  `s`, so the stroke/dash stay ~constant on screen). Shared with the canvas board;
+ *  the WebGL board mirrors this with PixiJS Graphics. */
+function drawWaves(ctx: CanvasRenderingContext2D, waves: WaveEdge[], t: number, s: number): void {
+  ctx.save();
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineCap = 'round';
+  ctx.lineWidth = 2.3 / s;
+  ctx.setLineDash([8 / s, 6 / s]);
+  for (const w of waves) {
+    for (const lead of [0, 0.5]) {
+      const { scale, alpha } = waveParams(w, t, lead);
+      if (alpha <= 0.01) continue;
+      ctx.globalAlpha = alpha;
+      ctx.beginPath();
+      ctx.moveTo(w.ox + (w.x1 - w.ox) * scale, w.oy + (w.y1 - w.oy) * scale);
+      ctx.lineTo(w.ox + (w.x2 - w.ox) * scale, w.oy + (w.y2 - w.oy) * scale);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+/** The world -> screen fit drawBoard uses (contain, centred), so overlays (e.g. the
+ *  WebGL wave layer) can map world coords to screen identically. */
+export function boardTransform(view: BoardView, cssW: number, cssH: number): { s: number; offX: number; offY: number } {
+  const s = Math.min(cssW / view.w, cssH / view.h);
+  return { s, offX: (cssW - view.w * s) / 2, offY: (cssH - view.h * s) / 2 };
+}
+
 
 const FILL: Record<TileColor, string> = {
   white: '#e7dcbf',
@@ -225,11 +338,12 @@ function drawToken(ctx: CanvasRenderingContext2D, dx: number, color: string, sym
 export function drawBoard(
   ctx: CanvasRenderingContext2D,
   state: GameState,
-  opts: { title: string; cssW: number; cssH: number; dpr: number; view: BoardView }
+  opts: { title: string; cssW: number; cssH: number; dpr: number; view: BoardView; time?: number }
 ): void {
-  const { title, cssW, cssH, dpr, view } = opts;
+  const { title, cssW, cssH, dpr, view, time } = opts;
   const map: Record<string, HexDef> = state.map ?? configFor(title).hexByCoord;
   const tiles = state.tiles ?? {};
+  const coast = computeCoast(state, title);
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, cssW, cssH);
@@ -244,16 +358,28 @@ export function drawBoard(
   ctx.scale(s, s);
   ctx.translate(-view.x, -view.y);
 
-  // Pixel-art sea across the board area (world space, so it pans with the map).
-  const tile = seaTileCanvas();
-  const pat = tile && ctx.createPattern(tile, 'repeat');
-  if (pat && typeof DOMMatrix !== 'undefined') {
-    pat.setTransform(new DOMMatrix().translate(view.x, view.y).scale(TILE_W / tile!.width, TILE_H / tile!.height));
-    ctx.fillStyle = pat;
-  } else {
-    ctx.fillStyle = SEA_BASE;
-  }
+  // Deep sea base, then a teal shallow halo glowing out from every coastal hex
+  // (lighten compositing so overlapping halos clamp instead of brightening).
+  ctx.fillStyle = SEA_DEEP;
   ctx.fillRect(view.x, view.y, view.w, view.h);
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighten';
+  for (const hl of coast.halos) {
+    const g = ctx.createRadialGradient(hl.cx, hl.cy, 0, hl.cx, hl.cy, HALO_R);
+    g.addColorStop(0, 'rgba(116,193,190,0.9)');
+    g.addColorStop(0.52, 'rgba(116,193,190,0.9)');
+    g.addColorStop(1, 'rgba(116,193,190,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(hl.cx, hl.cy, HALO_R, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // Shore waves: each spawns at its ocean-hex centre and grows to the shore edge.
+  // Only when a time is supplied (the animated render loop); the static bake omits
+  // them (the WebGL renderer draws them as a separate GPU layer instead).
+  if (time != null) drawWaves(ctx, coast.waves, time, s);
 
   // tokens (live), keyed by hex
   const tokensByHex = new Map<string, { sym: string; color: string }[]>();
@@ -267,6 +393,13 @@ export function drawBoard(
   for (const c of state.corporations) {
     if (!c.coordinates || c.dissolved || c.tokenHexes.length) continue;
     if (!tokensByHex.has(c.coordinates)) homeReserved.set(c.coordinates, { sym: c.sym, color: c.color });
+  }
+
+  // The classic pixel-art water, for lake/river hexes (not the open sea).
+  const seaTileC = seaTileCanvas();
+  const seaPat = seaTileC ? ctx.createPattern(seaTileC, 'repeat') : null;
+  if (seaPat && typeof DOMMatrix !== 'undefined') {
+    seaPat.setTransform(new DOMMatrix().scale(TILE_W / seaTileC!.width, TILE_H / seaTileC!.height));
   }
 
   for (const h of Object.values(map)) {
@@ -283,7 +416,12 @@ export function drawBoard(
     ctx.beginPath();
     v.forEach((pt, i) => (i ? ctx.lineTo(pt.x, pt.y) : ctx.moveTo(pt.x, pt.y)));
     ctx.closePath();
-    ctx.fillStyle = isWater ? SEA_BASE : fillOf(title, (laidDef?.color as TileColor) ?? h.color);
+    const centre = (h.cities?.length ?? 0) > 0 || (h.towns?.length ?? 0) > 0 || !!h.offboard;
+    const sandy =
+      !isWater && !laid && !centre && !(h.terrain ?? []).includes('mountain') && coast.coastalLand.has(h.coord);
+    if (isWater && seaPat) ctx.fillStyle = seaPat;
+    else if (sandy) ctx.fillStyle = '#e3d6a4';
+    else ctx.fillStyle = isWater ? SEA_BASE : fillOf(title, (laidDef?.color as TileColor) ?? h.color);
     ctx.fill();
     ctx.lineWidth = 1;
     ctx.strokeStyle = '#4a4332';

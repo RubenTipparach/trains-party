@@ -1,10 +1,9 @@
 <script lang="ts">
   // View-only canvas board (Stage 1 of the SVG -> canvas migration). It paints the
-  // whole board in one imperative pass via drawBoard() and repaints (coalesced to one
-  // rAF) only when the game advances or the container resizes - no per-node DOM diff,
-  // which is what janks the SVG board on every poll/bot move. It has no pan/zoom or
-  // click handling yet, so it is used for VIEWING (watch mode, spectating); the SVG
-  // board still drives interactive lay/token/build/run steps.
+  // whole board in one imperative pass via drawBoard(); a steady rAF loop drives the
+  // shore-wave animation (and so also picks up game advances and resizes for free).
+  // No pan/zoom or click handling yet, so it is used for VIEWING (watch mode); the
+  // SVG board still drives interactive lay/token/build/run steps.
   import { onMount } from 'svelte';
   import { game } from '$lib/game/sandbox.svelte';
   import { drawBoard, boardBounds } from '$lib/render/boardRender';
@@ -13,8 +12,9 @@
   let canvas: HTMLCanvasElement;
   let raf = 0;
 
-  function render() {
-    if (!canvas || !wrap) return;
+  function frame() {
+    raf = requestAnimationFrame(frame);
+    if (!canvas || !wrap || (typeof document !== 'undefined' && document.hidden)) return;
     const dpr = window.devicePixelRatio || 1;
     const cssW = wrap.clientWidth;
     const cssH = wrap.clientHeight;
@@ -32,29 +32,14 @@
       cssW,
       cssH,
       dpr,
-      view: boardBounds(game.state, game.title)
-    });
-  }
-  function schedule() {
-    if (raf) return;
-    raf = requestAnimationFrame(() => {
-      raf = 0;
-      render();
+      view: boardBounds(game.state, game.title),
+      time: performance.now() / 1000
     });
   }
 
-  // Repaint whenever the game advances (seq changes) ...
-  $effect(() => {
-    void game.state.seq;
-    schedule();
-  });
-  // ... and whenever the container resizes.
   onMount(() => {
-    const ro = new ResizeObserver(schedule);
-    ro.observe(wrap);
-    render();
+    raf = requestAnimationFrame(frame);
     return () => {
-      ro.disconnect();
       if (raf) cancelAnimationFrame(raf);
     };
   });
