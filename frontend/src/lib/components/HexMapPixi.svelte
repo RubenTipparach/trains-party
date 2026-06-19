@@ -12,7 +12,8 @@
   import { onMount } from 'svelte';
   import { game } from '$lib/game/sandbox.svelte';
   import { drawBoard, boardBounds, computeCoast, boardTransform, waveParams, hexAtWorld } from '$lib/render/boardRender';
-  import { hexesFor, trackLays, operatingView } from '$lib/engine';
+  import { hexesFor, trackLays, tokenPlays, operatingView, TILES } from '$lib/engine';
+  import { routing } from '$lib/game/routing.svelte';
   import { hexCenter, hexVertices } from '$lib/hexgeo';
   import { BoardCamera } from '$lib/render/camera';
 
@@ -63,6 +64,37 @@
     selected = null;
   }
 
+  // --- token step ---
+  const tokenMode = $derived(game.canAct && opv?.step === 'token');
+  const tokenHexes = $derived(tokenMode ? new Set(tokenPlays(game.state).map((t) => t.hex)) : new Set<string>());
+  let tokenSel = $state<string | null>(null);
+  $effect(() => {
+    if (tokenSel && (!tokenMode || !tokenHexes.has(tokenSel))) tokenSel = null;
+  });
+  function placeToken() {
+    if (!tokenSel || !opv) return;
+    game.act({ type: 'place_token', player: game.active!, corp: opv.corp, hex: tokenSel });
+    tokenSel = null;
+  }
+
+  // --- run step (route stop selection; pay/withhold lives in the operating panel) ---
+  const runMode = $derived(game.canAct && opv?.step === 'run');
+  const routeSegColors = $derived(runMode ? routing.segColors() : {});
+  function isStop(coord: string): boolean {
+    const t = game.state.tiles?.[coord];
+    if (t) {
+      const d = TILES[t.id];
+      return d.cities > 0 || d.towns > 0;
+    }
+    const base = hexesFor(game.state)[coord];
+    return !!base && (base.cities.length > 0 || base.towns.length > 0 || !!base.offboard);
+  }
+  // Re-bake the board (route stripes live in the texture) whenever the routes change.
+  $effect(() => {
+    void routeSegColors;
+    scheduleBake();
+  });
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let PIXI: any = null, app: any = null, sprite: any = null, texture: any = null, waveG: any = null, uiG: any = null;
   let off: HTMLCanvasElement | null = null;
@@ -100,7 +132,8 @@
       cssH,
       dpr,
       view: cam.viewFor(boardBounds(game.state, game.title), cssW, cssH),
-      overlayTile: previewTile
+      overlayTile: previewTile,
+      routeSegColors
     });
     texture.source.update();
     sprite.setSize(cssW, cssH);
@@ -153,10 +186,10 @@
         waveG.stroke({ width: 2.3, color: 0xffffff, alpha, cap: 'round' });
       }
     }
-    // lay-step highlights
+    // interaction highlights
     uiG.clear();
+    const pulse = 0.55 + 0.25 * Math.sin(performance.now() / 320);
     if (layMode) {
-      const pulse = 0.55 + 0.25 * Math.sin(performance.now() / 320);
       for (const hx of legalHexes) {
         if (selected && hx === selected.hex) continue;
         hexPath(uiG, hx, view, s, offX, offY);
@@ -165,6 +198,19 @@
       if (selected) {
         hexPath(uiG, selected.hex, view, s, offX, offY);
         uiG.stroke({ width: 4, color: 0x5fd39b, alpha: 0.95 });
+      }
+    } else if (tokenMode) {
+      for (const hx of tokenHexes) {
+        hexPath(uiG, hx, view, s, offX, offY);
+        uiG.stroke({ width: hx === tokenSel ? 4 : 3, color: hx === tokenSel ? 0x5fd39b : 0x39b3ff, alpha: hx === tokenSel ? 0.95 : pulse });
+      }
+    } else if (runMode) {
+      for (const tr of routing.trains) {
+        const col = parseInt(tr.color.replace('#', ''), 16);
+        for (const hx of tr.stops) {
+          hexPath(uiG, hx, view, s, offX, offY);
+          uiG.stroke({ width: 4, color: col, alpha: 0.95 });
+        }
       }
     }
     app.renderer.render(app.stage);
@@ -201,9 +247,14 @@
     downAt = null;
     if (!d) return;
     if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > 6 || performance.now() - d.t > 500) return; // a drag, not a tap
-    if (!layMode) return;
     const coord = hexAt(e.clientX, e.clientY);
-    if (coord && legalHexes.has(coord)) take(coord);
+    if (!coord) return;
+    if (layMode && legalHexes.has(coord)) take(coord);
+    else if (tokenMode && tokenHexes.has(coord)) tokenSel = coord;
+    else if (runMode && isStop(coord)) {
+      routing.toggleStop($state.snapshot(game.state) as typeof game.state, coord);
+      scheduleBake();
+    }
   }
 
   onMount(() => {
@@ -274,6 +325,12 @@
       {/if}
       <button class="lbtn ok" onclick={confirm} title="Place tile">✓ place</button>
       <button class="lbtn cancel" onclick={cancel} title="Cancel">✕</button>
+    </div>
+  {:else if tokenSel}
+    <div class="laybar">
+      <span class="lcost">token · {tokenSel}</span>
+      <button class="lbtn ok" onclick={placeToken} title="Place token">✓ place token</button>
+      <button class="lbtn cancel" onclick={() => (tokenSel = null)} title="Cancel">✕</button>
     </div>
   {/if}
 </div>

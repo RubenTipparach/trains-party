@@ -272,8 +272,15 @@ function tracePath(ctx: CanvasRenderingContext2D, p: Seg): void {
   else ctx.quadraticCurveTo(0, 0, b.x, b.y);
 }
 
-/** Draw one tile's track (sleeper ties under a solid rail), clipped to the hex. */
-function drawTrack(ctx: CanvasRenderingContext2D, paths: readonly Seg[]): void {
+/** Draw one tile's track (sleeper ties under a solid rail), clipped to the hex.
+ *  If `routeSegs` is given, a segment on a chosen run route is over-striped in its
+ *  train colour (keyed by the same id the routing store uses: `${hex}|${a}-${b}`). */
+function drawTrack(
+  ctx: CanvasRenderingContext2D,
+  paths: readonly Seg[],
+  hex?: string,
+  routeSegs?: Record<string, string>
+): void {
   ctx.save();
   // clip to hex
   const v = hexVertices(0, 0);
@@ -291,8 +298,20 @@ function drawTrack(ctx: CanvasRenderingContext2D, paths: readonly Seg[]): void {
     ctx.setLineDash([]);
     ctx.lineCap = 'round';
     ctx.lineWidth = 3.4;
+    ctx.strokeStyle = '#111';
     tracePath(ctx, p);
     ctx.stroke();
+    if (hex && routeSegs) {
+      const a = p.a === 'center' ? 'c' : String(p.a);
+      const b = p.b === 'center' ? 'c' : String(p.b);
+      const color = routeSegs[`${hex}|${[a, b].sort().join('-')}`];
+      if (color) {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 5;
+        tracePath(ctx, p);
+        ctx.stroke();
+      }
+    }
   }
   ctx.restore();
 }
@@ -388,9 +407,11 @@ export function drawBoard(
     time?: number;
     /** A not-yet-committed tile to render in place (the lay preview). */
     overlayTile?: { hex: string; id: string; rotation: number } | null;
+    /** Chosen run-route track segments -> train colour (`${hex}|${a}-${b}`). */
+    routeSegColors?: Record<string, string>;
   }
 ): void {
-  const { title, cssW, cssH, dpr, view, time, overlayTile } = opts;
+  const { title, cssW, cssH, dpr, view, time, overlayTile, routeSegColors } = opts;
   const map: Record<string, HexDef> = state.map ?? configFor(title).hexByCoord;
   const tiles = overlayTile
     ? { ...(state.tiles ?? {}), [overlayTile.hex]: { id: overlayTile.id, rotation: overlayTile.rotation } }
@@ -544,8 +565,8 @@ export function drawBoard(
     }
 
     // track: preprinted base paths, then the laid tile's paths
-    if (h.paths?.length) drawTrack(ctx, h.paths);
-    if (laidDef) drawTrack(ctx, rotatePaths(laidDef, laid!.rotation));
+    if (h.paths?.length) drawTrack(ctx, h.paths, h.coord, routeSegColors);
+    if (laidDef) drawTrack(ctx, rotatePaths(laidDef, laid!.rotation), h.coord, routeSegColors);
 
     // centres + revenue
     const def = laidDef;
