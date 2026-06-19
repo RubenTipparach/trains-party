@@ -134,9 +134,10 @@
     }
   }
   const boardLabel = $derived(boardMode === 'webgl' ? '◆ WebGL' : '▦ SVG');
+  // Steps the WebGL board does NOT handle natively yet -> fall back to the SVG board.
+  // (Track-laying IS handled by the WebGL board; token/run/map-build are not yet.)
   const boardInteractive = $derived(
-    (game.canAct && (opv?.step === 'track' || opv?.step === 'token' || opv?.step === 'run')) ||
-      game.state.round === 'mapbuild'
+    (game.canAct && (opv?.step === 'token' || opv?.step === 'run')) || game.state.round === 'mapbuild'
   );
 
   let isMobile = $state(false);

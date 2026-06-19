@@ -379,11 +379,22 @@ function drawToken(ctx: CanvasRenderingContext2D, dx: number, color: string, sym
 export function drawBoard(
   ctx: CanvasRenderingContext2D,
   state: GameState,
-  opts: { title: string; cssW: number; cssH: number; dpr: number; view: BoardView; time?: number }
+  opts: {
+    title: string;
+    cssW: number;
+    cssH: number;
+    dpr: number;
+    view: BoardView;
+    time?: number;
+    /** A not-yet-committed tile to render in place (the lay preview). */
+    overlayTile?: { hex: string; id: string; rotation: number } | null;
+  }
 ): void {
-  const { title, cssW, cssH, dpr, view, time } = opts;
+  const { title, cssW, cssH, dpr, view, time, overlayTile } = opts;
   const map: Record<string, HexDef> = state.map ?? configFor(title).hexByCoord;
-  const tiles = state.tiles ?? {};
+  const tiles = overlayTile
+    ? { ...(state.tiles ?? {}), [overlayTile.hex]: { id: overlayTile.id, rotation: overlayTile.rotation } }
+    : (state.tiles ?? {});
   const coast = computeCoast(state, title);
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);

@@ -1,49 +1,70 @@
 <script lang="ts">
-  // View-only WebGL board (PixiJS). The static board (sea glow, hexes, tiles, tokens)
-  // is painted by the shared drawBoard() into an offscreen canvas and uploaded as a
-  // GPU texture, re-baked only when the game advances or the container resizes. The
-  // animated shore waves are NOT baked - they are drawn as a GPU Graphics layer on top
-  // and redrawn every frame, so the heavy board texture is uploaded only on change.
-  // View-only: interactive steps fall back to the SVG board. PixiJS is dynamically
-  // imported so it never runs during static prerender.
+  // WebGL board (PixiJS). The static board (sea glow, hexes, tiles, tokens) is painted
+  // by the shared drawBoard() into an offscreen canvas and uploaded as a GPU texture,
+  // re-baked only when the game advances, the camera moves, or a lay preview changes.
+  // Animated shore waves + interaction highlights are GPU Graphics redrawn each frame.
+  //
+  // Interaction (native, no SVG): pan/zoom/pinch via BoardCamera; hover tooltips; and
+  // tile laying on the player's track step - tap a highlighted hex, cycle the legal
+  // tile/rotation options, then confirm. Token/run/map-build still fall back to the
+  // SVG board until they are ported too. PixiJS is dynamically imported so it never
+  // runs during static prerender.
   import { onMount } from 'svelte';
   import { game } from '$lib/game/sandbox.svelte';
   import { drawBoard, boardBounds, computeCoast, boardTransform, waveParams, hexAtWorld } from '$lib/render/boardRender';
-  import { hexesFor } from '$lib/engine';
+  import { hexesFor, trackLays, operatingView } from '$lib/engine';
+  import { hexCenter, hexVertices } from '$lib/hexgeo';
   import { BoardCamera } from '$lib/render/camera';
 
   const cam = new BoardCamera();
   let wrap: HTMLDivElement;
   let hover = $state<{ label: string; x: number; y: number } | null>(null);
 
-  /** Screen point (relative to the container) -> hex coordinate under it, or null. */
-  function hexAt(clientX: number, clientY: number): string | null {
-    const rect = wrap.getBoundingClientRect();
-    const cssW = rect.width, cssH = rect.height;
-    if (cssW < 2 || cssH < 2) return null;
-    const view = cam.viewFor(boardBounds(game.state, game.title), cssW, cssH);
-    const sc = cssW / view.w;
-    const wx = view.x + (clientX - rect.left) / sc;
-    const wy = view.y + (clientY - rect.top) / sc;
-    return hexAtWorld(game.state, game.title, wx, wy);
-  }
-  function onHover(e: PointerEvent) {
-    if (e.buttons !== 0) {
-      hover = null; // dragging (pan/pinch): no tooltip
-      return;
+  // --- interaction state (tile laying) ---------------------------------------
+  type Lay = { hex: string; tile: string; rotation: number; cost: number; upgrade?: boolean };
+  const opv = $derived.by(() => {
+    try {
+      return game.state.round === 'operating' ? operatingView(game.state) : null;
+    } catch {
+      return null;
     }
-    const coord = hexAt(e.clientX, e.clientY);
-    if (!coord) {
-      hover = null;
-      return;
-    }
-    const def = hexesFor(game.state)[coord];
-    const rect = wrap.getBoundingClientRect();
-    hover = { label: def?.name ? `${coord} · ${def.name}` : coord, x: e.clientX - rect.left, y: e.clientY - rect.top };
+  });
+  const layMode = $derived(game.canAct && opv?.step === 'track');
+  const lays = $derived<Lay[]>(layMode ? (trackLays(game.state) as Lay[]) : []);
+  const legalHexes = $derived(new Set(lays.map((l) => l.hex)));
+  let selected = $state<{ hex: string; options: Lay[]; idx: number } | null>(null);
+  const previewTile = $derived(
+    selected ? { hex: selected.hex, id: selected.options[selected.idx].tile, rotation: selected.options[selected.idx].rotation } : null
+  );
+  // Clear a stale selection if it is no longer a legal lay (turn/step changed).
+  $effect(() => {
+    if (selected && (!layMode || !legalHexes.has(selected.hex))) selected = null;
+  });
+  // Re-bake whenever the preview changes so the ghost tile shows in the texture.
+  $effect(() => {
+    void previewTile;
+    scheduleBake();
+  });
+
+  function take(hex: string) {
+    const options = lays.filter((l) => l.hex === hex);
+    if (options.length) selected = { hex, options, idx: 0 };
   }
-  const clearHover = () => (hover = null);
+  function cycle() {
+    if (selected) selected = { ...selected, idx: (selected.idx + 1) % selected.options.length };
+  }
+  function confirm() {
+    if (!selected || !opv) return;
+    const o = selected.options[selected.idx];
+    game.act({ type: 'lay_tile', player: game.active!, corp: opv.corp, hex: o.hex, tile: o.tile, rotation: o.rotation });
+    selected = null;
+  }
+  function cancel() {
+    selected = null;
+  }
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let PIXI: any = null, app: any = null, sprite: any = null, texture: any = null, waveG: any = null;
+  let PIXI: any = null, app: any = null, sprite: any = null, texture: any = null, waveG: any = null, uiG: any = null;
   let off: HTMLCanvasElement | null = null;
   let offCtx: CanvasRenderingContext2D | null = null;
   let bakeReq = 0;
@@ -73,13 +94,13 @@
       app.renderer.resize(cssW, cssH);
     }
     if (!offCtx) return;
-    // No `time` -> the board texture omits the waves (the Graphics layer draws them).
     drawBoard(offCtx, game.state, {
       title: game.title,
       cssW,
       cssH,
       dpr,
-      view: cam.viewFor(boardBounds(game.state, game.title), cssW, cssH)
+      view: cam.viewFor(boardBounds(game.state, game.title), cssW, cssH),
+      overlayTile: previewTile
     });
     texture.source.update();
     sprite.setSize(cssW, cssH);
@@ -92,7 +113,6 @@
     });
   }
 
-  // Dashed foam segment (PixiJS has no native dash), built in screen coords.
   function dash(g: any, x1: number, y1: number, x2: number, y2: number) {
     const dx = x2 - x1, dy = y2 - y1, len = Math.hypot(dx, dy);
     if (len < 0.001) return;
@@ -102,6 +122,13 @@
       g.moveTo(x1 + ux * d, y1 + uy * d).lineTo(x1 + ux * e, y1 + uy * e);
     }
   }
+  function hexPath(g: any, coord: string, view: { x: number; y: number }, s: number, offX: number, offY: number) {
+    const c = hexCenter(coord);
+    const v = hexVertices(c.x, c.y);
+    g.moveTo(offX + (v[0].x - view.x) * s, offY + (v[0].y - view.y) * s);
+    for (let i = 1; i < 6; i++) g.lineTo(offX + (v[i].x - view.x) * s, offY + (v[i].y - view.y) * s);
+    g.closePath();
+  }
 
   function frame() {
     raf = requestAnimationFrame(frame);
@@ -110,6 +137,7 @@
     if (cssW < 2 || cssH < 2) return;
     const view = cam.viewFor(boardBounds(game.state, game.title), cssW, cssH);
     const { s, offX, offY } = boardTransform(view, cssW, cssH);
+    // shore foam
     const coast = computeCoast(game.state, game.title);
     const t = performance.now() / 1000;
     waveG.clear();
@@ -125,13 +153,58 @@
         waveG.stroke({ width: 2.3, color: 0xffffff, alpha, cap: 'round' });
       }
     }
+    // lay-step highlights
+    uiG.clear();
+    if (layMode) {
+      const pulse = 0.55 + 0.25 * Math.sin(performance.now() / 320);
+      for (const hx of legalHexes) {
+        if (selected && hx === selected.hex) continue;
+        hexPath(uiG, hx, view, s, offX, offY);
+        uiG.stroke({ width: 3, color: 0xf5c542, alpha: pulse });
+      }
+      if (selected) {
+        hexPath(uiG, selected.hex, view, s, offX, offY);
+        uiG.stroke({ width: 4, color: 0x5fd39b, alpha: 0.95 });
+      }
+    }
     app.renderer.render(app.stage);
   }
 
-  $effect(() => {
-    void game.state.seq;
-    scheduleBake();
-  });
+  // --- pointer: hover, and tap-to-select on the lay step ---------------------
+  function hexAt(clientX: number, clientY: number): string | null {
+    const rect = wrap.getBoundingClientRect();
+    const cssW = rect.width, cssH = rect.height;
+    if (cssW < 2 || cssH < 2) return null;
+    const view = cam.viewFor(boardBounds(game.state, game.title), cssW, cssH);
+    const sc = cssW / view.w;
+    return hexAtWorld(game.state, game.title, view.x + (clientX - rect.left) / sc, view.y + (clientY - rect.top) / sc);
+  }
+  function onHover(e: PointerEvent) {
+    if (e.buttons !== 0) {
+      hover = null;
+      return;
+    }
+    const coord = hexAt(e.clientX, e.clientY);
+    if (!coord) {
+      hover = null;
+      return;
+    }
+    const def = hexesFor(game.state)[coord];
+    const rect = wrap.getBoundingClientRect();
+    hover = { label: def?.name ? `${coord} · ${def.name}` : coord, x: e.clientX - rect.left, y: e.clientY - rect.top };
+  }
+  const clearHover = () => (hover = null);
+  let downAt: { x: number; y: number; t: number } | null = null;
+  const onDown = (e: PointerEvent) => (downAt = { x: e.clientX, y: e.clientY, t: performance.now() });
+  function onUp(e: PointerEvent) {
+    const d = downAt;
+    downAt = null;
+    if (!d) return;
+    if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > 6 || performance.now() - d.t > 500) return; // a drag, not a tap
+    if (!layMode) return;
+    const coord = hexAt(e.clientX, e.clientY);
+    if (coord && legalHexes.has(coord)) take(coord);
+  }
 
   onMount(() => {
     let ro: ResizeObserver | undefined;
@@ -153,9 +226,11 @@
         app.destroy(true);
         return;
       }
-      app.ticker.stop(); // we render on demand (bake + per-frame wave layer)
+      app.ticker.stop();
       waveG = new PIXI.Graphics();
+      uiG = new PIXI.Graphics();
       app.stage.addChild(waveG);
+      app.stage.addChild(uiG);
       wrap.appendChild(canvas);
       bake();
       raf = requestAnimationFrame(frame);
@@ -165,10 +240,12 @@
         wrap,
         () => boardBounds(game.state, game.title),
         () => ({ w: wrap.clientWidth, h: wrap.clientHeight }),
-        () => scheduleBake() // re-bake the board texture for the new view
+        () => scheduleBake()
       );
       wrap.addEventListener('pointermove', onHover);
       wrap.addEventListener('pointerleave', clearHover);
+      wrap.addEventListener('pointerdown', onDown);
+      wrap.addEventListener('pointerup', onUp);
     })();
     return () => {
       destroyed = true;
@@ -178,6 +255,8 @@
       unbind?.();
       wrap?.removeEventListener('pointermove', onHover);
       wrap?.removeEventListener('pointerleave', clearHover);
+      wrap?.removeEventListener('pointerdown', onDown);
+      wrap?.removeEventListener('pointerup', onUp);
       app?.destroy(true, { children: true });
     };
   });
@@ -187,14 +266,30 @@
   {#if hover}
     <div class="htip" style="left:{hover.x}px; top:{hover.y}px">{hover.label}</div>
   {/if}
+  {#if selected}
+    <div class="laybar">
+      <span class="lcost">{selected.options[selected.idx].tile}{#if selected.options[selected.idx].cost > 0} · ¥{selected.options[selected.idx].cost}{/if}</span>
+      {#if selected.options.length > 1}
+        <button class="lbtn" onclick={cycle} title="Next tile / rotation">⟳ next ({selected.idx + 1}/{selected.options.length})</button>
+      {/if}
+      <button class="lbtn ok" onclick={confirm} title="Place tile">✓ place</button>
+      <button class="lbtn cancel" onclick={cancel} title="Cancel">✕</button>
+    </div>
+  {/if}
 </div>
 
 <style>
   .cwrap {
     position: absolute;
     inset: 0;
-    touch-action: none; /* we handle drag/pinch ourselves */
+    touch-action: none;
     cursor: grab;
+  }
+  .cwrap:active {
+    cursor: grabbing;
+  }
+  .cwrap :global(canvas) {
+    display: block;
   }
   .htip {
     position: absolute;
@@ -209,10 +304,40 @@
     white-space: nowrap;
     z-index: 4;
   }
-  .cwrap:active {
-    cursor: grabbing;
+  .laybar {
+    position: absolute;
+    left: 50%;
+    bottom: 14px;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    background: rgba(12, 20, 26, 0.94);
+    border: 1px solid var(--line, #2c3a44);
+    border-radius: 999px;
+    padding: 0.3rem 0.5rem;
+    z-index: 6;
   }
-  .cwrap :global(canvas) {
-    display: block;
+  .lcost {
+    font: 700 0.72rem ui-monospace, monospace;
+    color: #d9b25b;
+    padding: 0 0.3rem;
+  }
+  .lbtn {
+    border: 1px solid var(--line, #2c3a44);
+    background: var(--bg-soft, #16242c);
+    color: var(--ink, #eef3f6);
+    border-radius: 999px;
+    padding: 0.3rem 0.7rem;
+    font: 700 0.75rem ui-sans-serif, sans-serif;
+    cursor: pointer;
+  }
+  .lbtn.ok {
+    background: #2f7d57;
+    border-color: #2f7d57;
+    color: #fff;
+  }
+  .lbtn.cancel {
+    padding: 0.3rem 0.6rem;
   }
 </style>
