@@ -119,6 +119,17 @@ function isCity(s: GameState, hex: string): boolean {
   return !!base && (base.cities.length > 0 || !!base.offboard);
 }
 
+/**
+ * Is `hex` an off-board (red) location? Off-boards are always route TERMINI: a
+ * train may end its run there but never pass through and continue, even when the
+ * hex touches the map on more than one edge (those edges are just alternative ways
+ * to reach it). They are preprinted, so a laid tile is never an off-board.
+ */
+function isOffboard(s: GameState, hex: string): boolean {
+  if (s.tiles?.[hex]) return false;
+  return !!hexesFor(s)[hex]?.offboard;
+}
+
 /** Number of station-token slots in the city at `hex` (0 if not a slotted city). */
 function citySlots(s: GameState, hex: string): number {
   const laid = s.tiles?.[hex];
@@ -208,6 +219,9 @@ function bestRouteFrom(
     // (Overnight glides arrive here WITHOUT the hex counted as a stop, and may
     // keep going - skipped blocked cities count nothing and earn nothing.)
     if (hex !== start && blocksThrough(s, corp, hex) && stops[stops.length - 1] === hex) return;
+    // An off-board location is a terminus: record it (above) but never trace a
+    // route through it onto the rest of the map.
+    if (isOffboard(s, hex)) return;
 
     // From the centre, take any segment touching 'c' to reach an edge.
     for (const seg of hexSegments(s, hex)) {
@@ -247,6 +261,8 @@ function bestRouteFrom(
         // reached a centre: it becomes a stop
         const rev = centreRevenue(s, hex, diesel, corp);
         if (rev <= 0 && !hasCentre(s, hex)) continue;
+        // A simple route may not visit the same revenue centre twice.
+        if (stops.includes(hex)) continue;
         walk(hex, [...stops, hex], revenue + rev, segs2, links);
         // Overnight: may instead skip a blocked city entirely (no stop, no
         // revenue) and continue tracing past it.
@@ -397,6 +413,8 @@ export function connectedRevenue(s: GameState, corp: CorporationState): number {
     if (hasCentre(s, hex)) reached.add(hex);
     // A city blocked by other corporations' tokens is an endpoint, not a through-route.
     if (blocksThrough(s, corp, hex)) return;
+    // An off-board location is a terminus; never trace connectivity through it.
+    if (isOffboard(s, hex)) return;
     for (const seg of hexSegments(s, hex)) {
       if (seg.a !== 'c' && seg.b !== 'c') continue; // leave the centre
       const edge = (seg.a === 'c' ? seg.b : seg.a) as number;
@@ -557,12 +575,12 @@ export function routeThroughStops(
   }
   if (stops.length < 2 || stops.length > maxStops) return null;
   const hexes = hexesFor(s);
-  // Token blocking: an interior stop full of other corporations' tokens cannot
-  // be passed through (only route endpoints may be such a blocked city).
-  if (corp) {
-    for (let i = 1; i < stops.length - 1; i++) {
-      if (blocksThrough(s, corp, stops[i])) return null;
-    }
+  // Interior-stop rules: an off-board location may only be a route TERMINUS (never
+  // passed through), and a city full of other corporations' tokens cannot be passed
+  // through (only route endpoints may be such a blocked city).
+  for (let i = 1; i < stops.length - 1; i++) {
+    if (isOffboard(s, stops[i])) return null;
+    if (corp && blocksThrough(s, corp, stops[i])) return null;
   }
 
   // Find a track-only path between two adjacent stops, not reusing track. Returns
