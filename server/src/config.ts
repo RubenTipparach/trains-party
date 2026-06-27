@@ -21,6 +21,8 @@ export const CFG = {
   corsOrigins: (process.env.CORS_ORIGIN ?? '').split(',').map((s) => s.trim()).filter(Boolean),
   sessionTtlMs: Number(process.env.SESSION_TTL_DAYS ?? 30) * DAY,
   adminTtlMs: 2 * DAY,
+  /** Sleep the Fly machine after this many ms of no real traffic (0 disables). */
+  idleShutdownMs: Number(process.env.IDLE_SHUTDOWN_MS ?? 3_600_000),
   discord: {
     clientId,
     clientSecret,

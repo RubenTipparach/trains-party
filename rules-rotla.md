@@ -326,9 +326,21 @@ token conversion, and a connectivity check between the two minors' networks (reu
   Exporting a 2 exports **all** 2s.
 - **End:** after **4 cycles (Short)** or **6 (Long)**. Score = **personal cash +
   value of all shares at final price**; **treasuries don't count**. High score wins
-  (tie → president of the company acting earliest). **Bankruptcy** commonly ends the
-  game immediately. *(Variant: Bank-Break — 8,000 bank ends the game when depleted,
-  and adds cert limits 3p 16 / 4p 12 / 5p 10.)*
+  (tie → president of the company acting earliest). *(Variant: Bank-Break — 8,000
+  bank ends the game when depleted, and adds cert limits 3p 16 / 4p 12 / 5p 10.)*
+- **Bankruptcy (rulebook):** a president who still can't fund a forced train after
+  the forced-purchase steps is bankrupt. It *may* end the game immediately, **or**
+  the remaining players continue by removing the bankrupt player: every company
+  they presided over is **removed** (its trains go to the **bank pool**, its hub
+  tokens are removed, and its marker leaves the stock track), **other shareholders
+  exchange those shares for final stock value** (price not reduced), and the player
+  leaves the turn order. Play resumes with the rest. *(We implement the
+  knock-out-and-continue path for RoLA; 1889 bankruptcy ends the game. The
+  bankrupt's shares in surviving companies return to those pools.)*
+  *Engine:* `operating.ts#removeBankruptPlayer`; `PlayerState.out` marks the
+  eliminated player, skipped in every RoLA turn rotation. Note: emergency
+  share-selling still routes through the 1889 sell helper - a follow-up should use
+  RoLA's `maxRolaSell` so a minor president keeps the 40% cert, not 20%.
 
 ---
 

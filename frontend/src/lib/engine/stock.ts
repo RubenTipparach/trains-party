@@ -96,6 +96,22 @@ function topOtherPct(s: GameState, id: string, sym: string): number {
 }
 
 /**
+ * A buyer who now strictly out-holds the president takes the president's
+ * certificate (standard 18xx; mirrors RoLA's `maybeTakePresidency`). Shares are
+ * fungible percentages in this model, so the 20% president cert does not need to
+ * physically swap - reassigning the presidency is the whole effect. The new
+ * president always holds > the old (>= 30%), so the 20% cert is always covered.
+ */
+export function maybeTakePresidency(s: GameState, c: CorporationState, buyerId: string): void {
+  if (!c.president || c.president === buyerId) return;
+  const pres = player(s, c.president);
+  if (holds(player(s, buyerId), c.sym) > holds(pres, c.sym)) {
+    c.president = buyerId;
+    s.log.push(`${pname(s, buyerId)} out-holds ${pname(s, pres.id)} and takes the ${c.sym} presidency`);
+  }
+}
+
+/**
  * Can `id` sell at least one share of `sym`? Per 1889/18xx:
  * - the corporation must have a share price (have operated/floated context),
  * - the player must hold at least 10%,
@@ -154,6 +170,7 @@ function maybeFloat(s: GameState, c: CorporationState): void {
   if (soldFromIpo >= 50) {
     c.floated = true;
     c.cash = 10 * (c.parPrice ?? 0); // full capitalization
+    s.bank -= c.cash; // the capital is paid out of the bank (1889 full cap), not minted
     // The home token is placed when the corporation first operates
     // (HOME_TOKEN_TIMING :operating_round), not at float - see operating.ts.
     s.log.push(`${c.sym} floats; treasury ${c.cash}`);
@@ -219,6 +236,8 @@ function doBuy(s: GameState, id: string, sym: string, from: 'ipo' | 'pool'): voi
   s.bank += cost;
   s.log.push(`${pname(s, id)} buys 10% of ${sym} from ${from} for ${cost}`);
   if (from === 'ipo') maybeFloat(s, c);
+  // Standard 18xx: a buyer who now out-holds the president seizes the presidency.
+  maybeTakePresidency(s, c, id);
 
   // One buy per turn, but the turn stays open (the player may still sell, or
   // end their turn by passing).
@@ -380,15 +399,20 @@ export function stockLegalActions(s: GameState): StockLegalActions {
   const buyPool: string[] = [];
   const sell: string[] = [];
   const minPar = 2 * cfg.parPrices[cfg.parPrices.length - 1];
+  // A new certificate is over the limit unless the corporation sits in the yellow
+  // zone (whose shares do not count). Mirrors the checks in doPar / doBuy so the
+  // listed options are actually playable (the UI and bots both rely on this).
+  const certRoom = certCount(s, id) + 1 <= certLimit(s);
   for (const c of s.corporations) {
     // At most one buy per turn; a corporation sold this round cannot be bought.
     const soldThisRound = st.soldThisRound[id]?.includes(c.sym) ?? false;
     if (!st.bought && !soldThisRound) {
       if (c.parPrice === null) {
-        if (p.cash >= minPar) par.push(c.sym);
+        if (p.cash >= minPar && certRoom) par.push(c.sym);
       } else {
-        if (c.ipoShares >= 10 && holdLimitOk(s, c, p, 10) && p.cash >= c.parPrice) buyIpo.push(c.sym);
-        if (c.poolShares >= 10 && holdLimitOk(s, c, p, 10) && p.cash >= currentPrice(s, c)) buyPool.push(c.sym);
+        const certOk = corpZone(s, c) === 'yellow' || certRoom;
+        if (c.ipoShares >= 10 && holdLimitOk(s, c, p, 10) && p.cash >= c.parPrice && certOk) buyIpo.push(c.sym);
+        if (c.poolShares >= 10 && holdLimitOk(s, c, p, 10) && p.cash >= currentPrice(s, c) && certOk) buyPool.push(c.sym);
       }
     }
     if (canSell(s, id, c.sym)) sell.push(c.sym);

@@ -21,6 +21,9 @@ export interface PlayerState {
   shares: Record<string, number>;
   /** Passed in the current pass-around (auction / stock round). */
   passed: boolean;
+  /** RoLA: this player went bankrupt and was removed from the game; play continues
+   *  with the rest. Skipped in all turn rotations and cannot win. */
+  out?: boolean;
 }
 
 export interface CompanyState {
@@ -312,4 +315,8 @@ export type GameAction =
 export class GameError extends Error {}
 
 export const MIN_BID_INCREMENT = 5;
-export const RULES_VERSION = '1889-0.5';
+// 0.6: 1889 transfers the president's certificate to a buyer who out-holds the
+// sitting president (standard 18xx), matching RoLA. Pinned per game for replay.
+// 0.7: a 1889 corporation draws its full capitalization from the bank at float
+// (previously minted), so the bank is finite and breaks on schedule.
+export const RULES_VERSION = '1889-0.7';

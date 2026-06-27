@@ -1,9 +1,18 @@
 <script lang="ts">
   import { game } from '$lib/game/sandbox.svelte';
   import { CURRENCY, MARKET } from '$lib/data/g1889';
+  import {
+    initialState,
+    apply,
+    playerValue,
+    playerLiquidity,
+    RULES_VERSION,
+    type GameState
+  } from '$lib/engine';
 
   const SEAT = ['#f5c542', '#3fb6a8', '#e0655c', '#9b8cf0', '#7cc36b', '#e8923a'];
   const isRola = $derived(game.title === 'rola');
+  const seatColor = (i: number) => SEAT[i % SEAT.length];
 
   function held(playerId: string, sym: string): number {
     return game.state.players.find((p) => p.id === playerId)?.shares[sym] ?? 0;
@@ -24,7 +33,200 @@
     if (c.priceRow === null || c.priceCol === null) return null;
     return MARKET[c.priceRow][c.priceCol].price;
   }
+
+  // --- value / income history -------------------------------------------------
+  // Replay the action log once and snapshot every player's value and each
+  // corporation's last-run revenue at each round boundary, so the standings table
+  // and the charts can show how fast someone is pulling ahead.
+  function roundLabel(s: GameState): string {
+    if (s.round === 'auction') return 'ISR';
+    if (s.round === 'mapbuild') return 'MAP';
+    if (s.round === 'stock') return `SR${s.srCount}`;
+    if (s.round === 'merger') return `MR${s.orSet}`;
+    if (s.round === 'operating') return s.or ? `OR${s.orSet}.${s.or.orNumber}` : 'OR';
+    return s.round;
+  }
+
+  type Point = { label: string; values: number[]; rev: Record<string, number>; bank: number };
+  const snap = (s: GameState): Point => ({
+    label: roundLabel(s),
+    values: s.players.map((p) => playerValue(s, p.id)),
+    rev: Object.fromEntries(s.corporations.map((c) => [c.sym, c.lastRun?.revenue ?? 0])),
+    bank: s.bank
+  });
+
+  // Replaying the log recomputes route revenue per run, which is costly on a diesel
+  // network, so memoize: keep the last replayed state + points and, when the log has
+  // only grown (the usual case in play), resume from there instead of from scratch.
+  let memo = { key: '', len: 0, state: null as GameState | null, points: [] as Point[], label: '' };
+  const history = $derived.by<Point[]>(() => {
+    const seats = game.seats.map((s) => ({ id: s.id, name: s.name }));
+    const key = `${game.code}|${game.title}|${game.seed}|${seats.length}`;
+    const actions = game.actions;
+    let s = memo.state;
+    let pts = memo.points;
+    let last = memo.label;
+    let start = memo.len;
+    if (memo.key !== key || !s || memo.len > actions.length) {
+      try {
+        s = initialState(seats, game.title, RULES_VERSION, {
+          seed: game.seed,
+          mapMode: game.mapMode,
+          hostileMergers: game.hostileMergers,
+          localRoutes: game.localRoutes
+        });
+      } catch {
+        return [];
+      }
+      pts = [snap(s)];
+      last = pts[0].label;
+      start = 0;
+    }
+    for (let i = start; i < actions.length; i++) {
+      try {
+        s = apply(s, actions[i]);
+      } catch {
+        break;
+      }
+      const lbl = roundLabel(s);
+      if (lbl !== last) {
+        pts = [...pts, snap(s)];
+        last = lbl;
+      }
+    }
+    memo = { key, len: actions.length, state: s, points: pts, label: last };
+    return pts;
+  });
+
+  // Current standings (from the live state), sorted by value, with the change since
+  // the previous round checkpoint.
+  const standings = $derived.by(() => {
+    const prev = history.length >= 2 ? history[history.length - 2].values : null;
+    return game.state.players
+      .map((p, i) => ({
+        id: p.id,
+        name: p.name,
+        seat: seatColor(i),
+        idx: i,
+        value: playerValue(game.state, p.id),
+        liquidity: playerLiquidity(game.state, p.id),
+        delta: prev ? playerValue(game.state, p.id) - prev[i] : 0
+      }))
+      .sort((a, b) => b.value - a.value);
+  });
+
+  // --- mini line charts --------------------------------------------------------
+  const CW = 320;
+  const CH = 120;
+  const PAD = 4;
+  type Series = { name: string; color: string; vals: number[] };
+
+  const xAt = (i: number, n: number) => (n <= 1 ? CW / 2 : PAD + (i / (n - 1)) * (CW - 2 * PAD));
+  const yAt = (v: number, max: number) => CH - PAD - (Math.max(0, v) / max) * (CH - 2 * PAD);
+  function path(vals: number[], max: number): string {
+    const n = vals.length;
+    if (!n || max <= 0) return '';
+    return vals.map((v, i) => `${i === 0 ? 'M' : 'L'}${xAt(i, n).toFixed(1)},${yAt(v, max).toFixed(1)}`).join(' ');
+  }
+
+  const labels = $derived(history.map((p) => p.label));
+  const valueSeries = $derived<Series[]>(
+    game.state.players.map((p, i) => ({
+      name: p.name,
+      color: seatColor(i),
+      vals: history.map((pt) => pt.values[i] ?? 0)
+    }))
+  );
+  // Corporation revenue over time: only corps that have ever run (a positive rev).
+  const revSeries = $derived<Series[]>(
+    game.state.corporations
+      .filter((c) => history.some((pt) => (pt.rev[c.sym] ?? 0) > 0))
+      .map((c) => ({ name: c.sym, color: c.color ?? '#888', vals: history.map((pt) => pt.rev[c.sym] ?? 0) }))
+  );
+  const bankSeries = $derived<Series[]>([
+    { name: 'Bank', color: '#d9b25b', vals: history.map((pt) => pt.bank) }
+  ]);
+  const bankFinite = $derived(game.state.bank >= 0);
+
+  // Hover: which chart and which round-index the pointer is over (for the tooltip).
+  let hover = $state<{ chart: string; i: number } | null>(null);
+  function onHover(e: PointerEvent, chart: string, n: number) {
+    const r = (e.currentTarget as SVGElement).getBoundingClientRect();
+    if (!r.width || n <= 0) return;
+    const frac = (e.clientX - r.left) / r.width;
+    hover = { chart, i: Math.max(0, Math.min(n - 1, Math.round(frac * (n - 1)))) };
+  }
+
+  const money = (n: number) => `${CURRENCY}${Math.round(n).toLocaleString()}`;
+  const fmtDelta = (n: number) => (n > 0 ? `+${CURRENCY}${n}` : n < 0 ? `-${CURRENCY}${-n}` : '0');
 </script>
+
+<!-- Standings: who is winning and how fast (value, liquidity, change this round) -->
+<h3>Standings <span class="sub">value · liquidity · Δ since last round</span></h3>
+<div class="standings">
+  {#each standings as p, rank (p.id)}
+    <div class="srow" style="--p:{p.seat}">
+      <span class="rank">{rank + 1}</span>
+      <span class="sname">{p.name}{#if game.isBot(p.id)}<span class="sbot">BOT</span>{/if}</span>
+      <span class="sval">{CURRENCY}{p.value.toLocaleString()}</span>
+      <span class="sliq">{CURRENCY}{p.liquidity.toLocaleString()}</span>
+      <span class="sdelta" class:up={p.delta > 0} class:down={p.delta < 0}>{fmtDelta(p.delta)}</span>
+    </div>
+  {/each}
+</div>
+
+<!-- The bank: a finite, shrinking pool; the game ends the OR set it breaks. -->
+<div class="bankbar">
+  <span class="blabel">Bank</span>
+  <span class="bval">{bankFinite ? `${CURRENCY}${game.state.bank.toLocaleString()}` : 'unlimited'}</span>
+</div>
+
+<!-- One line chart with a hover tooltip (round label + each series' value). -->
+{#snippet chart(title: string, series: Series[], fmt: (n: number) => string)}
+  {@const max = Math.max(1, ...series.flatMap((s) => s.vals))}
+  {@const n = labels.length}
+  <div class="chart">
+    <div class="ctitle">{title}</div>
+    <div class="cwrap">
+      <svg
+        viewBox="0 0 {CW} {CH}"
+        preserveAspectRatio="none"
+        role="img"
+        aria-label={title}
+        onpointermove={(e) => onHover(e, title, n)}
+        onpointerleave={() => (hover = null)}
+      >
+        <line class="axis" x1={PAD} y1={CH - PAD} x2={CW - PAD} y2={CH - PAD} />
+        {#each series as s}<path class="line" d={path(s.vals, max)} style="stroke:{s.color}" />{/each}
+        {#if hover && hover.chart === title}
+          {@const hx = xAt(hover.i, n)}
+          <line class="guide" x1={hx} y1={PAD} x2={hx} y2={CH - PAD} />
+          {#each series as s}
+            <circle cx={hx} cy={yAt(s.vals[hover.i] ?? 0, max)} r="2.6" style="fill:{s.color}" />
+          {/each}
+        {/if}
+      </svg>
+      {#if hover && hover.chart === title}
+        <div class="tip" class:right={hover.i > n / 2} style="left:{(xAt(hover.i, n) / CW) * 100}%">
+          <div class="tlabel">{labels[hover.i]}</div>
+          {#each [...series].sort((a, b) => (b.vals[hover!.i] ?? 0) - (a.vals[hover!.i] ?? 0)) as s}
+            <div class="trow"><i style="background:{s.color}"></i><span>{s.name}</span><b>{fmt(s.vals[hover.i] ?? 0)}</b></div>
+          {/each}
+        </div>
+      {/if}
+    </div>
+    <div class="legend">
+      {#each series as s}<span class="lg" style="--c:{s.color}"><i></i>{s.name}</span>{/each}
+    </div>
+  </div>
+{/snippet}
+
+<!-- Charts: the value race, company incomes, and the bank, over time -->
+<div class="charts">
+  {@render chart('Player value over time', valueSeries, money)}
+  {#if revSeries.length}{@render chart('Company revenue (per run) over time', revSeries, money)}{/if}
+  {#if bankFinite}{@render chart('Bank over time', bankSeries, money)}{/if}
+</div>
 
 <div class="scroll">
   <table class="players">
@@ -32,6 +234,7 @@
       <tr>
         <th>Player</th>
         <th>Cash</th>
+        <th>Value</th>
         <th>Certs</th>
         {#each game.state.corporations as c}<th style="color:{c.color}">{c.sym}</th>{/each}
         <th>Privates</th>
@@ -42,6 +245,7 @@
         <tr>
           <td><span class="seat" style="--p:{SEAT[i % SEAT.length]}">{p.name}</span></td>
           <td>{CURRENCY}{p.cash}</td>
+          <td><b>{CURRENCY}{playerValue(game.state, p.id).toLocaleString()}</b></td>
           <td>{certs(p.id)}</td>
           {#each game.state.corporations as c}
             <td class:zero={held(p.id, c.sym) === 0}>
@@ -115,6 +319,10 @@
   td.zero {
     color: #455;
   }
+  td b {
+    color: var(--ink);
+    font-weight: 800;
+  }
   .pres {
     color: var(--rail);
     font-weight: 700;
@@ -131,5 +339,210 @@
     font-size: 0.95rem;
     border-bottom: 1px solid var(--line);
     padding-bottom: 0.3rem;
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+  }
+  h3 .sub {
+    font-size: 0.66rem;
+    font-weight: 400;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+  }
+
+  /* standings: the winning race, big and bold */
+  .standings {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    margin: 0.7rem 0 1.3rem;
+  }
+  .srow {
+    display: grid;
+    grid-template-columns: 1.4rem 1fr auto auto auto;
+    align-items: baseline;
+    gap: 0.6rem;
+    padding: 0.4rem 0.6rem;
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--p);
+    border-radius: 9px;
+    background: var(--bg-soft);
+  }
+  .rank {
+    font: 800 0.85rem ui-monospace, monospace;
+    color: var(--muted);
+  }
+  .sname {
+    font-weight: 700;
+    color: var(--p);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .sbot {
+    font-size: 0.55rem;
+    color: var(--muted);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 0 0.3rem;
+    margin-left: 0.35rem;
+  }
+  .sval {
+    font-size: 1.2rem;
+    font-weight: 800;
+    color: var(--ink);
+  }
+  .sliq {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--muted);
+  }
+  .sdelta {
+    font: 700 0.8rem ui-monospace, monospace;
+    min-width: 4.5em;
+    text-align: right;
+    color: var(--muted);
+  }
+  .sdelta.up {
+    color: #5fd39b;
+  }
+  .sdelta.down {
+    color: #ff8a7e;
+  }
+
+  /* bank readout */
+  .bankbar {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.6rem;
+    margin: 0 0 1.3rem;
+    padding: 0.55rem 0.8rem;
+    border: 1px solid var(--line);
+    border-left: 4px solid #d9b25b;
+    border-radius: 9px;
+    background: var(--bg-soft);
+  }
+  .blabel {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    font-weight: 700;
+  }
+  .bval {
+    font-size: 1.2rem;
+    font-weight: 800;
+    color: #d9b25b;
+  }
+
+  /* charts */
+  .charts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.4rem;
+  }
+  .cwrap {
+    position: relative;
+  }
+  .chart .guide {
+    stroke: var(--muted);
+    stroke-width: 1;
+    stroke-dasharray: 3 3;
+    vector-effect: non-scaling-stroke;
+  }
+  .tip {
+    position: absolute;
+    top: 2px;
+    transform: translateX(-50%);
+    pointer-events: none;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    padding: 0.35rem 0.5rem;
+    font-size: 0.72rem;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+    z-index: 2;
+    min-width: 7.5em;
+    white-space: nowrap;
+  }
+  .tip.right {
+    transform: translateX(-100%);
+  }
+  .tlabel {
+    font-weight: 800;
+    color: var(--ink);
+    margin-bottom: 0.2rem;
+  }
+  .trow {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: var(--muted);
+  }
+  .trow i {
+    width: 9px;
+    height: 9px;
+    border-radius: 2px;
+    flex: none;
+  }
+  .trow span {
+    flex: 1;
+  }
+  .trow b {
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+  }
+  .chart {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--bg-soft);
+    padding: 0.6rem 0.7rem;
+  }
+  .ctitle {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    margin-bottom: 0.4rem;
+  }
+  .chart svg {
+    width: 100%;
+    height: 120px;
+    display: block;
+    overflow: visible;
+  }
+  .chart .axis {
+    stroke: var(--line);
+    stroke-width: 1;
+    vector-effect: non-scaling-stroke;
+  }
+  .chart .line {
+    fill: none;
+    stroke-width: 2;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+    vector-effect: non-scaling-stroke;
+  }
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem 0.7rem;
+    margin-top: 0.5rem;
+  }
+  .lg {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.72rem;
+    color: var(--muted);
+  }
+  .lg i {
+    width: 12px;
+    height: 3px;
+    border-radius: 2px;
+    background: var(--c);
   }
 </style>

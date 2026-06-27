@@ -115,3 +115,44 @@ describe('routeThroughStops (manual route assignment)', () => {
     });
   });
 });
+
+describe('off-board locations are route termini (regression)', () => {
+  // 1889 F1 is a red off-board wedged between the blank cities E2 (its edge 1) and
+  // F3 (its edge 0). A train may END its run at F1 but must never pass THROUGH it
+  // onto the rest of the map. The bug treated the off-board like a normal city,
+  // so an auto/manual route could glide E2 -> F1 -> F3 (and the auto finder also
+  // double-counted a home city when the track looped back to it).
+  function irToOffboard(): { s: GameState; ir: GameState['corporations'][number] } {
+    const s: GameState = initialState([{ id: 'p1', name: 'A' }, { id: 'p2', name: 'B' }] as any);
+    const ir = s.corporations.find((c) => c.sym === 'IR')!;
+    ir.floated = true;
+    ir.president = 'p1';
+    ir.tokenHexes = ['E2'];
+    ir.trains = ['3'];
+    s.tiles['E2'] = { id: '5', rotation: 4 }; // city, centre -> edge 4 (toward F1)
+    s.tiles['F3'] = { id: '5', rotation: 2 }; // city, centre -> edge 3 (toward F1)
+    return { s, ir };
+  }
+
+  it('allows a route that ENDS at an off-board', () => {
+    const { s, ir } = irToOffboard();
+    const res = routeThroughStops(s, ['E2', 'F1'], 3, new Set(), new Set(), ir);
+    expect(res).not.toBeNull();
+    expect(res!.route.hexes).toEqual(['E2', 'F1']);
+  });
+
+  it('rejects a route that passes THROUGH an off-board to the city beyond', () => {
+    const { s, ir } = irToOffboard();
+    expect(routeThroughStops(s, ['E2', 'F1', 'F3'], 3, new Set(), new Set(), ir)).toBeNull();
+  });
+
+  it('the auto finder reaches the off-board but never traces past it, and never repeats a stop', () => {
+    const { s, ir } = irToOffboard();
+    const auto = corpRoutes(s, ir);
+    for (const r of auto.routes) {
+      const i = r.hexes.indexOf('F1');
+      if (i >= 0) expect(i).toBe(r.hexes.length - 1); // off-board only ever a terminus
+      expect(new Set(r.hexes).size).toBe(r.hexes.length); // no centre visited twice
+    }
+  });
+});

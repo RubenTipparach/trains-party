@@ -27,7 +27,15 @@
       // Once the host starts, everyone moves to the game board.
       if (r.status !== 'lobby') goto(`${base}/${r.title}/room/${r.code}`, { replaceState: true });
     } catch (e) {
-      err = (e as api.ApiError).status === 404 ? 'This room no longer exists.' : (e as Error).message;
+      if ((e as api.ApiError).status === 404) {
+        // The room is gone (e.g. the host closed the waiting room). Stop polling
+        // and show the closed state instead of a stale seat list.
+        room = null;
+        err = 'This room has been closed.';
+        clearInterval(timer);
+      } else {
+        err = (e as Error).message;
+      }
     }
   }
 
@@ -59,6 +67,29 @@
       err = (e as Error).message;
       busy = false;
     }
+  }
+
+  // The host leaving a waiting room closes it (nobody else can start it). Confirm
+  // first only when other people are seated, so we never silently kick them.
+  async function hostClose() {
+    const others = room ? room.seats.filter((s) => s.discordId && s.discordId !== myId).length : 0;
+    if (others > 0 && !confirm(`Close this room? ${others} other player${others === 1 ? '' : 's'} will be removed.`)) {
+      return;
+    }
+    busy = true;
+    err = null;
+    try {
+      await api.closeRoom(code);
+    } catch (e) {
+      // Already gone is fine; anything else, surface it and stay put.
+      if ((e as api.ApiError).status !== 404) {
+        err = (e as Error).message;
+        busy = false;
+        return;
+      }
+    }
+    clearInterval(timer);
+    goto(`${base}/`, { replaceState: true });
   }
 
   function signIn() {
@@ -100,7 +131,11 @@
 </script>
 
 <main>
-  <a class="back" href={`${base}/`}>&larr; Lobby</a>
+  {#if isHost && room && room.status === 'lobby'}
+    <button class="back linkish" onclick={hostClose}>&larr; Lobby (closes room)</button>
+  {:else}
+    <a class="back" href={`${base}/`}>&larr; Lobby</a>
+  {/if}
 
   {#if !auth.loading && !auth.signedIn}
     <section class="card login">
@@ -138,7 +173,11 @@
                 {#if !amSeated}<button class="play sm" disabled={busy} onclick={() => take(s.seatId)}>Take seat</button>{/if}
                 {#if isHost}<button class="ghost sm" disabled={busy} onclick={() => makeBot(s.seatId)}>Add bot</button>{/if}
               {:else if s.discordId === myId}
-                <button class="ghost sm" disabled={busy} onclick={() => leave(s.seatId)}>Leave</button>
+                {#if isHost}
+                  <button class="ghost sm" disabled={busy} onclick={hostClose}>Leave</button>
+                {:else}
+                  <button class="ghost sm" disabled={busy} onclick={() => leave(s.seatId)}>Leave</button>
+                {/if}
               {:else if s.bot && isHost}
                 <button class="ghost sm" disabled={busy} onclick={() => makeOpen(s.seatId)}>Open up</button>
               {/if}
@@ -197,6 +236,8 @@
 <style>
   main { max-width: 620px; margin: 0 auto; padding: clamp(1.5rem, 5vw, 3rem) 1.25rem; }
   .back { color: var(--muted); text-decoration: none; font-size: 0.9rem; }
+  .back.linkish { border: 0; background: none; padding: 0; cursor: pointer; font: inherit; font-size: 0.9rem; }
+  .back.linkish:hover { color: var(--ink); }
   .card { margin-top: 1rem; background: var(--bg-soft); border: 1px solid var(--line); border-radius: 16px; padding: 1.4rem; }
   .head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
   h1 { margin: 0; font-size: 1.4rem; }

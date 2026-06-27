@@ -86,6 +86,13 @@ class Sandbox {
   myDiscordId = $state<string | null>(null);
   /** Per-seat occupancy from the server room (who holds each seat / is a bot). */
   private seatMeta = $state<{ id: string; discordId: string | null; bot: boolean }[]>([]);
+  /** Watch rooms: ms the server paces bot moves at (0 = instaplay). */
+  watchPaceMs = $state(0);
+  /** Watch: paused (bots stop advancing until resumed). */
+  watchPaused = $state(false);
+  /** The room creator (only they may change the watch pace). */
+  private creatorDiscordId = $state<string | null>(null);
+  private ticking = false;
   /** True while a move is in flight to the server. */
   serverBusy = $state(false);
 
@@ -155,6 +162,7 @@ class Sandbox {
     this.myDiscordId = null;
     this.seatMeta = [];
     this.serverBusy = false;
+    this.watchPaceMs = 0; // a fresh local game has no watch pace until set
   }
 
   /** Start a fresh game in a new (or given) room. Returns the room code. */
@@ -270,6 +278,7 @@ class Sandbox {
       mapMode: this.mapMode,
       hostileMergers: this.hostileMergers,
       localRoutes: this.localRoutes,
+      watchPaceMs: this.watchPaceMs,
       seats: $state.snapshot(this.seats) as SeatConfig[],
       actions: $state.snapshot(this.actions) as GameAction[],
       status: statusOf(this.live),
@@ -315,6 +324,11 @@ class Sandbox {
     this.mapMode = sess.mapMode;
     this.hostileMergers = sess.hostileMergers ?? false;
     this.localRoutes = sess.localRoutes ?? true;
+    // Restore the watch pace (goLocal cleared it). For an all-bot game with no saved
+    // pace (older save), default to a watchable speed rather than instant.
+    const allBot = sess.seats.length > 0 && sess.seats.every((s) => s.bot);
+    this.watchPaceMs = sess.watchPaceMs ?? (allBot ? 3000 : 0);
+    this.watchPaused = false; // resume playing on load
     this.code = normCode(code);
     this.createdAt = sess.createdAt ?? Date.now();
     this.actions = valid;
@@ -339,6 +353,8 @@ class Sandbox {
     this.localRoutes = room.options.localRoutes;
     this.seats = room.seats.map((s) => ({ id: s.seatId, name: s.name, bot: s.bot, level: (s.level as BotLevel) ?? 'normal' }));
     this.seatMeta = room.seats.map((s) => ({ id: s.seatId, discordId: s.discordId, bot: s.bot }));
+    this.watchPaceMs = room.botPaceMs ?? 0;
+    this.creatorDiscordId = room.creatorDiscordId;
     this.actions = actions;
     this.redoStack = [];
     this.cursor = actions.length;
@@ -444,6 +460,61 @@ class Sandbox {
    *  it, and two concurrent fetches with the same `since` would append the same
    *  delta twice and corrupt the log. So only one runs at a time; a request that
    *  arrives mid-fetch sets a flag to run once more after (no missed update). */
+  /** Only the room's creator may retune the watch pace. */
+  get isWatchCreator(): boolean {
+    return !!this.myDiscordId && this.creatorDiscordId === this.myDiscordId;
+  }
+
+  /** A "watch" game: every seat is a bot, so the user is only spectating (true for
+   *  both a server watch room and a local all-bot game). Drives the speed slider and
+   *  the animation speed-up. */
+  get isWatch(): boolean {
+    return this.seats.length > 0 && this.seats.every((s) => s.bot);
+  }
+  /** A watch game running in this browser (bots auto-play locally, no server). */
+  get isLocalWatch(): boolean {
+    return !this.serverMode && this.isWatch;
+  }
+  /** Pause / resume the watch (stops the bots advancing until resumed). */
+  toggleWatchPause(): void {
+    this.watchPaused = !this.watchPaused;
+  }
+
+  /** Watch driver: ask the server to advance one paced bot move, then pull it in.
+   *  The server gates by elapsed time, so calling this faster than the pace is
+   *  harmless (it just no-ops until a move is due). Serialized to avoid overlap. */
+  async tickWatch() {
+    if (!this.serverMode || !this.code || this.ticking) return;
+    this.ticking = true;
+    try {
+      const r = await api.tickRoom(this.code);
+      if (r.advanced) await this.syncFromServer();
+    } catch {
+      /* transient: the next tick retries */
+    } finally {
+      this.ticking = false;
+    }
+  }
+
+  /** Change the watch pace live. 0 = instaplay to the end. A local watch just stores
+   *  it (the room page's auto-play loop reads it); a server watch tells the server,
+   *  which enforces and broadcasts the new pace (creator only). */
+  async setWatchPace(ms: number) {
+    if (!this.serverMode) {
+      this.watchPaceMs = Math.max(0, ms);
+      this.persist(); // keep the chosen speed across a refresh / resume
+      return;
+    }
+    if (!this.code) return;
+    this.watchPaceMs = ms; // optimistic; the server clamps
+    try {
+      const room = await api.setPace(this.code, ms);
+      this.watchPaceMs = room.botPaceMs ?? ms;
+    } catch {
+      /* ignore; keep the optimistic value */
+    }
+  }
+
   async syncFromServer() {
     if (!this.serverMode || !this.code) return;
     if (this.syncing) {

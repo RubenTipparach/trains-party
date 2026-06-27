@@ -8,6 +8,7 @@ import { registerAuth } from './oauth';
 import { registerRooms } from './rooms';
 import { registerAdmin } from './admin';
 import { registerWs } from './ws';
+import { registerIdleShutdown } from './idle';
 
 /**
  * Trains Party API.
@@ -52,6 +53,7 @@ await registerWs(app); // realtime room pings (best-effort; REST stays authorita
 registerAuth(app);
 registerRooms(app);
 registerAdmin(app);
+registerIdleShutdown(app); // sleep the machine after ~1h idle (Fly auto-starts on request)
 
 app
   .listen({ port: CFG.port, host: CFG.host })

@@ -18,12 +18,15 @@
 
 import { configFor, rolaAbility } from './registry';
 import { hexesFor } from './board';
-import { neighbor } from './track';
+import { neighbor, network, blockedHexes } from './track';
 import { TILES, rotatePaths, type TileEnd } from './tiles';
 import { GameError, type CorporationState, type GameState } from './types';
 import type { HexDef, TrainDef } from '$lib/data/types';
 
 const opposite = (e: number) => (e + 3) % 6;
+
+/** Max node visits per single-source route search (a diesel-explosion safety cap). */
+const ROUTE_NODE_BUDGET = 12000;
 
 /** Local-routes rule on for this game (per-game flag, else the title default). */
 function localRoutesOn(s: GameState): boolean {
@@ -116,6 +119,17 @@ function isCity(s: GameState, hex: string): boolean {
   return !!base && (base.cities.length > 0 || !!base.offboard);
 }
 
+/**
+ * Is `hex` an off-board (red) location? Off-boards are always route TERMINI: a
+ * train may end its run there but never pass through and continue, even when the
+ * hex touches the map on more than one edge (those edges are just alternative ways
+ * to reach it). They are preprinted, so a laid tile is never an off-board.
+ */
+function isOffboard(s: GameState, hex: string): boolean {
+  if (s.tiles?.[hex]) return false;
+  return !!hexesFor(s)[hex]?.offboard;
+}
+
 /** Number of station-token slots in the city at `hex` (0 if not a slotted city). */
 function citySlots(s: GameState, hex: string): number {
   const laid = s.tiles?.[hex];
@@ -176,6 +190,13 @@ function bestRouteFrom(
 ): { route: Route; segs: Set<string>; links: Set<string> } | null {
   const hexes = hexesFor(s);
   let best: { route: Route; segs: Set<string>; links: Set<string> } | null = null;
+  // Deterministic exploration budget: the diesel's effectively-unlimited reach makes
+  // the simple-path search exponential on a built-up network. Cap the number of node
+  // visits so a single route search stays bounded (keeping the best route found so
+  // far). Set high enough that ordinary routes are explored exhaustively (exact); it
+  // only ever bites a pathological diesel network, and it is deterministic so games
+  // still replay identically.
+  let budget = ROUTE_NODE_BUDGET;
 
   // Walk state: we are AT a centre in `hex`; choose an outgoing tile segment
   // (centre->edge), cross to the neighbour, continue. `stops` are centres so far.
@@ -186,6 +207,7 @@ function bestRouteFrom(
     segs: Set<string>,
     links: Set<string>
   ) {
+    if (--budget < 0) return; // exploration budget exhausted (diesel safety)
     // A valid train route connects at least two revenue centres. Since the walk
     // is anchored at a tokened city (start), every route includes a token.
     if (stops.length >= 2 && (!best || revenue > best.route.revenue)) {
@@ -197,6 +219,9 @@ function bestRouteFrom(
     // (Overnight glides arrive here WITHOUT the hex counted as a stop, and may
     // keep going - skipped blocked cities count nothing and earn nothing.)
     if (hex !== start && blocksThrough(s, corp, hex) && stops[stops.length - 1] === hex) return;
+    // An off-board location is a terminus: record it (above) but never trace a
+    // route through it onto the rest of the map.
+    if (isOffboard(s, hex)) return;
 
     // From the centre, take any segment touching 'c' to reach an edge.
     for (const seg of hexSegments(s, hex)) {
@@ -224,6 +249,7 @@ function bestRouteFrom(
     segs: Set<string>,
     links: Set<string>
   ) {
+    if (--budget < 0) return; // exploration budget exhausted (diesel safety)
     for (const seg of hexSegments(s, hex)) {
       const ends = [seg.a, seg.b];
       if (!ends.includes(enterEdge)) continue;
@@ -235,6 +261,8 @@ function bestRouteFrom(
         // reached a centre: it becomes a stop
         const rev = centreRevenue(s, hex, diesel, corp);
         if (rev <= 0 && !hasCentre(s, hex)) continue;
+        // A simple route may not visit the same revenue centre twice.
+        if (stops.includes(hex)) continue;
         walk(hex, [...stops, hex], revenue + rev, segs2, links);
         // Overnight: may instead skip a blocked city entirely (no stop, no
         // revenue) and continue tracing past it.
@@ -366,6 +394,134 @@ export function routeRevenue(s: GameState, corp: CorporationState): number {
 }
 
 /**
+ * Total revenue of every distinct revenue centre `corp` can reach from its station
+ * tokens through its track network, ignoring train length. A cheap connectivity
+ * measure ("how much city revenue is my network wired to") the bot uses to value
+ * laying track that CONNECTS new cities, rather than only what one short train can
+ * run right now. A foreign-blocked city counts as reachable (a valid endpoint) but
+ * is not traced through. Linear in the number of track segments (no path search).
+ */
+export function connectedRevenue(s: GameState, corp: CorporationState): number {
+  const hexes = hexesFor(s);
+  const starts = corp.tokenHexes.filter((h) => hasCentre(s, h));
+  if (!starts.length) return 0;
+  const reached = new Set<string>();
+  const usedSeg = new Set<string>();
+  const usedLink = new Set<string>();
+
+  function reach(hex: string): void {
+    if (hasCentre(s, hex)) reached.add(hex);
+    // A city blocked by other corporations' tokens is an endpoint, not a through-route.
+    if (blocksThrough(s, corp, hex)) return;
+    // An off-board location is a terminus; never trace connectivity through it.
+    if (isOffboard(s, hex)) return;
+    for (const seg of hexSegments(s, hex)) {
+      if (seg.a !== 'c' && seg.b !== 'c') continue; // leave the centre
+      const edge = (seg.a === 'c' ? seg.b : seg.a) as number;
+      const sid = segId(hex, seg);
+      if (usedSeg.has(sid)) continue;
+      usedSeg.add(sid);
+      const nb = neighbor(hexes, hex, edge);
+      if (!nb) continue;
+      const lid = linkId(hexes, hex, edge);
+      if (usedLink.has(lid)) continue;
+      usedLink.add(lid);
+      enter(nb, opposite(edge));
+    }
+  }
+  function enter(hex: string, edge: number): void {
+    for (const seg of hexSegments(s, hex)) {
+      if (seg.a !== edge && seg.b !== edge) continue;
+      const other = (seg.a === edge ? seg.b : seg.a) as End;
+      const sid = segId(hex, seg);
+      if (usedSeg.has(sid)) continue;
+      usedSeg.add(sid);
+      if (other === 'c') {
+        reach(hex);
+      } else {
+        const e2 = other as number;
+        const nb = neighbor(hexes, hex, e2);
+        if (!nb) continue;
+        const lid = linkId(hexes, hex, e2);
+        if (usedLink.has(lid)) continue;
+        usedLink.add(lid);
+        enter(nb, opposite(e2));
+      }
+    }
+  }
+
+  for (const start of starts) reach(start);
+  let total = 0;
+  for (const h of reached) total += centreRevenue(s, h, false, corp);
+  return total;
+}
+
+/**
+ * A forward-looking companion to `connectedRevenue`: the value of revenue centres the
+ * network is BUILDING TOWARD but has not connected yet, discounted by how many more
+ * tile lays it would take to reach each one (`value / (lays + 1)`).
+ *
+ * Without this the bot is greedy and short-sighted: it grabs the nearest cheap
+ * connection (a 10-town, or a dead-end stub) because an unconnected city contributes
+ * nothing to `connectedRevenue` until the line actually arrives - so it never invests
+ * track toward a far high-value city (a 40-city it could later token). Reachability is
+ * traced from the network's OPEN track ends, so a tile aimed at a city scores higher
+ * than a dead-end on the same hex (their open ends point different ways). A bounded hex
+ * flood keeps it cheap (the map is small, and we stop after `maxLays`).
+ */
+export function approachRevenue(s: GameState, corp: CorporationState, maxLays = 4): number {
+  const hexes = hexesFor(s);
+  if (!corp.tokenHexes.some((h) => hasCentre(s, h))) return 0;
+  const net = network(s, corp);
+  const blocked = blockedHexes(s);
+  const waterRule = !!configFor(s.title).waterBlocksTrack;
+  const bridging = !!rolaAbility(s.title, corp, 'bridge_tiles');
+  const isWater = (h: string) => (hexes[h]?.terrain ?? []).includes('water') && !hexes[h]?.cities?.length;
+  // A hex we could lay track on next (empty/off-network land, not privately blocked).
+  const buildable = (h: string): boolean => {
+    if (!hexes[h] || net.has(h) || blocked.has(h)) return false;
+    if (waterRule && isWater(h) && !bridging && !s.tiles[h]) return false;
+    return true;
+  };
+
+  // Seed the flood at the empty neighbours an OPEN network track end points into.
+  const dist = new Map<string, number>();
+  const queue: string[] = [];
+  for (const h of net) {
+    if (blocksThrough(s, corp, h)) continue; // cannot extend past a foreign-blocked city
+    for (const seg of hexSegments(s, h)) {
+      for (const end of [seg.a, seg.b]) {
+        if (end === 'c') continue;
+        const nb = neighbor(hexes, h, end as number);
+        if (nb && buildable(nb) && !dist.has(nb)) {
+          dist.set(nb, 1);
+          queue.push(nb);
+        }
+      }
+    }
+  }
+  // Flood outward through buildable hexes; each ring is one more lay away.
+  for (let i = 0; i < queue.length; i++) {
+    const h = queue[i];
+    const d = dist.get(h)!;
+    if (d >= maxLays) continue;
+    for (let e = 0; e < 6; e++) {
+      const nb = neighbor(hexes, h, e);
+      if (nb && buildable(nb) && !dist.has(nb)) {
+        dist.set(nb, d + 1);
+        queue.push(nb);
+      }
+    }
+  }
+
+  let total = 0;
+  for (const [h, d] of dist) {
+    if (hasCentre(s, h)) total += centreRevenue(s, h, false, corp) / (d + 1);
+  }
+  return total;
+}
+
+/**
  * How many revenue centres one of `corp`'s trains may visit this OR, including
  * the RoLA Express boost (+1 stop while the company owns a single train). This is
  * the authoritative reach the UI must use when resolving hand-picked routes, so a
@@ -419,12 +575,12 @@ export function routeThroughStops(
   }
   if (stops.length < 2 || stops.length > maxStops) return null;
   const hexes = hexesFor(s);
-  // Token blocking: an interior stop full of other corporations' tokens cannot
-  // be passed through (only route endpoints may be such a blocked city).
-  if (corp) {
-    for (let i = 1; i < stops.length - 1; i++) {
-      if (blocksThrough(s, corp, stops[i])) return null;
-    }
+  // Interior-stop rules: an off-board location may only be a route TERMINUS (never
+  // passed through), and a city full of other corporations' tokens cannot be passed
+  // through (only route endpoints may be such a blocked city).
+  for (let i = 1; i < stops.length - 1; i++) {
+    if (isOffboard(s, stops[i])) return null;
+    if (corp && blocksThrough(s, corp, stops[i])) return null;
   }
 
   // Find a track-only path between two adjacent stops, not reusing track. Returns

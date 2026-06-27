@@ -367,7 +367,7 @@
       const emerge = Math.min(16, total * 0.34); // tunnel fade-in/out distance
       const trail = (BODIES - 1) * CAR_GAP;
       const sMax = total + trail; // run on until the last car enters the tunnel
-      const dur = Math.max(800, (sMax / SPEED) * 1000);
+      const dur = anim.scale(Math.max(800, (sMax / SPEED) * 1000));
       const tok = anim.token;
       anim.begin();
 
@@ -412,11 +412,11 @@
             if (val == null) continue;
             const gid = ++glowId;
             glows = [...glows, { id: gid, x: pts[i].x, y: pts[i].y, color }];
-            setTimeout(() => (glows = glows.filter((g) => g.id !== gid)), 1200);
+            setTimeout(() => (glows = glows.filter((g) => g.id !== gid)), anim.scale(1200));
             if (val > 0) {
               const id = ++coinId;
               coins = [...coins, { id, x: pts[i].x, y: pts[i].y, val, color }];
-              setTimeout(() => (coins = coins.filter((x) => x.id !== id)), 1100);
+              setTimeout(() => (coins = coins.filter((x) => x.id !== id)), anim.scale(1100));
             }
           }
         }
@@ -573,7 +573,7 @@
 
   // --- tile fly-in animation -----------------------------------------------
   // When a new tile appears in state, fly a copy from a side "pool" onto the hex.
-  let flying = $state<{ id: string; rotation: number; from: { x: number; y: number }; to: { x: number; y: number }; on: boolean } | null>(null);
+  let flying = $state<{ id: string; rotation: number; from: { x: number; y: number }; to: { x: number; y: number }; on: boolean; dur: number } | null>(null);
   let known = new Set<string>();
   $effect(() => {
     const tiles = game.state.tiles ?? {};
@@ -587,9 +587,10 @@
     if (fresh && anim.on) {
       const to = hexCenter(fresh);
       const from = { x: minX + 30, y: minY + 30 }; // the tile pool corner
-      flying = { id: tiles[fresh].id, rotation: tiles[fresh].rotation, from, to, on: false };
+      const dur = anim.scale(600); // ms; scaled down so fast watch paces keep up
+      flying = { id: tiles[fresh].id, rotation: tiles[fresh].rotation, from, to, on: false, dur };
       requestAnimationFrame(() => requestAnimationFrame(() => (flying && (flying = { ...flying, on: true }))));
-      setTimeout(() => (flying = null), 650);
+      setTimeout(() => (flying = null), dur + 50);
     }
   });
 
@@ -685,15 +686,11 @@
   };
   const thover = (c: TileColor) => (game.title === 'rola' && c === 'brown' ? '#b98fce' : HOVER[c]);
 
-  function labelPos(h: HexDef): { x: number; y: number } {
-    const used = new Set<number>();
-    for (const p of h.paths) {
-      if (typeof p.a === 'number') used.add(p.a);
-      if (typeof p.b === 'number') used.add(p.b);
-    }
-    const e = [3, 0, 4, 1, 5, 2].find((d) => !used.has(d)) ?? 3;
-    const m = edgeMidpoint(0, 0, e);
-    return { x: m.x * 0.58, y: m.y * 0.58 };
+  // The tile label letter (1889's H / T / K, etc.) sits in the top-RIGHT corner,
+  // clear of the centred revenue, the top-left build cost, and the bottom name -
+  // they used to pile up at top-centre and overlap (see the cost render below).
+  function labelPos(_h: HexDef): { x: number; y: number } {
+    return { x: HEX_SIZE * 0.42, y: -APOTHEM + 9 };
   }
 
 
@@ -1699,7 +1696,9 @@
               </g>
             {/if}
             {#if h.upgradeCost && !laid(h.coord)}
-              <text class="costlbl" y={-APOTHEM + 12} text-anchor="middle">{h.upgradeCost}</text>
+              <!-- terrain build cost: top-LEFT corner, clear of the centred revenue
+                   and the top-right tile label (it only shows on a blank hex) -->
+              <text class="costlbl" x={-HEX_SIZE * 0.42} y={-APOTHEM + 16} text-anchor="middle">{h.upgradeCost}</text>
             {/if}
             {#each tokensOn(h.coord) as t, ti (t.sym)}
               {@const slotXs = slotCenters(Math.max(slotsAt(h.coord), tokensOn(h.coord).length))}
@@ -1889,7 +1888,7 @@
         <g
           class="flyer"
           transform="translate({flying.on ? flying.to.x : flying.from.x} {flying.on ? flying.to.y : flying.from.y}) scale({flying.on ? 1 : 0.4})"
-          style="opacity:{flying.on ? 1 : 0.2}"
+          style="opacity:{flying.on ? 1 : 0.2}; --flydur:{flying.dur}ms"
         >
           <polygon points={poly} fill="#f3cf3e" stroke="#4a4332" stroke-width="1" />
           <g clip-path="url(#hexclip)">
@@ -2314,8 +2313,8 @@
   .flyer {
     pointer-events: none;
     transition:
-      transform 0.6s cubic-bezier(0.34, 1.3, 0.5, 1),
-      opacity 0.45s ease;
+      transform var(--flydur, 600ms) cubic-bezier(0.34, 1.3, 0.5, 1),
+      opacity calc(var(--flydur, 600ms) * 0.75) ease;
     filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.4));
   }
   .train {
@@ -2478,8 +2477,11 @@
     fill: #fff;
   }
   .label {
-    font: 700 13px ui-sans-serif, sans-serif;
+    font: 700 12px ui-sans-serif, sans-serif;
     fill: #1b1b1b;
+    paint-order: stroke;
+    stroke: #fff;
+    stroke-width: 2.5;
   }
   .name {
     font: 600 9px ui-sans-serif, sans-serif;

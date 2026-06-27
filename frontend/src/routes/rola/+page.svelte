@@ -14,7 +14,7 @@
   let localRoutes = $state(true);
   const names = $state(['You', 'Bot 2', 'Bot 3', 'Bot 4', 'Bot 5']);
   const bots = $state([false, true, true, true, true]);
-  const levels = $state<BotLevel[]>(['normal', 'normal', 'normal', 'normal', 'normal']);
+  const levels = $state<BotLevel[]>(['easy', 'easy', 'easy', 'easy', 'easy']);
 
   onMount(() => {
     const saved = localStorage.getItem(NAME_KEY)?.trim();
@@ -87,9 +87,10 @@
             <button class:on={!bots[i]} onclick={() => (bots[i] = false)}>Human</button>
             <button class:on={bots[i]} onclick={() => (bots[i] = true)}>Bot</button>
           </div>
-          <select class="lvl" bind:value={levels[i]} disabled={!bots[i]}>
+          <select class="lvl" bind:value={levels[i]} disabled={!bots[i]} title="Hard: adds a sharper train rush and ganging up on the leader. Easy: plays a solid strategy. Testing: makes simple legal moves to fill a seat.">
+            <option value="hard">Hard</option>
             <option value="easy">Easy</option>
-            <option value="normal">Normal</option>
+            <option value="testing">Testing</option>
           </select>
         </div>
       {/each}

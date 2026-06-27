@@ -29,6 +29,8 @@ export interface RoomRow {
   creator_discord_id: string | null;
   max_players: number;
   seq: number;
+  /** Watch pacing: ms between bot moves (0 = instaplay all consecutive bot turns). */
+  bot_pace_ms: number;
   created_at: number;
   updated_at: number;
 }
@@ -121,6 +123,29 @@ export function runBots(room: RoomRow, max = 500): GameState {
   return state;
 }
 
+/**
+ * Advance bots for a WATCH room one move at a time, paced. With pace 0 this is
+ * just `runBots` (instaplay to the next human / end). With pace > 0 it appends a
+ * single bot move only once `pace` ms have elapsed since the last move, so a
+ * spectator polling this endpoint sees the game unfold at a watchable speed
+ * (no server-side timers needed - the poll drives it). Returns whether it moved.
+ */
+export function stepBotsPaced(room: RoomRow): { state: GameState; advanced: boolean } {
+  const pace = room.bot_pace_ms ?? 0;
+  // Instant: race an all-bot game to its end in one tick (a high cap covers a full
+  // 1889/RoLA game, which can run ~600-1300 moves).
+  if (pace <= 0) return { state: runBots(room, 5000), advanced: true };
+  const state = deriveState(room);
+  if (state.finished) return { state, advanced: false };
+  const active = activePlayer(state);
+  const seat = active ? getSeats(room.code).find((s) => s.seat_id === active) : undefined;
+  if (!seat || !seat.bot) return { state, advanced: false }; // a human must act, or nobody
+  if (now() - room.updated_at < pace) return { state, advanced: false }; // not due yet
+  const action = botAction(state, (seat.level as BotLevel) ?? 'normal');
+  if (!action) return { state, advanced: false };
+  return { state: appendAction(room, action), advanced: true };
+}
+
 export { activePlayer };
 
 /** Compact round label for lobby rows (mirrors the sandbox's statusOf). */
@@ -170,6 +195,7 @@ export function roomView(room: RoomRow, state?: GameState) {
       localRoutes: !!room.local_routes
     },
     maxPlayers: room.max_players,
+    botPaceMs: room.bot_pace_ms ?? 0,
     creatorDiscordId: room.creator_discord_id,
     updatedAt: room.updated_at
   };

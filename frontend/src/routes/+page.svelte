@@ -8,6 +8,8 @@
   import { listSessions, deleteSession, migrateLegacySaves, type SessionMeta } from '$lib/game/sessions';
   import { auth } from '$lib/game/auth.svelte';
   import { linkify } from '$lib/util/linkify';
+  import { configFor } from '$lib/engine';
+  import { game, type SeatConfig } from '$lib/game/sandbox.svelte';
   import * as api from '$lib/api/client';
 
   // --- local (sandbox) games ---------------------------------------------
@@ -35,6 +37,20 @@
   let newTitle = $state('1889');
   let newPlayers = $state(2);
   const playable = GAMES.filter((g) => g.status === 'playable');
+
+  // Watch-a-bot-game modal: the same modal, in "watch" mode (all-bot, local).
+  let watchMode = $state(false);
+  let watchBotCount = $state(4);
+  let watchLevel = $state<'easy' | 'testing' | 'hard'>('hard');
+  let watchPace = $state(3000);
+  // Valid table sizes for the chosen title (derived from its starting-cash table).
+  const watchCounts = $derived(
+    Object.keys(configFor(newTitle).startingCash).map(Number).sort((a, b) => a - b)
+  );
+  $effect(() => {
+    const max = Math.max(...watchCounts);
+    if (watchBotCount > max) watchBotCount = max;
+  });
 
   const myActive = $derived(myRooms.filter((r) => r.status === 'active' && !r.finished));
   const myFinished = $derived(myRooms.filter((r) => r.finished));
@@ -126,6 +142,36 @@
     } catch (e) { err = (e as Error).message; busy = false; }
   }
 
+  // Open the create modal in "watch" mode (all-bot table). Signs in a guest first
+  // if the visitor has not signed in yet, so the lobby (which hosts the modal)
+  // renders. The same modal then offers game / bot-count / skill / speed options.
+  async function watchEntry() {
+    if (!auth.signedIn) {
+      busy = true; err = null;
+      try { await auth.signInAnon(guestName.trim() || 'Spectator'); }
+      catch (e) { err = (e as Error).message; busy = false; return; }
+      busy = false;
+    }
+    err = null; watchMode = true; modalOpen = true;
+  }
+
+  // Spin up the configured all-bot table and drop the user in as a spectator. The
+  // bots think LOCALLY (in this browser) - running the bot logic on the server is
+  // far too heavy for an all-bot game. The game is saved to local storage, so it
+  // shows under "Your games", resumes after a refresh, and can be paused from the
+  // board; it is not deleted when it finishes.
+  async function startWatch() {
+    busy = true; err = null;
+    try {
+      const n = watchBotCount;
+      const seats = Array.from({ length: n }, (_, i) => ({ id: `p${i + 1}`, name: `Bot ${i + 1}`, bot: true, level: watchLevel }));
+      const code = game.newGame(seats as SeatConfig[], newTitle);
+      game.setWatchPace(watchPace); // local pace (drives + persists the watch speed)
+      modalOpen = false;
+      goto(`${base}/${newTitle}/room/${code}`);
+    } catch (e) { err = (e as Error).message; busy = false; }
+  }
+
   // Join an open table, then land in its waiting room.
   async function joinRoom(r: api.RoomView) {
     const open = r.seats.find((s) => !s.taken);
@@ -192,6 +238,10 @@
         <button class="play" disabled={busy}>Play as guest</button>
       </form>
       <p class="hint">Guests can create and join games and chat. Discord adds turn notifications and invites by DM.</p>
+      {#if auth.enabled?.anon}
+        <div class="or"><span>or just watch</span></div>
+        <button class="ghost watchbtn" disabled={busy} onclick={watchEntry}>▶ Watch bots play</button>
+      {/if}
       {#if err}<p class="err">{err}</p>{/if}
     </section>
   {:else if online && auth.signedIn}
@@ -219,7 +269,8 @@
 
     <div class="lobby" in:fade={{ duration: 300 }}>
       <div class="topbar">
-        <button class="play newbtn" onclick={() => { err = null; modalOpen = true; }}>+ New game</button>
+        <button class="play newbtn" onclick={() => { err = null; watchMode = false; modalOpen = true; }}>+ New game</button>
+        <button class="ghost watchbtn" disabled={busy} onclick={watchEntry} title="Spin up an all-bot table and watch it play">▶ Watch bots</button>
         <form class="joinform" onsubmit={(e) => { e.preventDefault(); joinByCode(); }}>
           <input placeholder="invite code" bind:value={inviteCode} maxlength="12" />
           <button class="ghost">Join</button>
@@ -297,14 +348,14 @@
 
     </div>
 
-    <!-- New game modal: pick a title (big buttons) + players, then create -->
+    <!-- New game / Watch modal: pick a title (big buttons) + options, then go -->
     {#if modalOpen}
       <div class="backdrop">
         <button class="bdrop-close" aria-label="Close" onclick={() => (modalOpen = false)}></button>
         <div class="modal" role="dialog" aria-modal="true" tabindex="-1">
           <button class="modalx" aria-label="Close" onclick={() => (modalOpen = false)}>×</button>
-          <h2 class="mtitle">New game</h2>
-          <p class="msub">Choose a game</p>
+          <h2 class="mtitle">{watchMode ? 'Watch bots' : 'New game'}</h2>
+          <p class="msub">{watchMode ? 'An all-bot table you can sit back and watch' : 'Choose a game'}</p>
           <div class="gamegrid">
             {#each playable as g (g.id)}
               <button class="gamebtn" class:sel={newTitle === g.id} style="--accent:{g.accent}" onclick={() => (newTitle = g.id)}>
@@ -313,14 +364,43 @@
               </button>
             {/each}
           </div>
-          <div class="mrow">
-            <label>Players
-              <select bind:value={newPlayers}>
-                {#each [2, 3, 4] as n}<option value={n}>{n}</option>{/each}
-              </select>
-            </label>
-            <button class="play" disabled={busy} onclick={createOnline}>Create game</button>
-          </div>
+          {#if watchMode}
+            <div class="mrow watchrow">
+              <label>Bots
+                <select bind:value={watchBotCount}>
+                  {#each watchCounts as n}<option value={n}>{n}</option>{/each}
+                </select>
+              </label>
+              <label>Skill
+                <select bind:value={watchLevel}>
+                  <option value="hard">Hard</option>
+                  <option value="easy">Strategic</option>
+                  <option value="testing">Basic</option>
+                </select>
+              </label>
+              <label>Speed
+                <select bind:value={watchPace}>
+                  <option value={250}>0.25s · fast</option>
+                  <option value={1000}>1s</option>
+                  <option value={3000}>3s</option>
+                  <option value={5000}>5s · slow</option>
+                </select>
+              </label>
+              <button class="play" disabled={busy} onclick={startWatch}>Watch</button>
+            </div>
+            <p class="msub" style="margin:0.45rem 0 0">
+              Plays in this browser. Saved to "Your games" - resume after a refresh, or pause from the board.
+            </p>
+          {:else}
+            <div class="mrow">
+              <label>Players
+                <select bind:value={newPlayers}>
+                  {#each [2, 3, 4] as n}<option value={n}>{n}</option>{/each}
+                </select>
+              </label>
+              <button class="play" disabled={busy} onclick={createOnline}>Create game</button>
+            </div>
+          {/if}
           {#if err}<p class="err">{err}</p>{/if}
         </div>
       </div>
@@ -358,6 +438,7 @@
     padding: 0.4rem 0.9rem; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center;
   }
   .ghost.sm { padding: 0.35rem 0.8rem; font-size: 0.8rem; }
+  .watchbtn { justify-content: center; }
   .discord { border: 0; background: #5865f2; color: #fff; border-radius: 999px; padding: 0.6rem 1.3rem; font-weight: 700; cursor: pointer; font-size: 1rem; align-self: flex-start; }
   /* login */
   .login { max-width: 420px; margin: 0 auto; border: 1px solid var(--line); background: var(--bg-soft); border-radius: 16px; padding: 1.6rem 1.4rem; display: flex; flex-direction: column; gap: 0.9rem; }
@@ -430,6 +511,9 @@
   .gbtitle { font-weight: 800; font-size: 1.05rem; color: var(--accent); }
   .gbsub { font-size: 0.78rem; color: var(--muted); }
   .mrow { display: flex; align-items: end; justify-content: space-between; gap: 0.8rem; margin-top: 1.1rem; }
+  .mrow.watchrow { flex-wrap: wrap; }
+  .mrow.watchrow label { flex: 1 1 auto; min-width: 5.5rem; }
+  .mrow.watchrow .play { flex: 1 1 100%; margin-top: 0.2rem; }
   .mrow label { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.78rem; color: var(--muted); }
   .foot { margin-top: 1.8rem; color: var(--muted); font-size: 0.85rem; display: flex; gap: 0.6rem; justify-content: center; align-items: center; }
   .dot { opacity: 0.4; }

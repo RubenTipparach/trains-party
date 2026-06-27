@@ -26,6 +26,8 @@ export interface SavedSession {
   hostileMergers?: boolean;
   /** RoLA local-routes rule (optional for back-compat; default on). */
   localRoutes?: boolean;
+  /** Watch pace (ms between bot moves) for an all-bot local game; 0 = instant. */
+  watchPaceMs?: number;
   seats: SeatConfig[];
   actions: GameAction[];
   /** Short human-readable round label cached for the lobby (e.g. "SR 2"). */

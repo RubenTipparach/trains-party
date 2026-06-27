@@ -6,8 +6,9 @@
   import { auth } from '$lib/game/auth.svelte';
   import { fade, fly } from 'svelte/transition';
   import HexMap from '$lib/components/HexMap.svelte';
+  import HexMapPixi from '$lib/components/HexMapPixi.svelte';
   import StockMarket from '$lib/components/StockMarket.svelte';
-  import CorporationCard from '$lib/components/CorporationCard.svelte';
+  import LiveCorpCard from '$lib/components/LiveCorpCard.svelte';
   import CompanyCard from '$lib/components/CompanyCard.svelte';
   import CompanyLogo from '$lib/components/CompanyLogo.svelte';
   import GamePanel from '$lib/components/GamePanel.svelte';
@@ -24,9 +25,9 @@
   import { BUILD_SHA } from '$lib/version';
 
   const SEAT = ['#f5c542', '#3fb6a8', '#e0655c', '#9b8cf0', '#7cc36b', '#e8923a'];
-  // The entities tab still lists 1889's privates/corporations directly (RoLA's
-  // minors/majors are a later pass); every other tab reads the active config.
-  import { CORPORATIONS, COMPANIES } from '$lib/data/g1889';
+  // The entities tab lists corporations live (LiveCorpCard, both titles); 1889's
+  // privates are still listed from static data.
+  import { COMPANIES } from '$lib/data/g1889';
   import type { TileColor } from '$lib/data/types';
   import { anim } from '$lib/game/anim.svelte';
   import { pingHex, flyToHex } from '$lib/game/locate.svelte';
@@ -74,6 +75,34 @@
     return () => clearInterval(t);
   });
 
+  // Watch driver: in a server room, a paced bot game only advances when a client
+  // asks the server to step it. While a bot is on the clock we tick; the server
+  // gates each tick by the room's pace (so ticking faster than the pace just
+  // no-ops until a move is due) and broadcasts moves to every watcher. A human
+  // seat or a finished game needs no ticking, so the guard turns the loop off.
+  $effect(() => {
+    if (!game.serverMode || game.code !== code || game.state.finished || game.watchPaused) return;
+    const a = game.active;
+    if (!a || !game.isBot(a)) return;
+    // Poll at about half the pace (so a due move lands within ~one pace of when it
+    // should), floored/capped to keep it snappy at 0.25s and not wasteful at 5s.
+    const every = game.watchPaceMs > 0 ? Math.max(120, Math.min(Math.round(game.watchPaceMs / 2), 1000)) : 500;
+    const t = setInterval(() => game.tickWatch(), every);
+    return () => clearInterval(t);
+  });
+
+  // Speed board animations up as the watch pace gets faster so a train run / tile
+  // drop comfortably finishes before the next move lands. Only an all-bot WATCH game
+  // (server or local) scales; a normal game (humans playing) keeps normal speed.
+  // Instant (pace 0) uses the fastest setting. Resets to normal when leaving.
+  $effect(() => {
+    if (game.code !== code) return;
+    const p = game.watchPaceMs;
+    const speed = game.isWatch ? (p <= 0 ? 8 : Math.max(1, Math.min(8, 2000 / p))) : 1;
+    anim.setSpeed(speed);
+    return () => anim.setSpeed(1);
+  });
+
   // Active title's branding (header, footer, theme) - the board is title-agnostic.
   const meta = $derived(GAMES.find((g) => g.id === game.title) ?? GAMES[0]);
   const isRola = $derived(game.title === 'rola');
@@ -84,7 +113,45 @@
   // also carries the operating-round interactions (lay track / token / routes).
   const opv = $derived(game.state.round === 'operating' ? operatingView(game.state) : null);
 
+  // Experimental WebGL (PixiJS) board renderer (opt-in, persisted): it paints the
+  // board in one GPU pass instead of re-diffing the SVG node tree - much lighter on
+  // fast bot/watch updates - and supports pan/zoom. View-only for now: interactive
+  // steps (track/token/run/map-build) fall back to the SVG board.
+  type BoardMode = 'svg' | 'webgl';
+  let boardMode = $state<BoardMode>('svg');
+  $effect(() => {
+    if (typeof localStorage === 'undefined') return;
+    const v = localStorage.getItem('tp.board');
+    if (v === 'webgl' || v === 'canvas') boardMode = 'webgl'; // 'canvas' renderer was removed
+    else boardMode = 'svg';
+  });
+  function cycleBoard() {
+    boardMode = boardMode === 'svg' ? 'webgl' : 'svg';
+    try {
+      localStorage.setItem('tp.board', boardMode);
+    } catch {
+      /* ignore */
+    }
+  }
+  // The WebGL board now drives all board interaction natively (track/token/run +
+  // RoLA map-build), so it no longer needs to hand any step back to the SVG board.
+  const boardInteractive = false;
+
   let isMobile = $state(false);
+
+  // Watch-speed slider (creator only): 0.25s (fast) .. 5s (slow). REVERSED so the
+  // right end is fastest - the slider shows position = (MIN+MAX) - pace, and a drag
+  // maps back the same way. paceSlider remembers the last paced speed so toggling
+  // Instant off resumes at it; it seeds from the room and tracks live edits.
+  const PACE_MIN = 250;
+  const PACE_MAX = 5000;
+  const PACE_SUM = PACE_MIN + PACE_MAX;
+  let paceSlider = $state(3000);
+  $effect(() => {
+    if (game.watchPaceMs > 0) paceSlider = game.watchPaceMs;
+  });
+  const effPace = $derived(game.watchPaceMs > 0 ? game.watchPaceMs : paceSlider);
+  const paceLabel = $derived(`${+(effPace / 1000).toFixed(2)}s`);
 
   // Mobile op-sheet height (% of viewport). Players drag the handle to set the
   // map/sheet split to taste; persisted so it sticks across rounds and reloads.
@@ -136,20 +203,32 @@
     };
   });
 
-  // Auto-play bot turns with a watchable pause between moves (skippable).
-  // Server games advance bots on the server, so skip local bot stepping there.
+  // Auto-play bot turns. Server games advance bots on the server (skip here).
+  // A LOCAL watch (all bots) is paced by the speed slider via a timer, so the pace
+  // holds even with animations off; 0 = as fast as possible. A normal solo game
+  // keeps the steady, skippable ~900ms pause between bot moves.
   $effect(() => {
     const a = game.active;
-    if (a && game.isBot(a) && !game.reviewing && !game.serverMode) {
+    if (!a || !game.isBot(a) || game.reviewing || game.serverMode) return;
+    if (game.isLocalWatch) {
+      if (game.watchPaused) return; // paused: hold here until resumed
       let cancelled = false;
-      (async () => {
-        await anim.wait(900);
+      const t = setTimeout(() => {
         if (!cancelled) game.botStep();
-      })();
+      }, Math.max(0, game.watchPaceMs));
       return () => {
         cancelled = true;
+        clearTimeout(t);
       };
     }
+    let cancelled = false;
+    (async () => {
+      await anim.wait(900);
+      if (!cancelled) game.botStep();
+    })();
+    return () => {
+      cancelled = true;
+    };
   });
 
   // When the game transitions INTO a stock round, surface the Game panel so the
@@ -270,7 +349,10 @@
   // During an operating/merger round the play screen IS the map plus the always-on
   // operation panel, so the Game (play) tab opens no independent overlay: selecting
   // it just shows the board. Other tabs still open over the map as usual.
-  const panelOpen = $derived(!!active && !(active === 'game' && opPanel));
+  // RoLA map-build is the same: the board IS the interaction (tap a grid hex to place
+  // a tri-hex), so the Game tab must not cover it either.
+  const building = $derived(game.state.round === 'mapbuild');
+  const panelOpen = $derived(!!active && !(active === 'game' && (opPanel || building)));
   // A full-screen modal covering the map pauses its renderer (mobile). During an
   // OR the Game tab shows the board (panelOpen is false there), so the map must
   // keep rendering and stay tappable - pause only when an overlay actually covers it.
@@ -321,14 +403,18 @@
   <!-- the map: full-screen, always on, the board's background. On desktop the
        open panel pushes it over so the board re-centres in the visible space. -->
   <div class="maplayer" class:squeezed={panelOpen}>
-    <HexMap
-      fill
-      paused={mapPaused}
-      liftControls={isMobile && opPanel}
-      layMode={game.canAct && opv?.step === 'track'}
-      tokenMode={game.canAct && opv?.step === 'token'}
-      runMode={game.canAct && opv?.step === 'run'}
-    />
+    {#if boardMode === 'webgl' && !boardInteractive}
+      <HexMapPixi />
+    {:else}
+      <HexMap
+        fill
+        paused={mapPaused}
+        liftControls={isMobile && opPanel}
+        layMode={game.canAct && opv?.step === 'track'}
+        tokenMode={game.canAct && opv?.step === 'token'}
+        runMode={game.canAct && opv?.step === 'run'}
+      />
+    {/if}
   </div>
 
   <!-- floating cycle/round tracker (RoLA): the board-style visual aid -->
@@ -355,6 +441,39 @@
     </span>
     {#if anim.pacing}
       <button class="skip" onclick={() => anim.skip()}>Skip ⏭ <kbd>Space</kbd></button>
+    {/if}
+    {#if game.isWatch && (!game.serverMode || game.isWatchCreator)}
+      <!-- watch controls: pause/resume, speed (seconds between bot moves), and
+           Instant (race to the final result). A local watch runs in this browser;
+           a server watch is creator-only. -->
+      <span class="watch" role="group" aria-label="Watch controls">
+        <button
+          class="wb"
+          class:on={game.watchPaused}
+          onclick={() => game.toggleWatchPause()}
+          title={game.watchPaused ? 'Resume the bots' : 'Pause the bots'}
+        >{game.watchPaused ? '▶ Resume' : '⏸ Pause'}</button>
+        <span class="wl">Speed</span>
+        <input
+          class="wrange"
+          type="range"
+          min={PACE_MIN}
+          max={PACE_MAX}
+          step="250"
+          value={PACE_SUM - effPace}
+          disabled={game.watchPaceMs === 0}
+          oninput={(e) => game.setWatchPace(PACE_SUM - +e.currentTarget.value)}
+          title="Drag right to speed the bots up"
+          aria-label="Bot speed"
+        />
+        <span class="wv">{game.watchPaceMs > 0 ? paceLabel : 'instant'}</span>
+        <button
+          class="wb"
+          class:on={game.watchPaceMs === 0}
+          onclick={() => game.setWatchPace(game.watchPaceMs === 0 ? paceSlider : 0)}
+          title="Play instantly to the final result"
+        >Instant</button>
+      </span>
     {/if}
   {/snippet}
 
@@ -444,6 +563,15 @@
                   </div>
                   <button class="mtoggle" class:on={anim.enabled} role="switch" aria-checked={anim.enabled} onclick={() => anim.toggle()}>
                     {anim.enabled ? 'On' : 'Off'}
+                  </button>
+                </div>
+                <div class="mrow">
+                  <div class="mtext">
+                    <span class="mname">Board renderer</span>
+                    <span class="mdesc">WebGL is faster and adds pan/zoom; SVG is the classic renderer.</span>
+                  </div>
+                  <button class="mtoggle" class:on={boardMode === 'webgl'} role="switch" aria-checked={boardMode === 'webgl'} onclick={cycleBoard}>
+                    {boardMode === 'webgl' ? 'WebGL' : 'SVG'}
                   </button>
                 </div>
                 <a class="mlobby" href="{base}/">Return to lobby</a>
@@ -568,8 +696,8 @@
                         <span class="pecash">{currency}{pl.cash}</span>
                       </div>
                       <div class="pemetrics">
-                        <span>Value {currency}{playerValue(game.state, pl.id)}</span>
-                        <span>Liquidity {currency}{playerLiquidity(game.state, pl.id)}</span>
+                        <span class="pemetric"><b>{currency}{playerValue(game.state, pl.id)}</b><small>value</small></span>
+                        <span class="pemetric"><b>{currency}{playerLiquidity(game.state, pl.id)}</b><small>liquidity</small></span>
                       </div>
                       <div class="peholds">
                         {#each game.state.corporations.filter((c) => (pl.shares[c.sym] ?? 0) > 0) as c (c.sym)}
@@ -585,6 +713,15 @@
                 </div>
               </section>
               {#if isRola}
+                {@const live = game.state.corporations.filter((c) => c.parPrice !== null || c.floated)}
+                {#if live.length}
+                  <section>
+                    <h3>Active companies <span class="count">{live.length}</span></h3>
+                    <div class="cards">
+                      {#each live as corp (corp.sym)}<LiveCorpCard {corp} />{/each}
+                    </div>
+                  </section>
+                {/if}
                 <section>
                   <h3>Minor companies <span class="count">{cfg.minors?.length ?? 0}</span></h3>
                   <div class="cards">
@@ -629,9 +766,9 @@
                 </section>
               {:else}
                 <section>
-                  <h3>Corporations <span class="count">{CORPORATIONS.length}</span></h3>
+                  <h3>Corporations <span class="count">{game.state.corporations.length}</span></h3>
                   <div class="cards">
-                    {#each CORPORATIONS as corp (corp.sym)}<CorporationCard {corp} />{/each}
+                    {#each game.state.corporations as corp (corp.sym)}<LiveCorpCard {corp} />{/each}
                   </div>
                 </section>
                 <section>
@@ -984,6 +1121,55 @@
     padding: 0 0.25rem;
   }
 
+  /* watch-pace controls (creator only): a compact cluster inside the status pill */
+  .watch {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding-left: 0.5rem;
+    margin-left: 0.15rem;
+    border-left: 1px solid var(--line);
+  }
+  .wl {
+    font-size: 0.66rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+  }
+  .wrange {
+    width: 84px;
+    accent-color: var(--rail);
+    cursor: pointer;
+  }
+  .wrange:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .wv {
+    font: 700 0.7rem ui-monospace, monospace;
+    color: var(--ink);
+    min-width: 3.1em;
+    text-align: right;
+  }
+  .wb {
+    padding: 0.18rem 0.5rem;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: transparent;
+    color: var(--muted);
+    font: 700 0.68rem ui-sans-serif, sans-serif;
+    cursor: pointer;
+  }
+  .wb:hover {
+    color: var(--ink);
+    border-color: var(--rail-deep);
+  }
+  .wb.on {
+    background: var(--rail);
+    border-color: var(--rail-deep);
+    color: #1b1b1b;
+  }
+
   /* ---- the open panel, fused to the dock ---- */
   .scrim {
     position: absolute;
@@ -1326,10 +1512,24 @@
   .pemetrics {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.15rem 0.9rem;
-    font-size: 0.74rem;
+    gap: 0.2rem 1.4rem;
+    margin-bottom: 0.5rem;
+  }
+  .pemetric {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.1;
+  }
+  .pemetric b {
+    font-size: 1.15rem;
+    font-weight: 800;
+    color: var(--ink);
+  }
+  .pemetric small {
+    font-size: 0.62rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
     color: var(--muted);
-    margin-bottom: 0.45rem;
   }
   .peholds {
     display: flex;

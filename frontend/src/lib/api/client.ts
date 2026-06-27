@@ -94,6 +94,8 @@ export interface RoomView {
   seats: SeatView[];
   options: { seed: number; mapMode: string; hostileMergers: boolean; localRoutes: boolean };
   maxPlayers: number;
+  /** Watch pacing: ms between bot moves (0 = instaplay). */
+  botPaceMs: number;
   creatorDiscordId: string | null;
   updatedAt: number;
 }
@@ -119,6 +121,8 @@ export interface CreateOpts {
   hostileMergers?: boolean;
   localRoutes?: boolean;
   seats?: { id: string; name: string; bot: boolean; level?: string }[];
+  /** Watch pacing: ms between bot moves (0 = instaplay). */
+  botPaceMs?: number;
 }
 
 // --- auth / identity -------------------------------------------------------
@@ -154,6 +158,15 @@ export const seatBot = (code: string, seatId: string) =>
 export const openSeat = (code: string, seatId: string) =>
   call<RoomView>('POST', `/rooms/${code}/seats/${seatId}/open`);
 export const startRoom = (code: string) => call<StateResp>('POST', `/rooms/${code}/start`);
+/** Host closes a still-gathering (lobby) room; cascades remove its seats/chat. */
+export const closeRoom = (code: string) =>
+  call<{ ok: boolean; closed: boolean }>('DELETE', `/rooms/${code}`);
+/** Watch: advance one paced bot move (public; the server enforces the pace). */
+export const tickRoom = (code: string) =>
+  call<StateResp & { advanced: boolean }>('POST', `/rooms/${code}/tick`);
+/** Watch: set the bot pace live (creator only). 0 = instaplay. */
+export const setPace = (code: string, ms: number) =>
+  call<RoomView>('POST', `/rooms/${code}/pace`, { ms });
 export const fetchState = (code: string, since = -1) =>
   call<StateResp>('GET', `/rooms/${code}/state?since=${since}`);
 /** The action-log delta after `since` (so a client can replay incrementally). */

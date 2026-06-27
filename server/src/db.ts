@@ -36,6 +36,7 @@ export function migrate(): void {
       creator_discord_id TEXT,
       max_players     INTEGER NOT NULL DEFAULT 4,
       seq             INTEGER NOT NULL DEFAULT 0,
+      bot_pace_ms     INTEGER NOT NULL DEFAULT 0,
       created_at      INTEGER NOT NULL,
       updated_at      INTEGER NOT NULL DEFAULT 0
     );
@@ -140,6 +141,7 @@ export function migrate(): void {
   addColumn('rooms', 'creator_discord_id', 'creator_discord_id TEXT');
   addColumn('rooms', 'max_players', 'max_players INTEGER NOT NULL DEFAULT 4');
   addColumn('rooms', 'seq', 'seq INTEGER NOT NULL DEFAULT 0');
+  addColumn('rooms', 'bot_pace_ms', 'bot_pace_ms INTEGER NOT NULL DEFAULT 0');
   addColumn('rooms', 'updated_at', 'updated_at INTEGER NOT NULL DEFAULT 0');
   addColumn('actions', 'actor_discord_id', 'actor_discord_id TEXT');
 }

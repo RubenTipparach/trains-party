@@ -9,7 +9,9 @@
  *   a sub-auction among its bidders (lowest current bid acts next).
  * - When every player passes consecutively while the originally-cheapest company
  *   is still unsold, its minimum bid drops by 5 (becoming free, and forced, at 0).
- *   Once the originally-cheapest is sold, an all-pass ends the auction.
+ *   Once the originally-cheapest is sold, a unanimous pass does NOT end the round
+ *   (every private must be sold first): instead each owned private pays its revenue
+ *   to its owner, like a mini operating round, and play continues.
  *
  * Functions mutate the passed-in (already-cloned) state.
  */
@@ -136,6 +138,18 @@ function resolveBids(s: GameState): void {
   }
 }
 
+/** Pay each owned, open private its revenue (the auction's mini operating round). */
+function payoutPrivates(s: GameState): void {
+  for (const c of s.companies) {
+    if (!c.owner || c.closed || c.revenue <= 0) continue;
+    const p = s.players.find((x) => x.id === c.owner);
+    if (!p) continue;
+    p.cash += c.revenue;
+    s.bank -= c.revenue;
+  }
+  s.log.push('All players pass; private companies pay their revenue');
+}
+
 function allPassed(s: GameState): void {
   const a = s.auction!;
   if (a.available.includes(a.cheapest)) {
@@ -151,8 +165,12 @@ function allPassed(s: GameState): void {
       advance(s);
     }
   } else {
-    // Originally-cheapest already sold: the auction ends.
-    endAuction(s);
+    // The originally-cheapest is already sold, so the price-drop lever is gone.
+    // A unanimous pass does NOT end the round (the auction ends only when every
+    // private is sold): each owned private pays its revenue, then play continues.
+    payoutPrivates(s);
+    s.players.forEach((p) => (p.passed = false));
+    advance(s);
   }
 }
 

@@ -107,6 +107,18 @@ describe('waterfall auction - all pass reduces the cheapest', () => {
     expect(owner(s, 'TR')).not.toBeNull();
     expect(cash(s, owner(s, 'TR')!)).toBe(420); // bought for 0
   });
+
+  it('after the cheapest is sold, a unanimous pass pays private revenue and does NOT end the round', () => {
+    let s = apply(initialState(seats3), { type: 'bid', player: 'p1', company: 'TR', price: 20 }); // buy the anchor
+    const trRev = s.companies.find((c) => c.sym === 'TR')!.revenue;
+    expect(s.round).toBe('auction');
+    // The anchor is gone, so an all-pass cannot drop a price: it pays out instead.
+    s = apply(s, { type: 'pass', player: 'p2' });
+    s = apply(s, { type: 'pass', player: 'p3' });
+    s = apply(s, { type: 'pass', player: 'p1' });
+    expect(s.round).toBe('auction'); // round continues until every private sells
+    expect(cash(s, 'p1')).toBe(420 - 20 + trRev); // TR paid its revenue to p1
+  });
 });
 
 describe('waterfall auction - placement bids and sub-auction', () => {
@@ -267,6 +279,90 @@ describe('stock round - selling', () => {
     s = apply(s, { type: 'sell', player: 'p1', corp: 'AR', count: 2 }); // drop to 10%
     expect(corp(s, 'AR').president).toBe('p2'); // presidency transfers
     expect(shares(s, 'p1', 'AR')).toBe(10);
+  });
+
+  it('transfers the presidency to a buyer who out-holds the president (no sale needed)', () => {
+    let s = toStockRound();
+    s = apply(s, { type: 'par', player: 'p1', corp: 'AR', price: 65 }); // p1 20% (pres)
+    s = apply(s, { type: 'pass', player: 'p1' });
+    s = apply(s, { type: 'buy', player: 'p2', corp: 'AR', from: 'ipo' }); // p2 10%
+    s = apply(s, { type: 'pass', player: 'p2' });
+    s = apply(s, { type: 'pass', player: 'p3' });
+    s = apply(s, { type: 'pass', player: 'p1' });
+    s = apply(s, { type: 'buy', player: 'p2', corp: 'AR', from: 'ipo' }); // p2 20% (ties, no steal)
+    expect(corp(s, 'AR').president).toBe('p1');
+    s = apply(s, { type: 'pass', player: 'p2' });
+    s = apply(s, { type: 'pass', player: 'p3' });
+    s = apply(s, { type: 'pass', player: 'p1' });
+    s = apply(s, { type: 'buy', player: 'p2', corp: 'AR', from: 'ipo' }); // p2 30% > p1 20%
+    expect(corp(s, 'AR').president).toBe('p2'); // seized by buying, p1 never sold
+    expect(shares(s, 'p1', 'AR')).toBe(20); // p1 keeps its shares
+    expect(corp(s, 'AR').floated).toBe(true); // the 50%th share also floats it
+  });
+
+  it('omits par/buy options that would exceed the certificate limit', () => {
+    // 6-player cert limit is 11. Craft a stock turn where p1 sits just under it.
+    const s: GameState = initialState(
+      ['p1', 'p2', 'p3', 'p4', 'p5', 'p6'].map((id) => ({ id, name: id }))
+    );
+    s.round = 'stock';
+    s.stock = { acted: false, bought: false, passes: 0, soldThisRound: {} };
+    s.current = 0; // p1 to act, nothing bought yet
+    // Two white-zone corps p2 presides over; p1 holds plain shares (each 10% = 1 cert).
+    for (const sym of ['IR', 'SR']) {
+      const c = corp(s, sym);
+      c.parPrice = 100;
+      c.priceRow = 0;
+      c.priceCol = 3; // a white (non-yellow) cell, so the shares count toward the limit
+      c.president = 'p2';
+      c.floated = true;
+    }
+    const ar = corp(s, 'AR');
+    ar.parPrice = 100;
+    ar.priceRow = 0;
+    ar.priceCol = 3;
+    ar.president = 'p2';
+    ar.floated = true;
+    ar.ipoShares = 70;
+    s.players[0].cash = 2000;
+    s.players[0].shares = { IR: 60, SR: 40 }; // 6 + 4 = 10 certs (one under the limit)
+    s.players[1].shares = { IR: 20, SR: 20, AR: 20 };
+
+    expect(stockLegalActions(s).buyIpo).toContain('AR'); // 11th cert fits
+    expect(stockLegalActions(s).par.length).toBeGreaterThan(0); // and a new par fits
+
+    s.players[0].shares = { IR: 60, SR: 50 }; // 6 + 5 = 11 certs (exactly the limit)
+    const la = stockLegalActions(s);
+    expect(la.buyIpo).not.toContain('AR'); // a 12th certificate is over the limit
+    expect(la.par).toEqual([]); // and no new corporation may be started either
+    expect(() => apply(s, { type: 'buy', player: 'p1', corp: 'AR', from: 'ipo' })).toThrow();
+  });
+});
+
+describe('operating round - skips companies that leave play', () => {
+  it('advances past a presidentless slot in the operating order', () => {
+    // A RoLA minor can dissolve to price 0 mid-set, leaving a presidentless slot in
+    // the already-built operating order. The round must skip it, not park there.
+    // (Modelled here with 1889 corps for a simple, deterministic check.)
+    const s = toStockRound();
+    const ar = corp(s, 'AR');
+    ar.floated = true;
+    ar.president = 'p1';
+    ar.tokenHexes = ['K8'];
+    const ir = corp(s, 'IR');
+    ir.floated = true;
+    ir.president = null; // the slot that has left play
+    const sr = corp(s, 'SR');
+    sr.floated = true;
+    sr.president = 'p2';
+    sr.tokenHexes = ['I2'];
+    s.round = 'operating';
+    s.or = { order: ['AR', 'IR', 'SR'], index: 0, step: 'trains', orNumber: 1, orsThisSet: 1, yellowLaid: 0 };
+
+    expect(activePlayer(s)).toBe('p1'); // AR (no trains, no route) just needs to finish
+    const next = apply(s, { type: 'pass', player: 'p1' });
+    expect(next.or!.order[next.or!.index]).toBe('SR'); // IR was skipped
+    expect(activePlayer(next)).toBe('p2'); // and the round did not stall on it
   });
 });
 

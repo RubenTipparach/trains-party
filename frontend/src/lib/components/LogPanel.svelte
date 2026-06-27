@@ -45,14 +45,55 @@
   });
 
   const logLines = $derived(game.state.log.map((line, idx) => ({ line, idx })).reverse());
+
+  // Infinite scroll: a long game log can be thousands of lines, and each line is
+  // highlighted (a regex pass + {@html}). Render only a window of the newest lines and
+  // reveal older ones as the panel scrolls down, so the log stays cheap to mount.
+  const BATCH = 120;
+  let shown = $state(BATCH);
+  let rootEl: HTMLElement;
+  let sentinel = $state<HTMLElement | null>(null);
+  const visible = $derived(logLines.slice(0, shown));
+
+  /** The nearest actually-scrolling ancestor (the tab panel body), to use as the
+   *  IntersectionObserver root - so "reached the bottom" is measured against the panel,
+   *  not the viewport. */
+  function scrollParent(el: HTMLElement | null): HTMLElement | null {
+    let n = el?.parentElement ?? null;
+    while (n) {
+      const oy = getComputedStyle(n).overflowY;
+      if (oy === 'auto' || oy === 'scroll') return n;
+      n = n.parentElement;
+    }
+    return null;
+  }
+
+  $effect(() => {
+    const target = sentinel;
+    if (!target) return;
+    const len = logLines.length;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting) && shown < len) {
+          shown = Math.min(len, shown + BATCH);
+        }
+      },
+      { root: scrollParent(rootEl), rootMargin: '300px' }
+    );
+    io.observe(target);
+    return () => io.disconnect();
+  });
 </script>
 
-<div class="log">
+<div class="log" bind:this={rootEl}>
   <ul>
-    {#each logLines as entry (entry.idx)}
+    {#each visible as entry (entry.idx)}
       <li>{@html format(entry.line)}</li>
     {/each}
   </ul>
+  {#if shown < logLines.length}
+    <div class="more" bind:this={sentinel}>{logLines.length - shown} older entries…</div>
+  {/if}
 </div>
 
 <style>
@@ -79,5 +120,12 @@
   .log :global(.mn) {
     color: #e6b450;
     font-weight: 600;
+  }
+  .more {
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.72rem;
+    padding: 0.6rem 0;
+    opacity: 0.8;
   }
 </style>

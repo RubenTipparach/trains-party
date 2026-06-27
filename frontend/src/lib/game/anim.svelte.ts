@@ -13,6 +13,12 @@ class Anim {
   enabled = $state(true);
   /** True while a bot pause / animation is in progress (so UI can show Skip). */
   pacing = $state(false);
+  /**
+   * Speed multiplier for board animations (1 = normal; higher = faster/shorter).
+   * The watch room raises this as the bot pace gets faster so a train run, tile
+   * drop, etc. comfortably finishes before the next move lands.
+   */
+  speed = $state(1);
   /** Bumped to cancel any in-flight waits (skip). */
   private skipToken = $state(0);
   private reduced = false;
@@ -32,6 +38,16 @@ class Anim {
 
   get on(): boolean {
     return this.enabled && !this.reduced;
+  }
+
+  /** Scale a base animation duration by the current speed (shorter when faster). */
+  scale(ms: number): number {
+    return this.speed > 1 ? ms / this.speed : ms;
+  }
+
+  /** Set the animation speed multiplier (clamped to a sane range). */
+  setSpeed(mult: number): void {
+    this.speed = Math.max(1, Math.min(8, mult || 1));
   }
 
   /** Snapshot of the skip counter; compare later to detect a skip mid-animation. */

@@ -1,7 +1,10 @@
 <script lang="ts">
   import { game } from '$lib/game/sandbox.svelte';
-  import { configFor } from '$lib/engine';
+  import { configFor, currencyFor } from '$lib/engine';
   import type { MarketCell } from '$lib/data/types';
+
+  const cur = $derived(currencyFor(game.title));
+  const bankFinite = $derived(game.state.bank >= 0);
 
   // The active game's market: 1889 is a 2D grid; RoLA is a single linear track,
   // shown as a VERTICAL ladder of long bars (high value at the top) so the
@@ -29,6 +32,11 @@
     linear ? market[0].map((cell, col) => ({ cell, col })).slice().reverse() : []
   );
 </script>
+
+<div class="bankbar">
+  <span class="blabel">Bank</span>
+  <span class="bval">{bankFinite ? `${cur}${game.state.bank.toLocaleString()}` : 'unlimited'}</span>
+</div>
 
 {#if linear}
   <p class="rules">
@@ -80,6 +88,31 @@
 {/if}
 
 <style>
+  .bankbar {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.6rem;
+    margin: 0 0 0.8rem;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--line);
+    border-left: 4px solid #d9b25b;
+    border-radius: 9px;
+    background: var(--bg-soft);
+  }
+  .blabel {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    font-weight: 700;
+  }
+  .bval {
+    font-size: 1.15rem;
+    font-weight: 800;
+    color: #d9b25b;
+  }
+
   /* ---- linear vertical ladder (RoLA) ---- */
   .rules {
     margin: 0 0 0.7rem;
